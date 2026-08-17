@@ -1,0 +1,108 @@
+# research-graph — example config (copy to config.yaml and edit)
+# All paths are relative to the directory where you run `research-graph`.
+
+project:
+  name: "zk-blockchain-research-map"
+  language: "pt-BR"
+  output_dir: "./output"
+  cache_dir: "./cache"
+  log_level: "INFO"
+
+seed_inputs:
+  # PDF files (text + references are extracted locally)
+  - type: "pdf"
+    value: "./papers/3805044.pdf"
+  - type: "pdf"
+    value: "./papers/3795774.pdf"
+  # DOI (resolved via OpenAlex -> Crossref)
+  - type: "doi"
+    value: "10.36227/techrxiv.170327806.66007684"
+  # URL (arXiv / eprint / DOI URLs detected automatically)
+  - type: "url"
+    value: "https://eprint.iacr.org/2023/1518"
+  # Title (searched via OpenAlex -> Semantic Scholar)
+  - type: "title"
+    value: "Efficient Batched State-Proof Verification for Cross-Chain Light Clients"
+  - type: "tavily_query"
+    value: "recent zk-SNARK papers on cross-chain light clients 2023-2025"
+
+research_scope:
+  seed_keywords:
+    - "zero knowledge proofs"
+    - "blockchain light clients"
+    - "cross-chain interoperability"
+    - "zkSNARK"
+    - "Merkle multiproofs"
+  include_domains:
+    - "cryptography"
+    - "blockchain"
+    - "distributed systems"
+    - "privacy"
+    - "electronic voting"
+    - "secure multi-party computation"
+  exclude_keywords: []
+  max_hops: 2
+  max_papers_per_query: 50
+  max_total_papers: 300
+  years_from: 2015
+  years_to: 2026
+  min_relevance_score: 0.35
+
+search:
+  providers:
+    - "openalex"
+    - "semantic_scholar"
+    - "crossref"
+    - "arxiv"
+  expand_by:
+    - "references"
+    - "citations"
+    - "similarity"
+    - "authors"
+    - "institutions"
+    - "keywords"
+  professor_search: true
+  university_search: true
+  official_page_verification: true
+
+llm:
+  provider: "openai_compatible"
+  base_url_env: "MINIMAX_BASE_URL"
+  api_key_env: "MINIMAX_API_KEY"
+  model: "MiniMax-Text-01"
+  fallback_models: []
+  temperature: 0.1
+  max_output_tokens: 4000
+  concurrency: 4
+  structured_output: true
+  cache_responses: true
+
+optional_llm_providers:
+  - name: "openai_compatible_2"
+    base_url_env: "OPENAI_API_BASE"
+    api_key_env: "OPENAI_API_KEY"
+    model_env: "OPENAI_MODEL"
+
+analysis:
+  extract_abstract: true
+  extract_problem: true
+  extract_contribution: true
+  extract_methods: true
+  extract_datasets: true
+  extract_limitations: true
+  extract_future_work: true
+  extract_metrics: true
+  extract_authors: true
+  extract_affiliations: true
+  generate_project_ideas: true
+  generate_advisor_shortlist: true
+
+outputs:
+  save_json: true
+  save_csv: false
+  save_graphml: true
+  save_gexf: false
+  save_html_graph: true
+  save_markdown_report: true
+  save_mermaid: false
+  save_cytoscape_json: false

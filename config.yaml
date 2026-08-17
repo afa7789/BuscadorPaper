@@ -1,0 +1,128 @@
+project:
+  name: "zk-blockchain-research-map"
+  language: "pt-BR"
+  output_dir: "./output"
+  cache_dir: "./cache"
+  log_level: "INFO"
+
+seed_inputs:
+  - type: "pdf"
+    value: "./3795774.pdf"
+  - type: "pdf"
+    value: "./3805044.pdf"
+  - type: "pdf"
+    value: "./Proposta_Mestrado-2.pdf"
+  # 10 Crossref queries — broad theme coverage
+  - type: "crossref_query"
+    value: "zk-SNARK cross-chain light client state proof"
+  - type: "crossref_query"
+    value: "delegating computation PCP MIP verifiable"
+  - type: "crossref_query"
+    value: "zero knowledge proof blockchain scalability"
+  - type: "crossref_query"
+    value: "Merkle proof aggregation SNARK succinct"
+  - type: "crossref_query"
+    value: "succinct non-interactive argument knowledge blockchain"
+  - type: "crossref_query"
+    value: "privacy preserving smart contract zero knowledge"
+  - type: "crossref_query"
+    value: "verifiable computation outsourcing cryptography"
+  - type: "crossref_query"
+    value: "blockchain interoperability cross-chain bridge"
+  - type: "crossref_query"
+    value: "polynomial commitment scheme SNARK STARK"
+  - type: "crossref_query"
+    value: "electronic voting zero knowledge receipt-free"
+
+research_scope:
+  seed_keywords:
+    - "zero knowledge"
+    - "blockchain"
+    - "cross-chain"
+    - "light client"
+    - "SNARK"
+    - "STARK"
+    - "Merkle"
+    - "verifiable computation"
+    - "succinct"
+    - "polynomial commitment"
+    - "electronic voting"
+    - "privacy preserving"
+    - "state proof"
+    - "cryptography"
+  max_hops: 4
+  max_papers_per_query: 100
+  max_total_papers: 1500
+  years_from: 2015
+  years_to: 2026
+  min_relevance_score: 0.35
+  # New: minimum citation count to keep a paper (filters noise)
+  min_citation_count: 0
+  # New: minimum keyword overlap with seed_keywords (0..1)
+  min_keyword_overlap: 0.0
+  # New: enable topical ranking by OpenAlex concepts when key is set
+  use_openalex_topical_filter: false
+  # New: OpenAlex concept IDs (or slugs) that mark our topic
+  # Cryptography: C15494532, Blockchain: C2778824950 — look these up at
+  # https://api.openalex.org/concepts?search=blockchain
+  target_concept_ids:
+    - "C15494532"     # Cryptography
+    - "C2778824950"   # Blockchain (variant)
+    - "C41008148"     # Computer security
+    - "C192562407"    # Distributed computing
+    - "C121332964"    # Theoretical computer science
+
+search:
+  providers:
+    - "tavily"
+    - "ddg"
+    - "semantic_scholar"
+    - "arxiv"
+    - "crossref"
+
+llm:
+  provider: "openai_compatible"
+  base_url_env: "MINIMAX_BASE_URL"
+  api_key_env: "MINIMAX_API_KEY"
+  model: "MiniMax-Text-01"
+  temperature: 0.1
+  max_output_tokens: 4000
+  concurrency: 4
+  structured_output: true
+  cache_responses: true
+
+analysis:
+  extract_abstract: true
+  extract_problem: true
+  extract_contribution: true
+  extract_methods: true
+  extract_limitations: true
+  extract_future_work: true
+  extract_metrics: true
+  extract_authors: true
+  extract_affiliations: true
+  generate_project_ideas: true
+  generate_advisor_shortlist: true
+
+outputs:
+  # Minimal: only the 3 forms you'll actually open.
+  # (graph.html, papers.json, report.md, graph.graphml for downstream tools)
+  # Other formats disabled — set to true if you want them.
+  save_json: true
+  save_html_graph: true   # pyvis interactive — the one you open in browser
+  save_graphml: true      # used by analyze stage; required unless save_gexf=true
+  save_markdown_report: true
+  save_csv: false
+  save_gexf: false
+  save_mermaid: false
+  save_cytoscape_json: false
+  # How many full-text PDFs to try downloading per run.
+  # Set enable_pdf_download=true below to actually fetch them.
+  max_papers_to_download: 5
+  enable_pdf_download: false
+  # Which providers may be used for PDF download, in priority order.
+  # Providers not in the registry are skipped silently.
+  pdf_download_providers:
+    - "openalex"        # open-access full-text URLs (legal, no rate limit)
+    - "scihub"          # opt-in Sci-Hub, returns PDFs by DOI
+    - "annas"           # opt-in Anna's Archive search-by-title
