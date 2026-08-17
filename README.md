@@ -1,8 +1,6 @@
 # BuscadorPaper
 
-Pega 3 artigos (PDFs, DOIs, URLs ou títulos), descobre papers relacionados
-por citação e co-autoria, monta um grafo heterogêneo, e gera
-`output/report.md` em Markdown com sugestões de projetos de mestrado.
+Descobre papers relevantes por citação e co-autoria, e baixa os PDFs automaticamente.
 
 ## Instalação
 
@@ -18,113 +16,90 @@ cp config.example.yaml config.yaml
 
 ## Configurar `.env`
 
-Preencha o mínimo necessário:
-
 ```dotenv
-MINIMAX_API_KEY=sk-...           # OBRIGATÓRIO para sugestões de mestrado
-MINIMAX_BASE_URL=https://api.minimax.io/v1
-MINIMAX_MODEL=MiniMax-Text-01
 OPENALEX_EMAIL=seu-email@real.com   # Recomendado (libera o polite-pool)
 CROSSREF_MAILTO=seu-email@real.com  # Recomendado
 TAVILY_API_KEY=                    # Opcional — melhora a busca web
 ```
 
-Sem `MINIMAX_API_KEY` o pipeline ainda roda, mas gera relatório sem ideias
-de mestrado. Use `--no-llm` para pular o LLM por completo.
-Qualquer LLM OpenAI-compatible serve (GPT-4o, Claude via proxy, Groq).
-
 ## Configurar `config.yaml`
-
-Edite as entradas que você vai usar:
 
 ```yaml
 seed_inputs:
-  - type: "pdf"          # ou "doi", "url", "title", "crossref_query"
+  - type: "pdf"
     value: "./meu_paper.pdf"
-  - type: "crossref_query"  # busca por tema — descobre papers
+  - type: "crossref_query"
     value: "zk-SNARK cross-chain light client"
 
 research_scope:
-  max_total_papers: 1500   # máximo de papers no grafo
-  max_hops: 4              # quantos passos de expansão
+  max_hops: 5                # passos de expansão (máx. 5)
+  max_total_papers: 3000     # máximo de papers no grafo
+  max_papers_per_query: 150
+  min_relevance_score: 0.25  # menor = mais papers aceitos
   years_from: 2015
   years_to: 2026
 
 outputs:
-  save_html_graph: true    # grafo interativo no navegador
-  save_markdown_report: true
+  enable_pdf_download: true
+  max_papers_to_download: 100
+  pdf_download_providers: [openalex, scihub, annas]
+  save_json: false
+  save_html_graph: false
+  save_graphml: false
+  save_markdown_report: false
 ```
 
 Tipos de seed:
-- `pdf`: arquivo local (você precisa de um DOI; vai adivinhar do texto)
-- `doi`: identificador direto (`10.1145/2699436`)
-- `url`: link para arxiv/eprint
-- `title`: busca pelo título
-- `crossref_query`: busca por tema (140M+ papers, sem rate limit)
+- `pdf` — arquivo local (extrai DOI do texto)
+- `doi` — identificador direto (`10.1145/2699436`)
+- `url` — link para arxiv/eprint
+- `title` — busca pelo título
+- `crossref_query` — busca por tema (140M+ papers, sem rate limit)
 
 ## Rodar
 
 ```bash
-# Pipeline completo
-uv run research-graph run --config config.yaml
-
-# Ou stage por stage
-uv run research-graph ingest      # baixa metadados dos seeds
-uv run research-graph expand      # anda pelas citações e co-autores
-uv run research-graph people      # resolve instituições dos autores
-uv run research-graph extract     # LLM extrai info de cada paper
-uv run research-graph build-graph # monta o grafo
-uv run research-graph analyze     # centralidade + comunidades
-uv run research-graph synthesize  # resumo executivo
-uv run research-graph generate-report
-```
-
-Cada stage salva em `output/` e pode ser re-rodado com segurança (cache em
-`cache.sqlite`). Para pular o LLM (sem `MINIMAX_API_KEY` ou qualquer):
-
-```bash
+# Pipeline completo (sem LLM, só descoberta + download)
 uv run research-graph run --config config.yaml --no-llm
+
+# Só baixar PDFs (se o grafo já existe)
+uv run research-graph download-pdfs --config config.yaml
+
+# Stage por stage
+uv run research-graph ingest       # resolve seeds em papers
+uv run research-graph expand       # citações e co-autores
+uv run research-graph download-pdfs # baixa PDFs
 ```
 
-## Saída
+Re-rodar é seguro — cache em `cache/` evita duplicatas e re-baixos.
 
-`uv run research-graph generate-report`
+## Onde ficam os PDFs
 
-# Opt-in: download PDFs (openalex_pdf → scihub → annas chain)
-uv run research-graph download-pdfs
-```
+| Caminho | Conteúdo |
+|---|---|
+| `cache/openalex/` | PDFs de acesso aberto (OpenAlex) |
+| `cache/scihub/` | PDFs via Sci-Hub |
+| `cache/annas/` | PDFs via Anna's Archive |
 
-Para `download-pdfs`, antes ative em `config.yaml`:
-```yaml
-outputs:
-  enable_pdf_download: true
-  max_papers_to_download: 5
-  pdf_download_providers: [openalex, scihub, annas]
-```
-Esse comando escreve em `cache/openalex/`, `cache/scihub/`, `cache/annas/` por
-papel, indexado pelo SHA-256.
+Indexados por SHA-256 do DOI. Papers já baixados não são re-baixados.
 
+## Saída completa (opcional)
 
-
-Tudo em `output/`:
+Com LLM habilitado, gera também:
 
 | Arquivo | O que tem |
 |---|---|
-| `report.md` | Relatório final em Markdown (13 seções) |
-| `papers.json` | Papers coletados, deduplicados |
-| `graph.html` | Grafo interativo (abre no navegador) |
-| `graph.graphml` / `.gexf` / `.cyjs` / `.mmd` | Grafos para Gephi, Cytoscape, Mermaid |
-| `analysis.json` | Centralidade, comunidades Louvain |
-| `people.json` | Autores com instituição canônica |
-| `synthesis.json` | Resumo executivo + ideias de mestrado |
+| `output/report.md` | Relatório Markdown (13 seções) |
+| `output/papers.json` | Papers coletados |
+| `output/graph.html` | Grafo interativo |
+| `output/analysis.json` | Centralidade + comunidades |
+| `output/people.json` | Autores com instituição |
 
 ## Avisos
 
-- **Sem Google Scholar.** Scraping dele viola ToS e IP-bloqueia. Use DOIs.
-- O grafo mostra **proximidade na rede**, não qualidade científica.
-- Afiliações vêm do OpenAlex last-known institution — podem estar desatualizadas.
-- O LLM pode inventar. Veja `confidence` em cada ideia de mestrado.
-- Nada disso substitui ler os papers nem confirmar com um orientador.
+- **Sem Google Scholar.** Scraping dele viola ToS e IP-bloqueia.
+- Afiliações vêm do OpenAlex — podem estar desatualizadas.
+- Nada disso substitui ler os papers.
 
 ## Licença
 

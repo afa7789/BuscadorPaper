@@ -50,12 +50,12 @@ research_scope:
     - "privacy preserving"
     - "state proof"
     - "cryptography"
-  max_hops: 4
-  max_papers_per_query: 100
-  max_total_papers: 1500
+  max_hops: 5
+  max_papers_per_query: 150
+  max_total_papers: 3000
   years_from: 2015
   years_to: 2026
-  min_relevance_score: 0.35
+  min_relevance_score: 0.25
   # New: minimum citation count to keep a paper (filters noise)
   min_citation_count: 0
   # New: minimum keyword overlap with seed_keywords (0..1)
@@ -96,30 +96,28 @@ analysis:
   extract_problem: true
   extract_contribution: true
   extract_methods: true
-  extract_limitations: true
+  extract_limitations: false
   extract_future_work: true
-  extract_metrics: true
+  extract_metrics: false
   extract_authors: true
   extract_affiliations: true
-  generate_project_ideas: true
+  generate_project_ideas: false
   generate_advisor_shortlist: true
 
 outputs:
-  # Minimal: only the 3 forms you'll actually open.
-  # (graph.html, papers.json, report.md, graph.graphml for downstream tools)
-  # Other formats disabled — set to true if you want them.
-  save_json: true
-  save_html_graph: true   # pyvis interactive — the one you open in browser
-  save_graphml: true      # used by analyze stage; required unless save_gexf=true
-  save_markdown_report: true
+  # Só o essencial — objetivo é baixar PDFs
+  save_json: false
+  save_html_graph: false
+  save_graphml: false
+  save_markdown_report: false
   save_csv: false
   save_gexf: false
   save_mermaid: false
   save_cytoscape_json: false
   # How many full-text PDFs to try downloading per run.
   # Set enable_pdf_download=true below to actually fetch them.
-  max_papers_to_download: 5
-  enable_pdf_download: false
+  max_papers_to_download: 100
+  enable_pdf_download: true
   # Which providers may be used for PDF download, in priority order.
   # Providers not in the registry are skipped silently.
   pdf_download_providers:
