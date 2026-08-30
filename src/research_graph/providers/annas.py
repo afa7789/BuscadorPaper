@@ -108,7 +108,7 @@ class AnnasArchiveProvider(AcademicProvider):
         self._min_interval = 2.0  # polite
         self._last_call = 0.0
         self._enabled = getattr(
-            getattr(config, "search", None), "enable_pdf_download", False
+            getattr(config, "outputs", None), "enable_pdf_download", False
         )
 
     def enable(self) -> None:

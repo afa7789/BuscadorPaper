@@ -20,6 +20,65 @@ def _sanitize(node_id: str) -> str:
     return _SAFE_ID.sub("_", node_id)
 
 
+def _write_graphml(graph: nx.MultiDiGraph, output_dir: Path) -> str:
+    # GraphML — strip non-serializable attrs first to avoid xml failures.
+    # Enum values must be coerced to strings; nested containers are JSON-stringified.
+    g_copy = graph.copy()
+    for _, ndata in g_copy.nodes(data=True):
+        _coerce_serializable(ndata)
+    for _, _, edata in g_copy.edges(data=True):
+        _coerce_serializable(edata)
+    path = output_dir / "graph.graphml"
+    nx.write_graphml(g_copy, str(path))
+    return str(path)
+
+
+def _coerce_serializable(data: dict) -> None:
+    for k in list(data):
+        v = data[k]
+        if hasattr(v, "value"):  # Enum
+            data[k] = v.value
+        elif not isinstance(v, (str, int, float, bool)):
+            data[k] = str(v)
+
+
+def _write_gexf(graph: nx.MultiDiGraph, output_dir: Path) -> str:
+    path = output_dir / "graph.gexf"
+    nx.write_gexf(graph, str(path))
+    return str(path)
+
+
+def _write_cytoscape(graph: nx.MultiDiGraph, output_dir: Path) -> str:
+    path = output_dir / "graph.cyjs"
+    path.write_text(json.dumps(_to_cytoscape(graph), indent=2), encoding="utf-8")
+    return str(path)
+
+
+def _write_html(graph: nx.MultiDiGraph, output_dir: Path) -> str:
+    # pyvis HTML — strip the "source" attribute (collides with add_edge(source, target))
+    g_for_pyvis = graph.copy()
+    for _, _, edata in g_for_pyvis.edges(data=True):
+        edata.pop("source", None)
+    path = output_dir / "graph.html"
+    net = Network(height="800px", width="100%", directed=True, notebook=False,
+                  cdn_resources="in_line")
+    net.from_nx(g_for_pyvis)
+    # Bound physics stabilization so the page renders in a few seconds instead
+    # of sitting on a frozen progress bar for 15s+ with 1000+ nodes.
+    net.set_options(
+        '{"layout": {"improvedLayout": false}, "physics": {"solver": "forceAtlas2Based", '
+        '"stabilization": {"iterations": 100, "updateInterval": 100}}}'
+    )
+    net.save_graph(str(path))
+    return str(path)
+
+
+def _write_mermaid(graph: nx.MultiDiGraph, output_dir: Path) -> str:
+    path = output_dir / "graph.mmd"
+    path.write_text(to_mermaid(graph), encoding="utf-8")
+    return str(path)
+
+
 def export_all(
     graph: nx.MultiDiGraph,
     output_dir: str | Path,
@@ -37,57 +96,17 @@ def export_all(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    writers = [
+        (save_graphml, "graphml", _write_graphml),
+        (save_gexf, "gexf", _write_gexf),
+        (save_cytoscape_json, "cyjs", _write_cytoscape),
+        (save_html_graph, "html", _write_html),
+        (save_mermaid, "mermaid", _write_mermaid),
+    ]
     paths: dict[str, str] = {}
-
-    if save_graphml:
-        # GraphML — strip non-serializable attrs first to avoid xml failures.
-        # Enum values must be coerced to strings; nested containers are JSON-stringified.
-        g_copy = graph.copy()
-        for _, ndata in g_copy.nodes(data=True):
-            for k in list(ndata):
-                v = ndata[k]
-                if hasattr(v, "value"):  # Enum
-                    ndata[k] = v.value
-                elif not isinstance(v, (str, int, float, bool)):
-                    ndata[k] = str(v)
-        for _, _, edata in g_copy.edges(data=True):
-            for k in list(edata):
-                v = edata[k]
-                if hasattr(v, "value"):
-                    edata[k] = v.value
-                elif not isinstance(v, (str, int, float, bool)):
-                    edata[k] = str(v)
-        graphml_path = output_dir / "graph.graphml"
-        nx.write_graphml(g_copy, str(graphml_path))
-        paths["graphml"] = str(graphml_path)
-
-    if save_gexf:
-        gexf_path = output_dir / "graph.gexf"
-        nx.write_gexf(graph, str(gexf_path))
-        paths["gexf"] = str(gexf_path)
-
-    if save_cytoscape_json:
-        cyjs_path = output_dir / "graph.cyjs"
-        cyjs_path.write_text(json.dumps(_to_cytoscape(graph), indent=2), encoding="utf-8")
-        paths["cyjs"] = str(cyjs_path)
-
-    if save_html_graph:
-        # pyvis HTML — strip the "source" attribute (collides with add_edge(source, target))
-        g_for_pyvis = graph.copy()
-        for _, _, edata in g_for_pyvis.edges(data=True):
-            edata.pop("source", None)
-        html_path = output_dir / "graph.html"
-        net = Network(height="800px", width="100%", directed=True, notebook=False)
-        net.from_nx(g_for_pyvis)
-        net.save_graph(str(html_path))
-        paths["html"] = str(html_path)
-
-    if save_mermaid:
-        mermaid = to_mermaid(graph)
-        mmd_path = output_dir / "graph.mmd"
-        mmd_path.write_text(mermaid, encoding="utf-8")
-        paths["mermaid"] = str(mmd_path)
-
+    for enabled, key, writer in writers:
+        if enabled:
+            paths[key] = writer(graph, output_dir)
     return paths
 
 

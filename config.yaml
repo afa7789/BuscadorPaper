@@ -12,6 +12,46 @@ seed_inputs:
     value: "./3805044.pdf"
   - type: "pdf"
     value: "./Proposta_Mestrado-2.pdf"
+  # --- ZK-DeFi seeds (swap / loan / collateral / mixer) ---
+  - type: "pdf"
+    value: "./zk_defi_super.pdf"          # Tornado Cash whitepaper (sem DOI -> fallback titulo)
+  - type: "title"
+    value: "Tornado Cash Privacy Solution"
+  - type: "url"
+    value: "https://arxiv.org/abs/2202.06877"                    # A Review of zk-SNARKs
+  - type: "title"
+    value: "Zswap: zk-SNARK Based Non-Interactive Multi-Asset Swaps"  # eprint 2022/1002
+  - type: "crossref_query"
+    value: "zero knowledge decentralized exchange private swap"
+  - type: "crossref_query"
+    value: "privacy preserving lending protocol zero knowledge collateral"
+  - type: "crossref_query"
+    value: "confidential DeFi zk-SNARK proof of solvency reserves"
+  - type: "crossref_query"
+    value: "zero knowledge mixer anonymity set Ethereum"
+  - type: "crossref_query"
+    value: "private automated market maker zero knowledge"
+  # --- Linhas de pesquisa: membership structure / proof system / protocolo ---
+  - type: "crossref_query"
+    value: "cryptographic accumulator set membership zero knowledge blockchain"
+  - type: "crossref_query"
+    value: "Verkle tree vector commitment membership proof"
+  - type: "crossref_query"
+    value: "sparse Merkle tree zero knowledge circuit constraints"
+  - type: "crossref_query"
+    value: "RSA accumulator anonymous payments"
+  - type: "crossref_query"
+    value: "SNARK proof system benchmark comparison Groth16 PLONK STARK"
+  - type: "crossref_query"
+    value: "transparent setup SNARK universal trusted setup"
+  - type: "crossref_query"
+    value: "SNARK friendly hash function Poseidon circuit"
+  - type: "crossref_query"
+    value: "nullifier double spending anonymous credential"
+  - type: "crossref_query"
+    value: "privacy pools compliance regulatory zero knowledge"
+  - type: "crossref_query"
+    value: "gas cost on-chain SNARK verification Ethereum"
   # 10 Crossref queries — broad theme coverage
   - type: "crossref_query"
     value: "zk-SNARK cross-chain light client state proof"
@@ -50,6 +90,12 @@ research_scope:
     - "privacy preserving"
     - "state proof"
     - "cryptography"
+    - "DeFi"
+    - "swap"
+    - "lending"
+    - "collateral"
+    - "mixer"
+    - "proof of solvency"
   max_hops: 5
   max_papers_per_query: 150
   max_total_papers: 3000
@@ -107,7 +153,7 @@ analysis:
 outputs:
   # Só o essencial — objetivo é baixar PDFs
   save_json: false
-  save_html_graph: false
+  save_html_graph: true
   save_graphml: false
   save_markdown_report: false
   save_csv: false
@@ -122,5 +168,7 @@ outputs:
   # Providers not in the registry are skipped silently.
   pdf_download_providers:
     - "openalex"        # open-access full-text URLs (legal, no rate limit)
+    - "unpaywall"       # legal OA index by DOI (needs OPENALEX_EMAIL)
+    - "scidb"           # Anna's Archive SciDB by DOI (Sci-Hub continuation)
     - "scihub"          # opt-in Sci-Hub, returns PDFs by DOI
-    - "annas"           # opt-in Anna's Archive search-by-title
+    - "annas"           # opt-in Anna's Archive search-by-title (last resort)

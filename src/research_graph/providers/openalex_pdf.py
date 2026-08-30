@@ -77,7 +77,7 @@ class OpenAlexPdfProvider(AcademicProvider):
         self._min_interval = 0.5 if self._email else 1.5
         self._last_call = 0.0
         self._enabled = getattr(
-            getattr(config, "search", None), "enable_pdf_download", False
+            getattr(config, "outputs", None), "enable_pdf_download", False
         )
 
     def enable(self) -> None:

@@ -62,6 +62,52 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _dl_openalex(registry, paper) -> dict | None:
+    sp = paper.source_provenance if isinstance(paper.source_provenance, dict) else {}
+    if "openalex_pdf_url" not in sp:
+        return None
+    prov = registry.get("openalex_pdf")
+    if prov is None:
+        return None
+    prov.enable()
+    r = prov.download_paper_pdf(paper)
+    return {"provider": "openalex", **(r.data or {})} if r.status == "ok" else None
+
+
+def _dl_by_doi(registry, paper, name: str) -> dict | None:
+    if not paper.doi:
+        return None
+    prov = registry.get(name)
+    if prov is None:
+        return None
+    prov.enable()
+    r = prov.fetch_by_doi(paper.doi)
+    return {"provider": name, **(r.data or {})} if r.status == "ok" else None
+
+
+def _dl_annas(registry, paper) -> dict | None:
+    prov = registry.get("annas")
+    if prov is None:
+        return None
+    prov.enable()
+    hits = prov.fetch_by_query(paper.title or paper.paper_id, limit=2)
+    if hits.status != "ok" or not isinstance(hits.data, list) or not hits.data:
+        return None
+    r = prov.download_md5(hits.data[0][0])
+    return {"provider": "annas", **(r.data or {})} if r.status == "ok" else None
+
+
+def _try_paper(registry, paper, providers_cfg: list[str]) -> dict | None:
+    """Walk providers_cfg in order; return a result dict on the first PDF."""
+    special = {"openalex": _dl_openalex, "annas": _dl_annas}
+    for name in providers_cfg:
+        fn = special.get(name)
+        hit = fn(registry, paper) if fn else _dl_by_doi(registry, paper, name)
+        if hit:
+            return hit
+    return None
+
+
 def _run_download_pdfs(cfg, *, no_llm: bool = False, continue_on_error: bool = True) -> int:
     """Try downloading full-text PDFs for papers in output/papers.json.
 
@@ -102,62 +148,32 @@ def _run_download_pdfs(cfg, *, no_llm: bool = False, continue_on_error: bool = T
 
     max_n = int(getattr(cfg.outputs, "max_papers_to_download", 5))
     downloaded = 0
+    results: list[dict] = []
     failures: list[dict] = []
 
-    # Iterate papers in declaration order; honor max_n
-    queue = list(papers)[:max_n * 3]  # over-fetch candidates; we stop early on success
-    log.info(f"download-pdfs: trying up to {max_n} papers from {len(queue)} candidates")
-
-    for paper in queue:
+    log.info(f"download-pdfs: trying up to {max_n} PDFs from {len(papers)} papers")
+    for paper in papers:
         if downloaded >= max_n:
             break
-        sp = paper.source_provenance or {}
-        if not isinstance(sp, dict):
-            sp = {}
-        # 1) openalex_pdf if URL already in provenance
-        if "openalex" in providers_cfg and "openalex_pdf_url" in sp:
-            prov = registry.get("openalex_pdf")
-            if prov and getattr(prov, "enabled", False):
-                prov.enable()
-                r = prov.download_paper_pdf(paper)
-                if r.status == "ok":
-                    downloaded += 1
-                    log.info(f"download-pdfs: ok [{downloaded}/{max_n}] {paper.paper_id} ({paper.title[:60]})")
-                    continue
-                log.debug(f"download-pdfs: openalex_pdf failed for {paper.paper_id}: {r.error}")
-        # 2) scihub if DOI available
-        if "scihub" in providers_cfg and paper.doi:
-            prov = registry.get("scihub")
-            if prov:
-                prov.enable()
-                r = prov.fetch_by_doi(paper.doi)
-                if r.status == "ok":
-                    downloaded += 1
-                    log.info(f"download-pdfs: ok [{downloaded}/{max_n}] (scihub) {paper.paper_id}")
-                    continue
-                log.debug(f"download-pdfs: scihub failed for {paper.paper_id}: {r.error}")
-        # 3) annas if available
-        if "annas" in providers_cfg:
-            prov = registry.get("annas")
-            if prov and getattr(prov, "enabled", False):
-                prov.enable()
-                hits = prov.fetch_by_query(paper.title or paper.paper_id, limit=2)
-                if hits.status == "ok" and isinstance(hits.data, list) and hits.data:
-                    md5 = hits.data[0][0]
-                    r = prov.download_md5(md5)
-                    if r.status == "ok":
-                        downloaded += 1
-                        log.info(f"download-pdfs: ok [{downloaded}/{max_n}] (annas) {paper.paper_id}")
-                        continue
-                    log.debug(f"download-pdfs: annas failed for {paper.paper_id}: {r.error}")
-        failures.append({"paper_id": paper.paper_id, "title": paper.title,
-                         "reason": "no provider yielded a PDF"})
+        hit = _try_paper(registry, paper, providers_cfg)
+        if hit:
+            downloaded += 1
+            results.append({"paper_id": paper.paper_id, "title": paper.title,
+                            "doi": paper.doi, **hit})
+            log.info(
+                f"download-pdfs: OK [{downloaded}/{max_n}] ({hit['provider']}) "
+                f"{paper.paper_id} {(paper.title or '')[:60]}"
+            )
+        else:
+            failures.append({"paper_id": paper.paper_id, "title": paper.title,
+                             "doi": paper.doi, "reason": "no provider yielded a PDF"})
 
     summary_path = out_dir / "pdf_downloads.json"
     summary_path.write_text(json.dumps({
         "max_papers_to_download": max_n,
         "providers_tried": providers_cfg,
         "downloaded_count": downloaded,
+        "downloads": results,
         "failures_count": len(failures),
         "failures": failures,
     }, indent=2))
@@ -283,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
             ("build-graph", run_build_graph),
             ("analyze", run_analyze),
             ("synthesize", run_synthesize),
+            ("download-pdfs", _run_download_pdfs),
             ("generate-report", run_generate_report),
         ]
         last_rc = 0

@@ -140,6 +140,7 @@ class OutputsConfig(BaseModel):
     save_graphml: bool = True   # used by analyze stage
     save_gexf: bool = False
     save_html_graph: bool = True
+    save_html_report: bool = True
     save_markdown_report: bool = True
     save_mermaid: bool = False
     save_cytoscape_json: bool = False
@@ -148,8 +149,19 @@ class OutputsConfig(BaseModel):
     enable_pdf_download: bool = False
     max_papers_to_download: int = 5
     pdf_download_providers: list[str] = Field(
-        default_factory=lambda: ["openalex", "scihub", "annas"]
+        default_factory=lambda: ["openalex", "unpaywall", "scidb", "scihub", "annas"]
     )
+
+    @field_validator("pdf_download_providers")
+    @classmethod
+    def _known_download_providers(cls, v: list[str]) -> list[str]:
+        allowed = {"openalex", "unpaywall", "scidb", "scihub", "annas"}
+        unknown = [x for x in v if x not in allowed]
+        if unknown:
+            raise ValueError(
+                f"unknown pdf_download_providers {unknown}; allowed: {sorted(allowed)}"
+            )
+        return v
 
 
 class Config(BaseModel):

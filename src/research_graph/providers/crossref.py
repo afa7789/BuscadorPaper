@@ -43,6 +43,12 @@ def _paper_from_crossref(item: dict[str, Any]) -> Paper:
     for u in item.get("URL") or []:
         if u and u not in urls:
             urls.append(u)
+    provenance: dict[str, list[str]] = {
+        "crossref": ["title", "year", "doi", "authors", "venue"]
+    }
+    cc = item.get("is-referenced-by-count")
+    if isinstance(cc, int):
+        provenance["citation_count"] = [str(cc)]
     return Paper(
         paper_id=f"doi:{doi}" if doi else title,
         title=title,
@@ -51,7 +57,7 @@ def _paper_from_crossref(item: dict[str, Any]) -> Paper:
         urls=urls,
         authors=authors,
         venue=venue,
-        source_provenance={"crossref": ["title", "year", "doi", "authors", "venue"]},
+        source_provenance=provenance,
     )
 
 

@@ -81,6 +81,14 @@ def run_generate_report(
     report_path.write_text(body, encoding="utf-8")
     embed_visualizations(report_path, out_dir / "graph.html", out_dir / "graph.mmd")
     _log.info(f"generate-report: {len(body)} chars -> {report_path}")
+
+    if getattr(config.outputs, "save_html_report", True):
+        try:
+            from research_graph.reports.html import render_html
+            html_path = render_html(config, papers, out_dir)
+            _log.info(f"generate-report: html -> {html_path}")
+        except Exception as e:
+            _log.warning(f"generate-report: html render failed: {e}")
     return 0
 
 

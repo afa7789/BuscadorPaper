@@ -1,0 +1,1283 @@
+A Tattered Cloak of Invisibility:
+Measuring Anonymity Loss in Railgun on Ethereum
+Kanan Huseynov/envel⌢pe
+Department of Informatics, Eötvös Loránd University, Budapest, Hungary
+Ali Shahzaib/envel⌢pe
+Department of Informatics, Eötvös Loránd University, Budapest, Hungary
+István András Seres/envel⌢pe
+Department of Informatics, Eötvös Loránd University, Budapest, Hungary
+János Tapolcai/envel⌢pe
+Dept. of Telecommunications and AI, Budapest University of Technology and Economics, Hungary
+Abstract
+From a user’s perspective, perhaps the most significant difference between traditional banking
+services and widely used blockchain-based financial systems is that, in the latter, transactions and
+– either directly or indirectly – account balances and transaction histories are publicly observable.
+Therefore, a growing number of cryptographic solutions have been proposed to “add a privacy layer”
+to such systems. However, the privacy that users actually obtain does not depend solely on the
+security of the underlying cryptographic protocol: user behavior, transaction-amount patterns, and
+timing decisions can substantially reduce anonymity.
+In this work, we study behavioral leakage in cryptocurrency mixers, focusing on Railgun on
+Ethereum. We aim to heuristically estimate the probability that a given deposit and withdrawal
+transaction belong to the same user. We consider five sources of leakage: characteristic timing
+patterns, address reuse, proximity in the transaction graph induced by prior public transactions,
+amount fingerprints that preserve distinctive digit patterns across transaction values, and knapsack-
+type matches in which groups of transaction amounts add up in revealing ways. Our results show
+that even cryptographically strong privacy systems may suffer substantial anonymity loss due to
+user behavior and transaction patterns. Our five heuristics are able to uniquely link17.65%of
+Railgun withdraw transactions to deposit transactions. We also applied a knapsack solver algorithm
+that was able to produce a3.42bit median anonymity loss for withdraw transactions. This work
+contributes to a better understanding of the practical privacy limits of mixers and anonymity pools,
+and points toward safer usage practices and design principles.
+2012 ACM Subject ClassificationSecurity and privacy→Pseudonymity, anonymity and untraceab-
+ility; Security and privacy→Privacy-preserving protocols; Security and privacy→Economics of
+security and privacy; Applied computing→Digital cash
+Keywords and phrasesEthereum, Blockchain, Anonymity, Privacy, Railgun
+Digital Object Identifier10.4230/LIPIcs.CVIT.2016.23
+1 Introduction
+Cryptocurrencies have been remarkably successful as investment assets, yet have not fulfilled
+their original promise of becoming widely used money. This limitation is not merely technical.
+With the emergence of layer-2 systems, cryptocurrencies can in principle support low-cost,
+high-throughput, and even micropayment-scale transactions. A more fundamental barrier is
+related to privacy and user behavior. In traditional payments, the buyer and the merchant
+necessarily interact, and therefore they are not anonymous to each other. Precisely for
+this reason, it is essential that the payment process does not reveal the buyer’s account
+history or balance to the merchant, nor the merchant’s broader financial activity to the
+buyer. In contrast, widely used public blockchains expose transaction histories and, either
+©Copyright;
+licensed under Creative Commons License CC-BY 4.0
+42nd Conference on Very Important Topics (CVIT 2016).
+Editors: John Q. Open and Joan R. Access; Article No.23; pp.23:1–23:28
+Leibniz International Proceedings in Informatics
+Schloss Dagstuhl – Leibniz-Zentrum für Informatik, Dagstuhl Publishing, Germany
+arXiv:2606.25926v1  [cs.CR]  24 Jun 2026
+23:2A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+directly or indirectly, account balances. As a result, a simple on-chain payment can reveal
+far more information than users would normally disclose in a traditional payment setting.
+For cryptocurrencies to serve as practical payment systems, they therefore need transaction
+mechanisms that preserve this basic form of financial privacy: neither party should learn
+the other party’s transaction history or balance, while the merchant should still receive
+cryptographic assurance that the correct payment has been made.
+At the same time, financial privacy creates an inherent regulatory tension. Privacy-
+preserving payment systems can also make it harder to detect tax evasion, money laundering,
+sanctions evasion, and other illicit activity. Tornado Cash, a privacy-enhancing overlay on
+Ethereum, is a prominent example [20]. In August 2022, the U.S. Department of the Treasury
+sanctioned a set of Tornado Cash smart-contract addresses, effectively prohibiting U.S.
+persons from interacting with them. Usage dropped sharply after the sanctions, and parts of
+the Ethereum ecosystem began to censor or avoid Tornado-Cash-related transactions [36, 40].
+The sanctions were later challenged in court, and in March 2025 the Treasury removed
+Tornado Cash from its sanctions list. Nevertheless, the episode illustrates the fragile position
+of privacy-enhancing infrastructure: it is simultaneously a tool for ordinary financial privacy
+and a source of serious compliance concerns.
+Despite this growing need for privacy-preserving payment mechanisms, financial privacy is
+not a first-class default property in any of the top10cryptocurrencies by market capitalization
+as of May 2026, according to CoinMarketCap. This has motivated a broad line of work
+aimed at adding a privacy layer to transparent blockchains, with stealth addresses, mixers
+and anonymity pools among the most prominent approaches [6, 16, 20, 25]. At a high level,
+Ethereum-based versions of these systems are implemented as smart contracts that maintain
+a private pool of funds. Users deposit assets into the contract, and subsequent operations are
+represented as cryptographically hidden state transitions. Using cryptographic techniques,
+often based on zero-knowledge proofs, the system can verify that a transaction is valid
+without revealing which users’ balances change, or by how much. The public blockchain
+observes that the pool state has been updated, but not the internal ownership changes that
+took place inside the pool. Eventually, users may withdraw funds from the private pool
+to a fresh public address. In a typical mixer, this means that a user first deposits funds
+into the pool and later withdraws them without publicly revealing which deposit funded
+the withdrawal. In principle, the identity of the withdrawer is hidden among all previous
+depositors, often referred as the corresponding anonymity set.
+However, this cryptographic guarantee captures only one aspect of privacy. It prevents
+an observer from directly verifying the deposit–withdrawal link from the protocol transcript,
+but it does not eliminate all side information available on a public blockchain. Users may
+interact with the system in ways that leave behavioral traces: they may withdraw shortly
+after depositing, reuse related addresses, transfer distinctive amounts, or split and recombine
+funds in recognizable patterns. Such traces can shrink the effective anonymity set well
+below the nominal set of all prior deposits. This distinction between nominal and effective
+anonymity is crucial in practice. A mixer may provide a large cryptographic anonymity set,
+yet only a much smaller subset of deposits may be plausible candidates for a given withdrawal
+once timing, transaction amounts, and prior on-chain relationships are taken into account.
+In other words, privacy loss may arise not from a failure of the cryptographic protocol itself,
+but from the interaction between the protocol and user behavior.
+In this work, we study this form of behavioral leakage in cryptocurrency mixers, focusing
+on Railgun on Ethereum as a case study. Railgun is particularly relevant because it extends
+the mixer model beyond simple fixed-denomination deposits/withdraws and supports more
+Huseynov et al. 23:3
+flexible private interactions inside the shielded pool. This flexibility is useful for users, but
+it also creates new opportunities for statistical and graph-based inference. Our goal is to
+estimate, using heuristic evidence, how likely a given deposit and withdrawal transaction
+belongs to the same user. As a solution to these privacy risks, various cryptographic solutions
+(cryptocurrency mixers and privacy pools) have been introduced,e.g.,Tornado Cash (TC).
+However, these solutions only provide limited features. Some limitations of these solutions
+include the following.
+1. Limited Currencies:Most mixers (most notably Tornado Cash) only support private
+transfer of native ETH and a handful of more ERC20 tokens. Railgun supports the
+deposit of every ERC20 tokens into the Railgun shielded pool.
+2. Limited Functionalities:TC only allowed the deposits and withdraws of cryptoassets.
+On the other hand, Railgun aims to provide a much richer sets of functionalities such as
+internal shielded (thus, enabling private, confidential asset transfers), private decentralized
+finance applications (Uniswap, Compound, etc.). Thus, Railgun hopes to increase the
+anonymity sets and incentivize users to leave longer their funds in the shielded pool than
+as if there were no added financial functionalities.
+1.1 Our contributions
+In this work, we provide the following contributions.
+Behavioral leakage perspective.We study privacy in shielded-pool systems from a beha-
+vioral perspective. Rather than looking for cryptographic failures, we ask how much
+information remains available through public timing, amount, and transaction-graph
+patterns, and how this information can reduce the anonymity users obtain in practice.
+Heuristics for linking deposits and withdrawals.We introduce four families of heuristics
+for identifying plausible deposit–withdrawal links: address reuse, proximity in the public
+transaction graph, amount fingerprints, and knapsack-type amount matches. These
+heuristics are not intended to provide definitive deanonymization, but to estimate how
+much behavioral evidence points toward particular links.
+Measurement study of Railgun on Ethereum.We apply these heuristics to Railgun [5] on
+Ethereum and characterize the resulting anonymity loss. Our results show that even when
+cryptographic mechanisms hide direct links, observable user behavior can substantially
+narrow the set of plausible origins for withdrawals.
+Empirical usage statistics.We provide an empirical characterization of Railgun usage on
+Ethereum, including deposit and withdrawal behavior, timing patterns, transaction
+amounts, and the observable public-graph relationships around users entering and leaving
+the shielded pool.
+Open-source code and datasets.We release as an open-source repository the entire collec-
+ted dataset, and the code we developed to analyze it. The repository is available at the
+following link: https://github.com/c0rt3x1337x/railgun_deanonymization.
+1.2 Ethical considerations
+We study behavioral leakage in a deployed, publicly accessible privacy system. All data
+used in our analysis was collected exclusively from the public Ethereum blockchain, which
+is permissionlessly readable by any party without authentication or special access. We did
+not interact with the Railgun protocol in any active capacity, did not attempt to inject
+transactions, and did not access any off-chain data sources such as IP addresses, user accounts,
+CVIT 2016
+23:4A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+or private communications. Our adversary model is therefore strictly passive and confined to
+publicly available information, consistent with the threat model described in Section 2.4.
+Our analysis operates at the level of Ethereum addresses, not individuals. We do not
+resolve pseudonymous addresses to real-world identities and do not publish any mapping
+between addresses and persons. The introduced heuristics produce probabilistic links between
+deposit and withdrawaddresses; they do not identify the human beings who control those
+addresses. We deliberately refrain from publishing the list of flagged address pairs.
+The anonymity losses we document arise fromuser behavior, not from cryptographic
+vulnerabilities in Railgun’s zero-knowledge proof system. There is therefore no technical
+vulnerability to disclose in the traditional sense. Nevertheless, we shared a preliminary
+version of our findings with the Railgun development team prior to submission, in line with
+responsible disclosure practice for privacy measurement studies. The heuristics we describe
+are passive, observable by any blockchain analyst, and do not require any special tooling
+or insider access. Publishing them advances the public understanding of practical privacy
+limits and enables users to make more informed decisions.
+The rest of this paper is organized as follows. In Section 2, we describe the necessary
+background on shielded pools on Ethereum, with a particular focus on Railgun. Section 3
+studies behavioral and usage patterns in the Railgun ecosystem. We formulate our dean-
+onymization heuristics in Section 4 and evaluate them in Section 5. We review related work
+in Section 6. Finally, we conclude with open research directions in Section 7.
+2 Background
+2.1 Notations
+To formalize the cryptographic and blockchain primitives discussed in this paper, we adopt
+the following notations: for a summary of our notations, see Table 1.
+2.2 Railgun: A Cloak of Invisibility
+Railgun is a privacy-enhancing layer on top of Ethereum implemented as a set of smart
+contracts. It is designed to allow users to deposit and withdraw funds from this private
+layer, often referred to as the Railgun shielded pool. Additionally, users can send confidential
+payments inside the shielded pool and can interact with on-chain decentralized applications
+Notation Description
+D,W,I Multiset of depositor, withdrawer, and internal transactions senders, respectively
+supp(D) The support of a (multi)setD
+0x/0zk Public/private Ethereum address types
+di,wj The address that sent theith deposit, and received thejth withdraw transaction
+B A blocklist containing flagged, non-compliant deposit addresses
+sender(wj) The sender of thejth withdraw transaction
+t(di) The timestamp when theith deposit transaction had been sent
+tx(di,wj) A boolean variable evaluating totrue(1) iff there is a transaction sent fromdi tow j
+amt(di) Deposit amount of theith (similarly, we allowamtto withdraw) deposit tx
+d(x,y),∥x∥ Hamming distance of two stringsxandy, Hamming-weight ofx.
+Table 1Notations used throughout the paper.
+Huseynov et al. 23:5
+1) Deposit tx 4) Withdraw tx
+ Shielded Pool
+Depositors Withdrawers
+DEX
+2) Internal tx
+IN OUT
+3) Swap tx
+From: 0x12..ab
+Amt: 7 ETH
+To: 0x34..cd
+Amt: 3 ETH
+Figure 1The Railgun privacy-enhancing overlay. Users can have four types of interactions with
+the Railgun smart contracts. Users can deposit (often shield) funds into the shielded pool. After
+funds are shielded, users can make internal transactions whose amounts are hidden, also known as
+confidential transactions. Users can use their shielded notes to unshield them and use them either
+in DeFi (e.g.,Uniswap) or withdraw (unshield) it back to the public Ethereum transaction graph.
+(dApp),e.g.,decentralized exchanges, lending pools, decentralized finance applications, etc.,
+in a private manner. Railgun introduces a new address type on Ethereum called 0zk addresses.
+0x addresses This is the native Ethereum address type that does not provide confidentiality,
+i.e.,any transaction to/from 0x addresses is visible on the blockchain with their transaction
+amounts exposed to the public. This allows any chain analyst to create a complete
+transaction history and accurate balance of every 0x address.
+0zk addresses A new private address type implemented by Railgun. Any transaction between
+two 0zk addresses is confidential,i.e.,the transaction amounts, and the sender/receiver
+0zk addresses remain hidden to the public. Thus, in principle, no chain analyst can
+establish neither the balance nor the transaction history of any 0zk addresses.
+Next, we review the actors and their possible actions on Railgun focusing on the privacy
+details and omit all unnecessary cryptographic details.
+Depositors Users can depositamt(di)funds to any 0zk address within the shielded pool by
+issuing a deposit transactiondi at timet(di). Often we refer both to the public 0x sender
+address and the deposit transaction asdi. Users may issue many deposit transactions.
+Railgun smart contractEvery Railgun functionality (i.e.,deposit, withdraw, and internal
+transactions) requires users to issue transactions with the Railgun smart contract as the
+recipient address. It stores a Merkle tree of cryptographic notes and nullifiers.
+Withdrawers An owner of a cryptographic note in the shielded pool may withdraw that note
+with valueamt(wj)back to the public 0x Ethereum address. Our primary focus in this
+work is to understand which withdrawerwj can be linked to a previous depositordi.
+Users Note that a Railgun user is not necessarily a depositor or withdrawer. One may
+receive and send funds inside the shielded pool without depositing or withdrawing them
+from the shielded pool,i.e.,one can send and receive funds from a 0zk address they own.
+CVIT 2016
+23:6A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+2022 2023 2024 2025 20260
+200
+400
+600
+Year
+Events/week
+Deposit
+Withdraw
+Figure 2Railgun weekly deposit and withdraw transaction counts on Ethereum L1.
+Relayers When a user wants to withdraw funds to a fresh addresswj, typicallywj lacks
+funds to cover the transaction fees of the withdraw transaction. Thus, a third party may
+submit the withdraw transaction on behalf of the user (in exchange for a relayer fee) to
+avoid any unnecessary behavioural leakage. We identified124relayers,cf.Figure 8.
+Railgun users may issue the following types of transaction.
+Deposit (shield) transactionAs of May 12, 2026,122 477deposit transactions have been
+issued with a total volume of $5 058 127 358(Ethereum L1 and Arbitrum, Polygon,
+BSC). Importantly, Railgun applies a zero-knowledge compliance monitoring tool called
+Private Proofs of Innocence (PPOI). Every deposit transaction undergoes this analysis:
+if the depositor addressdi is on a blocklist, the deposited funds cannot be used inside
+the shielded pool. Subsequently, Railgun only allows one to withdraw the blocklisted
+deposited amount back to the very same deposit addressdi.
+Internal transaction Confidential transactions that occur inside the shielded pool between
+0zk addresses are called internal transactions. A public observer only sees the number of
+input notes redeemed, and the number of newly created output notes,cf.Figure 20.
+Withdraw (unshield) transactionAs of May 12, 2026,328 520withdraw transactions had
+been issued,cf.Figure 2.
+Swap transaction Users may unshield some of their shielded notes and use them in various
+DeFi applications,e.g.,swapping assets on decentralized exchanges. This is a moder-
+ately used feature in Railgun,e.g.,3133swap transactions at the time of writing. For
+comprehensive usage statistics on Railgun swap transactions see Figure 13.
+2.3 Anonymity Guarantees and Their Measurement
+In this work, we are primarily interested in breaking the following privacy guarantee provided
+by Railgun. Intuitively, every prior deposit transaction should act as an equally likely source
+for a given withdraw transaction. Next, we formalize this intuition.
+▶ Definition 1.(Deposit-withdraw transaction unlinkability) This unlinkability privacy
+guarantee requires that for every PPT adversaryA, and for a withdraw transactionwj that
+received (some of) its money from deposit transactiondi, Ahas a negligible advantage in
+finding the real sourcedi for withdrawwj. More formally,
+∀di ∈D(wj) :
+⏐⏐⏐Pr[A(D(wj),wj) =di]− 1
+|D(wj)|
+⏐⏐⏐≤negl(λ),(1)
+where D(wj) := {di|t(di) ≤t(wj)}, i.e., is the set of deposit transaction issued beforet(wj).
+Huseynov et al. 23:7
+In a similar vein, one could define deposit-internal transaction unlinkability, deposit-swap
+transaction, or internal-withdraw transaction unlinkability, etc. We leave it to future work
+to define, assess and potentially break these privacy properties in Railgun.
+The adversary’s goal is to determine which depositdj can be linked to a withdrawwi.
+To that end, the adversary outputs a discrete probability distribution overD(wi). Thus, we
+want to measure the uncertainty of a given adversaryAabout the sources of funds for a
+withdraw transactionwj.
+▶ Definition 2.(Entropic anonymity measure [7, 26]) For a withdrawwj and adversary
+A, letXj,A denote the probability distribution overD(wj)i.e., , for di ∈D (wj), we have
+Pr[Xj,A∈{di}] := pi . Let the anonymity measureA(wj)of wj be the Shannon-entropy of
+Xj,A. Formally, we have
+A(wj) :=H(X j,A) =−
+∑
+di∈D(wj)
+pi log2(pi).(2)
+In the context of Railgun, when one wants to break deposit-withdraw unlinkabil-
+ity,cf.Definition 1, the ideal anonymity measure that Railgun achieves would be that
+for each withdraw transactionwj, the adversary deems each priordi equally probable. We
+call this the optimistic anonymity guarantee achieved bywj
+▶ Definition 3.(Naïve or optimistic anonymity) We define an idealistic upper bound on the
+anonymity measure ofwj asA(w j) := log2(|D(wj)|).
+The main goal of this work is to define adversarial strategies that give a more realistic upper
+bound than the optimistic Shannon-entropic measure on the achieved anonymity guarantees
+of Railgun. We focus on measuring anonymity using the classical Shannon entropy-based
+anonymity measures defined above. We leave it to future work to apply and evaluate other
+anonymity measures [35] for assessing the anonymity provided by Railgun.
+2.4 Threat Model
+We assume a passive adversary,i.e.,we only assume access to the public Ethereum blockchain
+data. This adversary may bee.g.,a blockchain analyst. In our analysis, we do not use
+metadata leakages that come from other layers of the decentralized technology stack,e.g.,
+network-level leakages [37], or other public data sources (e.g.,social media). However, we note
+that, for example, relayers or other Ethereum full nodes could link the depositor/withdrawer
+IP addresses to their public 0x Ethereum addresses. We leave it to future work to evaluate
+the efficacy of active attacks on privacy, for example, one could launch an active amount
+fingerprinting attack inside the shielded pool [3]. In this attack, the adversary sends a
+maliciously crafted transaction in the hope of altering certain digits in the 0zk balance of
+an address. If at withdrawal time those digits remain unchanged, then the adversary could
+follow the flow of funds back to the public part of Ethereum (i.e.,0x addresses).
+3 Railgun Usage Statistics
+3.1 Dataset
+We collected every transaction of Railgun users in relation to deposit, withdraw, internal, and
+swap transactions,cf.Figure 3. In addition, we also collected every transaction sent from all
+identified Railgun users. We mostly focused on their ETH and ERC20 token transfers.
+CVIT 2016
+23:8A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+2020 2020 2021 2022 2024 2024 2025
+Railgun Shield events
+Railgun Unshield events (V2)
+Railgun Internal transfers
+Railgun RelayAdapt swaps
+External ETH transfers
+External ERC20 transfers
+H2 post-2023 cutoff
+Year
+Figure 3The coverage of our collected datasets.
+1 h 12 h 1 d
+1 week 1 month
+183 d1 year
+10−9
+10−5
+10−1
+Time difference [days]
+Probability
+Figure 4The probability density function of the time differences (t(wj) −t(di)) between deposits
+di and withdrawalswj linked by Heuristic 1 (deposit-withdraw address reuse),cf.Section 4.1.
+3.2 Limitations
+We solely focus on the Ethereum Layer-1 blockchain, though Railgun has been deployed
+on other Layer-2 networks as well, such as Arbitrum, Polygon, and Binance Smart Chain.
+Moreover, this work focuses solely on the native currency ether, even though Railgun supports
+the shielding and unshielding of ERC-20 tokens (e.g.,USDC, USDT, DAI, etc.) as well.
+3.3 Railgun Usage
+First, we study Railgun users’ behavior at large. Most importantly, we measure how much
+money is left and used in the shielded pool. We observe in Figure 5a, that as of 29th
+April, 2026, only81 734ETH has been left in the shielded pool, that is15.00%of the total
+cumulative deposits in Railgun’s history. This suggests that the vast majority of Railgun
+users still treat Railgun’s shielded pool as a simple Tornado Cash-like cryptocurrency mixer
+that has only two functionalities: deposits and withdraws.
+We can derive a rough estimate for the average residence time of funds in the Railgun pool
+using a Little’s law style approximation [14]. Let R denote the average retained balance in
+the pool and letλout denote the average unshielding rate (ether/day). Under the assumption
+that the system is approximately in steady state over the observation window, the average
+residence time can be estimated per Little’s theorem as
+T≈ R
+λout
+= 58 633WETH
+320WETH/day = 183days.(3)
+Using the observed cumulative unshield volume and the length of the observation period,
+we estimate an average outflow of roughly320WETH per day. Combined with an average
+retained balance of approximately58 633WETH (see Figure 5b), this suggests that the
+typical residence time of funds inside the Railgun pool is on the order of several months.
+Huseynov et al. 23:9
+2022 2023 2024 2025 20260
+2
+4
+·105
+Year
+Cumulative WETH
+Shield
+Unshield
+(a)Cumulative WETH shielded and unshielded
+over time. The retained balance, i.e., the difference
+between the two curves, is shown on the right.
+2023 2024 2025 20260
+0.5
+1
+·105
+Year
+Retained WETH
+shield(t)−unshield(t)
+0
+100
+200
+300
+Residence time [days]
+FIFO-style estimate
+(b)Retained WETH balance (left axis) and FIFO-
+style residence time estimates (right axis) derived from
+cumulative shield and unshield flows.
+Figure 5Cumulative shield and unshield volumes and implied residence time estimates in Railgun.
+Figure5balsoshowsaFIFO-styleestimatebasedonthehorizontallagbetweencumulative
+shield and cumulative unshield curves, i.e., the delay required for unshielded volume to
+“catch up” with prior shielded funds. This independent estimate yields a similar timescale,
+supporting the same several-month residence-time conclusion.
+4 Heuristics: Tattering the Cloak of Invisibility
+Next, we formulate our heuristics (cf.Figure 7 for a figurative illustration) that we empirically
+evaluate in Section 5 to link withdraw to deposit transactions. A trivial observation that we
+do not formulate as a separate heuristic is that a withdraw transactionwi cannot be linked
+to deposit transactionsdj that occurred afterwi,i.e.,∄(w i,dj) :t(dj)≥t(w i).
+4.1 Heuristic 1: deposit-withdraw address-reuse
+Ethereum’s account-based ledger model encourages address reuse for better usability. Thus,
+in accordance with prior works [1, 38, 42], we formulate our first heuristic.
+▶ Definition 4.(Heuristic 1 (H1)) If there exists(i,j) ∈N 2 such thatdi = wj ∧t(di) ≤t(wj),
+then we consider the depositdi and withdrawwj transactions linked.
+This is our only heuristic that, by definition, cannot produce false positives.
+4.2 Heuristic 2: direct transactional linkage
+Many users falsely believe that withdraw addresses are “clean” addresses as their direct
+source of funds is the “clean” shielded pool. Thus, whenever they run out of liquidity at a
+withdraw addresswi, they top its balance up by sending money from their other Ethereum
+accounts, often from a deposit addressdj,cf.Figure 6. If a transaction occurs in either
+direction (di →wj ∨wj →di), we consider those deposit and withdraw transactions issued
+by the same user.
+▶ Definition 5.(Heuristic 2 (H2)) If∃(i,j) ∈N 2 : tx(di,wj) = 1 ∨tx (wj,di) = 1, then we
+consider the deposit addressesdi and withdrawwj linked.
+We acknowledge that this heuristic may introduce false positive links. Intuitively, Heuristic
+2 exploits the connectedness of the deposit and withdraw addresses in the transaction
+graph. One could generalize Heuristic 2 such that it also considers deposit and withdraw
+CVIT 2016
+23:10A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+2019 2020 2021 2022 2023 2024 2025 20260
+200
+400
+H2 post-2023 cutoff
+Year
+Txs/month
+ETH transferes
+ERC20 transfers
+Figure 6Number of monthly transactions between Railgun depositor and withdrawer addresses.
+The prevalence of these transactions motivates our formulation of Heuristic 2,cf.Section 4.2.
+addresses being linked if they arek-hop away from each other in the transaction graph (e.g.,
+for k = 1think of a swap transaction on a decentralized exchange with different in and
+out addresses). We did not pursue this direction, as it would have introduced more false
+positives. Alternatively, one could generalize this heuristic where the link betweendi and wj
+is probabilistic and weighted by the number of transactions between the two addresses.
+4.3 Heuristic 3: withdraw transaction gas payer address reuse
+Currently in Ethereum, each transaction’s sender must pay the transaction fee in ether,
+Ethereum’s native cryptocurrency [24]. However, when a user wants to withdraw funds from
+Railgun to a fresh withdraw addresswj that had not been funded, they cannot send the
+withdraw transaction fromwj. Therefore, the withdraw transaction sender must be another
+unlinkedaddress. Railgun provides two solutions to this privacy-usability dilemma.
+Relayed withdraw transactionsWithdrawers may use a third-party, a so-called relayer, to
+send their withdraw transactions in exchange for a relayer fee. From a privacy point of
+view, this is the safest solution, since the relayer’s address is typically independent from
+the user’s withdraw addresswj.
+Self-broadcast withdraw transactionsUsers may opt out from using relayers and broadcast
+their withdraw transaction from another address they own. We denote this address as
+sender(wj). If the addresssender(wj)can be linked in some way to a depositor address
+di, then we can also linkwj tod i.
+Thus, we formulate our next heuristic as follows.
+▶ Definition6.(Heuristic 3 (H3)) If the sender address of a withdraw transactionsender(wi) ∈
+Dandsender(w i)itself is not a relayer, then we linkwi andsender(w i).
+We detail in Section 5.4, how we differentiate between “regular” (i.e.,a user-relayed) and a
+relayed withdraw transactions. In other words, we need reliable and robust ways to identify
+relayers to reduce false positives produced by this heuristic.
+4.4 Heuristic 4: fee-aware, knapsack matching
+Users who withdraw amounts that closely match one or more of their prior deposit amounts
+reveal a behavioral trace even when there is no direct address or transactional relationship.
+We formalize this observation as a knapsack-type matching heuristic.
+We say that a withdrawalwj exactly matchesa k-to-ℓ knapsack pattern with a subset of
+depositsS={d i1 ,...,d ik }(S⊂D) if:
+∑
+d∈S
+amt(d) =amt(wj1 ) +···+amt(w jℓ )±ϵ(4)
+Huseynov et al. 23:11
+di pool wj
+di =w j
+H1: Address Reuse
+di pool wj
+on-chain tx
+H2: Direct Tx Link
+di pool wj
+digas payer
+H3: Gas Payer Reuse
+di1
+di2
+pool wj
+amt(di1 ) +amt(di2 )≈amt(w j)
+H4: Knapsack Matching
+di pool wj
+amt(di): 1.34567...
+amt(wj): 0.34511...
+match
+H5: Amount Fingerprint
+deposit address withdraw address pool shielded pool linking evidence
+Figure 7Illustrating our five heuristics.H1 links deposit and withdraw transactions that belong
+to the same address.H2 heuristically links deposit and withdraw transactions, if there is at least
+one on-chain transaction between the deposit and withdraw addresses.H3 links a depositordi and
+withdrawer wj, if the withdraw transaction was sent from the deposit addressdi. H4 aims to solve
+knapsack instances induced by the deposit and withdraw amounts.H5 looks for repeating patterns
+in the deposit and withdraw amounts that are likely not destroyed by internal or swap transactions.
+for a small toleranceϵreflecting relayer and other protocol fees.
+▶ Definition 7.(Heuristic 4 (H4)) A deposit set S = {di1 ,...,d ik }and withdrawal set
+T = {wj1 ,...,w jℓ }are linked if (i) all elements ofS precede all elements ofT in time,
+(ii) their amounts satisfy the knapsack equality,cf.Equation(4), within a toleranceϵ.
+4.5 Heuristic 5: amount fingerprints
+Unlike Tornado Cash, which enforces fixed deposit denominations, Railgun accepts arbitrary
+deposit and withdraw amounts. This flexibility is a privacy liability: users who deposit a
+psychologically salient or computationally convenient amount (e.g.,exactly1.234 567ETH)
+tend to preserve the significant digits of that amount in their withdrawal, either through
+round-tripping or through an internal transfer that preserves the face value minus fees.
+We represent the decimal expansion of an amounta as a string of digits dig(a) =
+(a1,a2,...,a n)at a fixed precision (18 decimal places for ERC-20 tokens). We define the
+fractional fingerprintof a as the three most significant non-zero digits of its fractional part.
+Two amountsa,bare said to befingerprint-matchedif their fractional fingerprints agree.
+▶ Definition 8.(Heuristic 5 (H5)) A depositdi and withdrawalwj are heuristically linked
+byH5if frac3(amt(di)) = frac3(amt(wj))and this fingerprint is globally unique in the
+dataset, i.e., no other deposit-withdrawal pair in the same token shares it.
+5 Empirical Evaluation of Our Heuristics
+We now evaluate the five heuristics introduced in Section 4 against our collected Railgun
+data set. We first characterize the time-sensitivity of deposit-withdraw pairs, then report
+CVIT 2016
+23:12A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+the per-heuristic coverage, and finally synthesize the results across all heuristics to estimate
+the overall anonymity loss,cf.Definition 2. Our evaluation was run on a machine with Intel
+Core Processor, 8 vCPUs, 16 GB RAM (no swap).
+5.1 Time-sensitivity of withdraw-deposit pairs
+A fundamental question for any timing-based analysis is how quickly users tend to withdraw
+after depositing. Short deposit-withdraw intervals shrink the effective anonymity set dra-
+matically,e.g.,a withdrawal that occurs one minute after a deposit has only a handful of
+plausible sources, regardless of how many deposits have accumulated in the pool overall.
+5.1.1 Overall timing distribution
+Figure 4 shows the empirical distribution of deposit-to-withdraw time differences∆t =
+t(wj) −t(di)for the2904H1-confirmed pairs. The distribution is strongly right-skewed.
+The median∆ t is0 .84days, meaning that half of all identified users wait less than one day
+between depositing and withdrawing. The P90 is114.9days and the P99 is486 .6days,
+reflecting a long tail of users who leave funds in the shielded pool for months. This bimodal
+character — fast-cycling users who treat Railgun as a simple mixer, and long-term users who
+genuinely use the shielded pool — has direct implications for the effective anonymity set:
+fast-cycling users expose themselves to timing analysis regardless of the pool’s nominal size.
+5.1.2 Fee-stratified timing
+We further stratify the2904H1pairs by the gas price paid on the deposit transaction,
+splitting them into equal halves at the median gas price (low-fee group:N = 1452; high-fee
+group: N = 1452). Counterintuitively, low-gas-price depositors withdrawfasterthan high-
+gas-price depositors: the low-fee P50 is0.73days versus0 .98days for the high-fee group, and
+the low-fee P90 is58.9days versus178 .2days. One interpretation is that high-fee depositors
+are more privacy-aware users who pay for faster block inclusion and then exercise greater
+patience before withdrawing; low-fee depositors may be less sophisticated users who deposit
+and withdraw opportunistically. Regardless of the mechanism, both groups have a median
+withdrawal interval well under one day, making timing a potent signal in practice.
+5.2 Heuristic 1: deposit-withdraw address reuse
+H1identifies2904unshield events (6 .10% of the filtered unshield population (W) of47 596)
+as directly reusing a known deposit address, covering8.57% of unique addresses and8.52% of
+WETH volume. EveryH1link is a certain true positive by construction. We note that710
+(1.49%of |W|) deposits were flagged by the PPOI compliance tools, thus, these addresses
+were forced to withdraw their funds to the very same deposit address. Nevertheless,H1
+remains our second best performing heuristic in terms of linked withdraw transactions.
+5.3 Heuristic 2: direct transactional linkage
+H2identifies4272unshield events (8 .98% of W) via at least one on-chain transaction
+between the deposit and withdraw addresses. The breakdown by asset and direction is
+shown in Figure 12: ETH flows from deposit to withdraw account for3139transactions
+(all-time), while the reverse direction (withdraw to deposit) accounts for3620transactions
+—the larger of the two, reflecting users who send a portion of their withdrawn funds back
+Huseynov et al. 23:13
+100 101 102 10310−4
+100
+104
+Distinct recipients served
+Total WETH volume
+Mixed-activity (N=1,658)
+Self-broadcaster (N=981)
+Broadcasters (N=124)
+Figure 8Recipient address frequency of withdraw transaction senders. We use these usage
+statistics to heuristically distinguish between regular users and relayers for withdraw transactions.
+to a known deposit address. ERC20 transfers contribute789deposit-to-withdraw and1253
+withdraw-to-deposit transactions. Restricting to post-2023 activity yields similar proportions,
+indicating that this behavioral pattern has not decreased as Railgun has matured.
+Theboundary-metadatasignals — zero-output unshields and self-broadcast events — are
+closely related toH2and together cover6272(13 .18%) unshield events. Of these,3433are
+flagged by both signals,1996by the zero-output flag alone, and843by the self-broadcast
+flag alone. Self-broadcast events are particularly damaging for privacy: the depositor who
+acts as their own relayer directly exposes their deposit address in the withdrawal transaction,
+nullifying the primary anonymity benefit that relayers provide.
+5.4 Heuristic 3: withdraw transaction gas payer address reuse
+We identify6856withdraw transactions as self-broadcast transactions. These self-broadcast
+transactions have2761unique gas payer addresses, and among these there are1658(60.1%)
+addresses that are also depositors. There are two mutually exclusive subsets of this withdraw
+transaction set identified byH3.
+Gas payer address is the same aswi If the gas payer address is the same as the withdraw
+recipient address and this address is also a depositor, then this withdraw transaction has
+already been linked byH1,cf.Section 4.1. There are1681withdraw transactions in this
+subset with1094distinct gas payer addresses (among these714were deposit addresses).
+Gas payer address isnot the sameaswi We found5175withdraw transactions, that were
+self-broadcast and the gas payer address was distinct from the withdraw address. More
+importantly, out of the1825distinct gas payer addresses in this subset,1049were also
+depositor addresses allowing us to link these gas payer/depositor addresses to the withdraw
+addresses perH3.
+5.5 Heuristic 4: knapsack matching
+Although the knapsack problem is an NP-complete problem [13], in certain cases, one has
+hope to solve the arising real-world knapsack instances efficiently. This is also the case for
+Railgun. First, the arising knapsack instances are relatively small, and second, the capacities
+in the knapsack problem are not large. Thus, we chose to apply a pseudopolynomial-time
+(i.e., O(nC), whereC is the knapsack capacity) dynamic programming algorithm to solve our
+knapsack instances. The algorithm we applied is due to Pisinger [22]. In our adaptation of his
+algorithm, we have two parameters(t,b)that determine the running time and the precision
+of the algorithm’s output. In our evaluation, we look primarily fork deposit amounts that
+sum up to a single withdrawal amount (we call this thek-to-1direction). In Section A, we
+CVIT 2016
+23:14A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+also evaluate the1-to-k direction,i.e.,where a single deposit amount equals the sum ofk
+different withdraw transactions.
+Time windowt For a given withdraw transactionwj, we only consider deposit transactions
+di for whicht(wj) −t≤t (di) ≤t(wj). Naturally, astincreases, we need to consider more
+potential deposit transactions, thus, increasing the algorithm’s running time,cf.Table 2.
+Bucket sizeb The dynamic programming algorithm builds a matrix of dimensionn×C/b ,
+where n is the number of deposits in our time-window,C = amt(wj), andb is the bucket
+size. Recall our knapsack equation in Equation (4), thus, we have that the error term is
+ε= b/2. As expected, the larger the bucket is, the faster the algorithm runs (cf.Table 2).
+However, it produces more precise deanonymization results, it incurs higher anonymity
+loss for Railgun userscf.Figure 22.
+We observe that running knapsack solver algorithms for reasonable choices of time-window
+and bucket sizes is completely feasible already on a consumer laptop. We only experienced
+out-of-memory issues for the all-time and10−5 ETH bucket size parameters. We expect
+that any well-motivated and more funded blockchain analyst (e.g.,, government-supported
+agencies, private blockchain analysis companies (Chainalysis1, TRM labs2), etc.) could run
+various knapsack/SMT solvers on Railgun fork-to-2deposits-to-withdraw matchings or
+perhaps even fork-to-3deposits-to-withdraw matchings.
+Table 2Witness-enumeration runtime per cell,i.e.,deposit or withdraw, (capK = 2000matching
+subsets, witness DFS in C, multi-process pool). Each cell processes all|supp(D)|= 29,307shields
+(1-to-k) or|supp(W)|= 38,472unshields (k-to-1). The all-time10−5 ETH bucket is skipped on both
+sides: it would require∼50GiB per worker that is not supported by our limited experimental setup.
+Bucket size (bETH)
+Time window (tdays)10 −2 10−3 10−4 10−5
+(a)1-to-kdirection(laptop, Intel Core Ultra 7 155U, 19GiB WSL RAM)
+3days 0.9s 2.1s 6.8s 44.7s
+7days 2.5s 3.5s 10.1s 1min 14s
+30days 4.7s 10.5s 36.3s 6min 36s
+180days 22.4s 56.7s 4min 41s 1h 12min 45s
+all-time 1min 15s 2min 34s 15min 41s —(skip)
+(b)k-to-1direction(laptop, Intel Core Ultra 7 155U, 19GiB WSL RAM)
+3days 0.9s 1.2s 2.4s 21.6s
+7days 1.2s 1.9s 4.7s 49.0s
+30days 2.4s 4.6s 20.7s 4min 56s
+180days 12.0s 20.1s 1min 50s 34min 24s
+all-time 24.8s 57.1s 7min 46s —(skip)
+In Figure 21 we study the capabilities of knapsack solver algorithms to decrease the
+anonymity guarantees of Railgun. For each withdrawwj, we take the optimistic anonymity
+measure as the Shannon entropy of the distribution that assigns equal probabilities to all prior
+deposit transactions,cf.Definition 3. In contrast, we applied our adaptation of Pisinger’s
+algorithm toamt(wj). Typically, the algorithm outputs several candidate solutions for a
+1 See: https://www.chainalysis.com/
+2 See: https://www.trmlabs.com/
+Huseynov et al. 23:15
+100 200 300 400 500 600 700 800 900 999
+0
+500
+1,000
+# Deposits
+(a)Deposit amounts grouped by first 3 fractional digits (000–999)
+100 200 300 400 500 600 700 800 900 999
+0
+1,000
+2,000
+3,000
+# Withdrawals
+(b)Withdrawal amounts grouped by first 3 fractional digits (000–999)
+Figure 9Distribution of deposit and withdrawal amounts by the first three fractional digits.
+given withdraw amountamt(wj). We count how many times each depositdi appears in the
+candidate solutions produced by Pisinger’s algorithm. We convert these frequencies into a
+probability distribution and take its Shannon entropy to measure the reduced anonymity
+guarantees provided by our knapsack solver algorithm. For instance, in Figure 21, we find that
+for the parameters(t,b) = (30 days,10−5 ETH), the median anonymity loss for withdrawals
+is3 .42bits of entropy. For this parameter set, the knapsack solver algorithm has found85
+withdraw transactions to which there is a single subset of deposit transactions that sum up
+exactly toamt(wj).
+5.6 Heuristic 5: Amount Fingerprints
+Finally, we examine whether deposit and withdraw transaction amounts themselves leave
+fingerprints usable for deanonymization. In particular, we look at the distribution of the first
+three digits after the decimal point for both deposit and withdrawal amountscf.Figure 9.
+0 500 1,000
+0
+0.5
+1
+3-digit fractional fingerprint (0–999)
+Empirical CDF
+Deposits (|D|= 31 523)
+Withdrawals (|W|= 45 071)
+(a)Empirical cumulative distribution functions (CDF)
+0 500 1,000
+0
+2
+4
+6
+·10−2
+3-digit fractional fingerprint (0–999)
+|CDFdep(x)−CDF wit(x)|
+KS statistic = 0.0608
+(b)CDF difference
+Figure 10Kolmogorov–Smirnov test (KS-stat=0.0608, p = 3.95 ×10−60) for fractional-digit
+deposit and withdraw amount fingerprints,cf.Figure 9. The KS-test rejects the null-hypothesis.
+CVIT 2016
+23:16A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+As the histogram in Figure 9 shows, the distribution of fractional fingerprints is highly
+skewed: a small number of round-number fingerprints (e.g.,all zeros) are extremely common,
+while the majority of fingerprints appear only a handful of times. This confirms that deposit
+and withdrawal amounts are not random decimal strings. We also experimented with using
+such amount fingerprints for deanonymization. However, large-value patterns are already
+largely captured by the knapsack heuristic, while the least significant digits of small amounts
+are likely obscured by transaction costs and gas-price choices, which are not observable from
+the shielded-pool amounts alone. We therefore did not find fractional amount fingerprints
+sufficiently reliable for deanonymization. Nevertheless, Figure 9 provides a useful diagnostic
+view of the empirical distribution of the first three fractional digits.
+To further inspect this effect, we compare deposit–withdraw transaction amount pairs
+with small Hamming distance as decimal strings. Figure 11 shows that these pairs often
+share long common substrings (typically 11–14 digits), and that the most frequent maximal
+non-zero substrings are dominated by round-denomination patterns (e.g.,long runs of zeros
+after a small leading digit). Overall, amount strings exhibit structure, but it is driven
+mainly by global denomination/rounding effects rather than stable user-specific fingerprints.
+Consequently, beyond the knapsack signal, the remaining low-order digits are too noisy for
+reliable standalone deanonymization.
+0 5 10 15
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+1.4
+1.6
+Longest common substring (LCS) length
+#(amt(di),amt(wj))
+(a)LCS length distribution low-Hamming pairs,i.e.,
+d(amt(di),amt(wj))≤10
+0 2·10 5 4·10 5 6·10 5
+5000000000000
+500000000000
+50000000000000
+50000000000
+7500000000000
+75000000000000
+500000000000000
+5000000000
+2500000000000
+50000000
+750000000000
+750000000000000
+25000000000000
+500000000
+5000000
+250000000000
+5000000000000000
+75000000000
+500
+250000000000000
+#(amt(di),amt(wj)) pairs
+(b)Top 20 most common maximal non-zero substrings
+low-Hamming pairs,i.e.,d(amt(d i),amt(wj))≤10
+Figure 11Longest common subsequence length distribution (left) and the most common maximal
+non-zero substrings among low-Hamming deposit-withdraw transaction amount pairs (right).
+We further tested whether these fractional-digit patterns provide a robust signal. The
+Kolmogorov–Smirnov test in Figure 10 indicates that the empirical distributions of deposit
+and withdrawal transaction amount fingerprints are statistically distinguishable. However,
+this difference is mainly driven by global rounding and denomination effects, rather than by
+stable pair-specific fingerprints.
+The Hamming-distance diagnostics in Figure 14 –17 support the same conclusion. Low-
+distance deposit–withdraw pairs do exist, and their differences are concentrated towards
+later fractional positions, while early fractional digits often agree. Moreover, unique common
+substrings are typically short, with most value-fingerprint substrings appearing at lengths
+around four to six digits. Overall, these patterns confirm that amount strings contain
+structure, but we did not find this structure sufficiently specific or stable to serve as an
+independent deanonymization heuristic beyond the knapsack-based analysis.
+Huseynov et al. 23:17
+Set Cardinality
+W47 596
+D34 747
+supp(W) 38 472
+supp(D) 29 307
+H1(address reuse)2904(6.10%)
+of which PPOI-flagged710(1.49%)
+H2(direct tx link)4272(8.98%)
+H1∪H26003(12.61%)
+H3(gas payer reuse)1049(2.20%)
+H1∪H2∪H36715(14.11%)
+H4(knapsack matching)2097(4.41%)
+Total(H1∪H2∪H3∪H4)8398(17.65%)
+Table 3Summary of our findings. Cardinalities are counted at the raw unshield event level
+(one entry per filtered unshield inW); percentages are relative to|W|= 47,596.H1–H3apply the
+event-level causal rule from Section 4;H4is the union over all5×4knapsack cells of thek-to-1
+witness pass of unshield super-rows whose matching subsets implicate a single depositor address
+(Hknap,addr = 0), expanded to raw events viaw_agg_size.
+5.7 Summary of Our Results
+We provide an overview of all our heuristic findings in Table 3. We observe thatH2produces
+the largest number of heuristic deposit-withdraw links. Altogether, we find that the first
+four heuristics link17.65%of all Ethereum L1 Railgun withdraws. Note that these are only
+the one-to-one links (di ↔wj) output by our heuristics. We study the probabilistic (i.e.,
+non-unique) deposit-withdraw links and anonymity loss incurred by the knapsack matching
+Heuristic in Figures 21 and 22.
+5.8 Privacy Recommendations
+Our findings point directly to actionable recommendations for users who wish to obtain
+stronger privacy guarantees from Railgun. We organize these by the heuristic they address.
+Always use a relayer (H3).The single most impactful recommendation is to always use
+a third-party relayer when issuing withdraw transactions. Among the6856self-broadcast
+withdraw transactions in our dataset,5175were sent from an address distinct from the
+withdraw recipient, and1049of those gas-payer addresses were also depositor addresses,
+making them immediately linkable viaH3. A relayer’s address is independent of the user’s
+deposit and withdraw addresses, eliminating this leakage channel entirely. Our broadcaster
+cluster analysis identified124active relayer-like addresses that together serve89.12% of all
+relayed volume, so relayer availability is not a practical obstacle. Users should prefer relayers
+that have served a large number of distinct recipients, as these provide larger anonymity sets.
+Never reuse deposit and withdraw addresses (H1). H1is the only heuristic that
+produces zero false positives by construction: if the same Ethereum address appears on both
+sides of the shielded pool, the link is certain. Yet2904(6.10%) of unshield events in our
+dataset reuse a known deposit address. Users should generate a fresh Ethereum address
+for every withdraw transaction and should never fund that address from a known deposit
+address prior to withdrawing.
+Avoid direct on-chain transactions between deposit and withdraw addresses (H2).
+CVIT 2016
+23:18A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+H2identifies4272(8 .98%) of unshield events via at least one on-chain transaction between
+the deposit and withdraw address. The most common pattern is users topping up a withdraw
+address with ETH from their deposit address to cover gas fees — a problem that is fully
+solved by using a relayer (see above). Users should treat the deposit address and the withdraw
+address as completely disjoint identities with no on-chain contact between them, not even
+through intermediary contracts or decentralized exchanges.
+Wait longer before withdrawing (timing).The median deposit-to-withdraw interval
+forH1-identified pairs is only0.84days. A withdrawal that occurs minutes or hours after
+a deposit has a very small effective anonymity set, regardless of the pool’s nominal size.
+Users who are genuinely concerned about their financial privacy should leave funds in the
+shielded pool for weeks or months, during which the pool accumulates additional deposits
+that expand their anonymity set. Our Little’s Law estimate suggests a characteristic pool
+residence time of roughly183days for the average deposited ETH; users who withdraw much
+faster than this are outliers and more easily identified.
+Avoid psychologically salient or round amounts (H4, H5). H4exploits knapsack
+relationships between deposit and withdraw amounts.H5exploits the fact that users tend to
+preserve distinctive digit patterns across transactions. Both heuristics are rendered ineffective
+if the amounts that enter and leave the shielded pool bear no predictable relationship to
+each other. In practice, this means: avoid withdrawing exactly the amount deposited; avoid
+splitting or merging deposits in simple integer ratios; and avoid depositing amounts with
+highly distinctive fractional digits (e.g.,1.234 567ETH) that are unlikely to be destroyed
+by internal transactions or swap fees. Ideally, users should perform at least one internal
+transaction or private swap between depositing and withdrawing, so that the amount that
+ultimately leaves the pool bears no simple arithmetic relationship to the deposited amount.
+Use the full functionality of the shielded pool.We saw that15.00% of deposited ETH
+remains in the shielded pool as of our measurement date, and that internal transactions
+are actively used (17 767internal transfers over the observation period). Users who perform
+internal transactions and private swaps before withdrawing are more resistant toH4and
+H5, since these operations transform the amount in ways that break simple arithmetic
+linkages. Importantly, users who leave funds in the pool for longer periods contribute to a
+larger anonymity set for all participants. Privacy in a shielded pool is a public good, and
+short-cycling users who deposit and immediately withdraw not only expose themselves but
+also reduce the privacy of other users by shrinking the effective anonymity set.
+Protocol-level recommendations.Beyond individual user behavior, our findings suggest
+several design-level improvements that the Railgun protocol could adopt to reduce behavioral
+leakage. First, the protocol could enforce a minimum residence time or introduce time-
+locked notes, making rapid deposit-withdraw cycling impossible. Second, Railgun could
+follow Tornado Cash’s model of offering fixed denomination tiers as an option, which would
+eliminateH4andH5for users who opt into that mode. Third, the relayer infrastructure
+could be improved to make relayer selection more uniform across the broadcaster population,
+reducing the fingerprinting potential of relayer choice patterns. We leave the formal analysis
+of the privacy improvements achievable by such protocol modifications to future work.
+6 Related Work
+Cryptocurrency transaction graph analysis has extensive literature [17, 23, 33, 34]. Many
+works apply machine learning tools in the context of enforcing KYC/AML regulations or
+Huseynov et al. 23:19
+extracting intelligence from public transaction graphs [21, 10, 41]. Next, we focus only on the
+literature on the deanonymization of privacy-enhancing tools on top of various blockchains.
+6.1 Deanonymization of Bitcoin mixers
+The earliest work on breaking unlinkability in Bitcoin focused on CoinJoin [15, 28], which
+merges the inputs of multiple users into a single transaction [8]. Möser et al. [18] showed that
+the small anonymity sets typical of deployed CoinJoin implementations allow a substantial
+fraction of transactions to be deanonymized. Later work identified address reuse, amount
+clustering, and transaction graph structure as dominant leakage channels [4, 9]. More
+recent large-scale empirical analyses of decentralized CoinJoin services, including Wasabi and
+Samourai, showed that even when the mixing transaction itself provides a larger nominal
+anonymity set, privacy can be substantially reduced by pre- and post-mixing behavior [30],
+address-selection patterns, and subsequent flows to exchanges [29].
+6.2 Tornado Cash
+The closest prior work to ours is the empirical analysis of Tornado Cash by Béres et al. [1],
+which introduced several of the heuristics we adapt and extend, including address reuse,
+direct transactional linkage, and value fingerprinting via the Danaan-gift attack. Wu et al.
+developed Tutela [42], an open-source tool that operationalizes these heuristics. Wang et
+al. [38] studied how zero-knowledge proof mixers improve and worsen user privacy, finding
+that optional shielding creates self-selection biases that reduce the effective anonymity set.
+Tang et al. [31] analyzed address linkability in Tornado Cash specifically. Our work differs in
+focusing on Railgun, which offers richer in-pool functionality and supports arbitrary token
+amounts, creating new leakage channels not present in fixed-denomination mixers.
+Complementary to deanonymization work, Wang et al. [39] studied the cost side of on-
+chain mixers, showing how Tornado-Cash-like privacy pools can be made more cost-effective.
+While their focus is mixer design and transaction cost, our work studies the residual privacy
+loss that arises from user behavior and amount-level leakage in a richer shielded-pool setting.
+6.3 Monero, Zcash
+Möser et al. [19] provided a large-scale empirical analysis of traceability in Monero, showing
+that the zero-mixin era and subsequent hard forks introduced significant traceability. Tem-
+poral correlation attacks on ring member selection have been studied analytically, showing
+that non-uniform ring sampling degrades anonymity substantially [44]. These results parallel
+our findings: the practical anonymity set is often smaller than the nominal cryptographic set.
+Ye et al. [43] studied traceability in Zcash’s shielded pool, finding that founder and
+miner withdrawal behavior follows recognizable periodic patterns that reduce the effective
+anonymity of their transactions. The general lesson — that behavioral regularity defeats
+cryptographic privacy [2, 3, 12] — directly motivates our work.
+6.4 Network-layer deanonymization
+Several works have studied privacy attacks at the network layer rather than the blockchain
+layer. Biryukov et al. [4] exploited P2P connection patterns to link IP addresses to Bitcoin
+addresses. Heimbach et al. [11] applied similar techniques to Ethereum. Wang et al. [37]
+demonstrated a timing-correlation attack against RPC users achieving over 95% success rate.
+CVIT 2016
+23:20A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+Our work is complementary: we restrict ourselves to on-chain data, and our heuristics could
+be combined with network-layer observations for stronger deanonymization.
+6.5 Wallet and gas fingerprinting
+Soleti et al. [27] demonstrated that wallet software of Ethereum users can be identified from
+gas-pricing strategies, providing a fingerprint orthogonal to the amount and timing features
+we study. We leave the combination of wallet fingerprints with our heuristics to future work.
+7 Conclusion and Future Directions
+This work quantitatively assessed the practical privacy guarantees of Railgun users. We found
+that17 .65%of Railgun withdraw transactions can be heuristically linked toa single deposit
+transaction. However, we believe that in reality, the actual achieved privacy guarantees are
+even weaker due to the multiple layers (network, application, etc.) and heuristics we have
+not studied in this paper. We foresee the following fruitful directions for future work.
+Wallet fingerprintsWe did not exploit many types of metadata, i.e., typically it is possible
+to assess which wallet software an entity uses. For instance, different wallets use various
+algorithms to compute their applied transaction fees. These wallet gas fingerprints [27]
+could be used to further decrease the empirical Railgun anonymity set.
+Graph-embedding tools We did not apply machine learning tools to learn the Ethereum
+transaction graph [1] and use it to link deposit and withdraw addresses.
+Multi-layered privacy analysisSo far, this paper has only focused on the Ethereum block-
+chain data. A more resourceful privacy analysis should take full advantage of network [11],
+application [32], cross-chain and other leakages as well. One may even consider “active”
+privacy attacks,e.g.,when the adversary is one of the Railgun relayers or users.
+AcknowledgementsIstván András Seres was supported by the Ministry of Culture and
+Innovation and the National Research, Development, and Innovation Office (NKFIH) within
+the Quantum Information National Laboratory of Hungary (Grant No. 2022-2.1.1-NL-2022-
+00004). János Tapolcai was supported by Grant No. K_23 146347 of NKFIH.
+References
+1 Ferenc Béres, István A Seres, András A Benczúr, and Mikerah Quintyne-Collins. Blockchain is
+watching you: Profiling and deanonymizing ethereum users. InIEEE international conference
+on decentralized applications and infrastructures (DAPPS), pages 69–78. IEEE, 2021.
+2Alex Biryukov and Daniel Feher. Deanonymization of hidden transactions in zcash, 2018.
+3 Alex Biryukov, Daniel Feher, and Giuseppe Vitto. Privacy aspects and subliminal channels in
+zcash. InProceedings of the 2019 ACM SIGSAC Conference on Computer and Communications
+Security, pages 1813–1830, 2019.
+4 Alex Biryukov, Dmitry Khovratovich, and Ivan Pustogarov. Deanonymisation of clients in
+Bitcoin P2P network. InProceedings of the 2014 ACM SIGSAC Conference on Computer and
+Communications Security (CCS), pages 15–29. ACM, 2014.
+5 Vitalik Buterin, Jacob Illum, Matthias Nadler, Fabian Schär, and Ameen Soleimani. Blockchain
+privacy and regulatory compliance: Towards a practical equilibrium.Blockchain: Research
+and Applications, 5(1):100176, 2024.
+6 Nicolas T Courtois and Rebekah Mercer. Stealth address and key management techniques
+in blockchain systems. InICISSP 2017-Proceedings of the 3rd International Conference on
+Information Systems Security and Privacy, pages 559–566, 2017.
+Huseynov et al. 23:21
+7 Claudia Diaz, Stefaan Seys, Joris Claessens, and Bart Preneel. Towards measuring anonymity.
+InInternational Workshop on Privacy Enhancing Technologies, pages 54–68. Springer, 2002.
+8 Jiří Gavenda, Petr Svenda, Stanislav Bobon, and Vladimir Sedlacek. Analysis of input-output
+mappings in coinjoin transactions with arbitrary values.arXiv preprint arXiv:2510.17284,
+2025. URL: https://arxiv.org/abs/2510.17284.
+9 Steven Goldfeder, Harry Kalodner, Dillon Reisman, and Arvind Narayanan. When the cookie
+meets the blockchain: Privacy risks of web payments via cryptocurrencies. InProceedings on
+Privacy Enhancing Technologies (PoPETs), pages 179–199, 2018.
+10 Matan Harlev, Hsiao-Wei Sun Yin, Kai Langenheldt, Ram Mukkamala, and Ravi Vatrapu.
+Breaking bad: De-anonymising entity types on the bitcoin blockchain using supervised machine
+learning. InHICSS, 2018.
+11 Lioba Heimbach, Yann Vonlanthen, Juan Villacis, Lucianna Kiffer, and Roger Wattenhofer.
+Deanonymizing ethereum validators: The P2P network has a privacy issue. In34th USENIX
+Security Symposium (USENIX Security 25), pages 1319–1338, 2025.
+12 George Kappos, Haaroon Yousaf, Mary Maller, and Sarah Meiklejohn. An empirical analysis
+of anonymity in zcash. In27th {USENIX}Security Symposium ({USENIX}Security 18),
+pages 463–477, 2018.
+13 Richard M Karp. Reducibility among combinatorial problems. In50 Years of Integer
+Programming 1958-2008: from the Early Years to the State-of-the-Art, pages 219–241. Springer,
+2009.
+14 John DC Little. A proof for the queuing formula: L=λ w.Operations research, 9(3):383–387,
+1961.
+15 Gregory Maxwell. CoinJoin: Bitcoin privacy for the real world, 2013. BitcoinTalk forum post.
+URL: https://bitcointalk.org/index.php?topic=279249.0.
+16 Sarah Meiklejohn and Rebekah Mercer. Möbius: Trustless tumbling for transaction privacy.
+Proceedings on Privacy Enhancing Technologies, 2018(2):105–121, 2018.
+17 Sarah Meiklejohn, Marjori Pomarole, Grant Jordan, Kirill Levchenko, Damon McCoy, Geof-
+frey M Voelker, and Stefan Savage. A fistful of bitcoins: characterizing payments among men
+with no names. InProceedings of the 2013 conference on Internet measurement conference,
+pages 127–140, 2013.
+18 Malte Möser, Rainer Böhme, and Dominic Breuker. An empirical analysis of traceability
+in Bitcoin’s transaction graph. InProceedings of the 1st Workshop on Bitcoin Research
+(BITCOIN), 2014. Also published as: Möser et al., “Anonymous alone? Measuring Bitcoin’s
+second-generation anonymization techniques,” IEEE EuroS&PW 2017.
+19 Malte Möser, Kyle Soska, Ethan Heilman, Kevin Lee, Henry Heffan, Shashvat Srivastava,
+Kyle Hogan, Jason Hennessey, Andrew Miller, Arvind Narayanan, et al. An empirical analysis
+of traceability in the monero blockchain.Proceedings on Privacy Enhancing Technologies,
+2018(3):143–163, 2018.
+20 Alexey Pertsev, Roman Semenov, and Roman Storm. Tornado cash privacy solution, 2019.
+URL: https://tornado.cash.
+21 Thai-Thanh Pham and Sungroh Lee. Anomaly detection in bitcoin network using unsupervised
+learning methods.arXiv preprint arXiv:1611.03942, 2016.
+22Pisinger. Dynamic programming on the word ram.Algorithmica, 35(2):128–145, 2003.
+23 Dorit Ron and Adi Shamir. Quantitative analysis of the full bitcoin transaction graph.
+Financial Cryptography and Data Security, 2013.
+24 István András Seres. On blockchain metatransactions. In2020 IEEE international conference
+on blockchain (Blockchain), pages 178–187. IEEE, 2020.
+25 István András Seres, Dániel A Nagy, Chris Buckland, and Péter Burcsi. Mixeth: efficient,
+trustless coin mixing service for ethereum. InInternational Conference on Blockchain Eco-
+nomics, Security and Protocols (Tokenomics 2019). Schloss Dagstuhl-Leibniz-Zentrum fuer
+Informatik, 2019.
+CVIT 2016
+23:22A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+26 Andrei Serjantov and George Danezis. Towards an information theoretic metric for anonymity.
+InInternational Workshop on Privacy Enhancing Technologies, pages 41–53. Springer, 2002.
+27 Martina Soleti, Ankit Gangwal, and Mauro Conti. Attacking anonymity set in tornado cash
+via wallet fingerprints. InProceedings of the 40th ACM/SIGAPP Symposium on Applied
+Computing, pages 376–385, 2025.
+28 Johann Stockinger, Bernhard Haslhofer, Pedro Moreno-Sanchez, and Matteo Maffei. Pinpoint-
+ing and measuring wasabi and samourai coinjoins in the bitcoin ecosystem.arXiv preprint
+arXiv:2109.10229, 2021. URL: https://arxiv.org/abs/2109.10229.
+29 Rainer Stütz, Johann Stockinger, Pedro Moreno-Sanchez, Bernhard Haslhofer, and Matteo
+Maffei. Adoption and actual privacy of decentralized coinjoin implementations in bitcoin. In
+Proceedings of the 4th ACM Conference on Advances in Financial Technologies, pages 254–267,
+2022.
+30 Petr Svenda, Jiří Gavenda, Vasilios Mavroudis, and Chris Hicks. Coinjoin ecosystem insights
+for wasabi 1.x, wasabi 2.x and whirlpool coordinator-based privacy mixers.Proceedings on
+Privacy Enhancing Technologies, 2026(2):557–592, 2026.doi:10.56553/popets-2026-0061.
+31 Yajin Tang, Chenxu Xu, Chao Zhang, Yajin Wu, and Liehuang Zhu. Analysis of address
+linkability in Tornado Cash on Ethereum. InChina Cyber Security Annual Conference
+(CCSAC), pages 39–50. Springer, 2021.
+32 Christof Ferreira Torres, Fiona Willi, and Shweta Shinde. Is your wallet snitching on you? an
+analysis on the privacy implications of web3. In32nd USENIX Security Symposium (USENIX
+Security 23), pages 769–786, 2023.
+33 Friedhelm Victor and Bianca Katharina Lüders. Measuring ethereum-based erc20 token
+networks. InInternational Conference on Financial Cryptography and Data Security, pages
+113–129. Springer, 2019.
+34 Friedhelm Victor and Tina Weintraud. Detecting and quantifying wash trading on decentralized
+cryptocurrency exchanges. InProceedings of The Web Conference, 2021.
+35 Isabel Wagner and David Eckhoff. Technical privacy metrics: a systematic survey.ACM
+Computing Surveys (Csur), 51(3):1–38, 2018.
+36 Anton Wahrstätter, Jens Ernstberger, Aviv Yaish, Liyi Zhou, Kaihua Qin, Taro Tsuchiya, Se-
+bastian Steinhorst, Davor Svetinovic, Nicolas Christin, Mikolaj Barczentewicz, et al. Blockchain
+censorship. InProceedings of the ACM Web Conference 2024, pages 1632–1643, 2024.
+37 Shan Wang, Ming Yang, Yu Liu, Yue Zhang, Shuaiqing Zhang, Zhen Ling, Jiannong Cao, and
+Xinwen Fu. Time tells all: Deanonymization of blockchain rpc users with zero transaction
+fee. InProceedings of the 2025 ACM SIGSAC Conference on Computer and Communications
+Security, pages 3490–3504, 2025.
+38 Zhipeng Wang, Stefanos Chaliasos, Kaihua Qin, Liyi Zhou, Lifeng Gao, Pascal Berrang,
+Benjamin Livshits, and Arthur Gervais. On how zero-knowledge proof blockchain mixers
+improve, and worsen user privacy. InProceedings of the ACM Web Conference 2023, pages
+2022–2032, 2023.
+39 Zhipeng Wang, Marko Cirkovic, Duc V Le, William Knottenbelt, and Christian Cachin. Pay
+less for your privacy: Towards cost-effective on-chain mixers. In5th Conference on Advances
+in Financial Technologies (AFT 2023), pages 16–1. Schloss Dagstuhl–Leibniz-Zentrum für
+Informatik, 2023.
+40 ZhipengWang, XihanXiong, andWilliamJKnottenbelt. Blockchaintransactioncensorship:(in)
+secure and (in) efficient? InThe International Conference on Mathematical Research for
+Blockchain Economy, pages 78–94. Springer, 2023.
+41 Mark Weber, Giulia Domeniconi, Jie Chen, Daniel Weidele, Claudio Bellei, Tom Robinson, and
+Charles Leiserson. Anti-money laundering in bitcoin: Experimenting with graph convolutional
+networks for financial forensics. InKDD Workshop on Anomaly Detection in Finance, 2019.
+42 Mike Wu, Will McTighe, Kaili Wang, Istvan A Seres, Nick Bax, Manuel Puebla, Mariano
+Mendez, Federico Carrone, Tomás De Mattey, Herman O Demaestri, et al. Tutela: An
+Huseynov et al. 23:23
+open-source tool for assessing user-privacy on ethereum and tornado cash.arXiv preprint
+arXiv:2201.06811, 2022.
+43 Claire Ye, Chinedu Ojukwu, Anthony Hsu, and Ruiqi Hu. Alt-coin traceability. Cryptology
+ePrint Archive, Report 2020/593, 2020. URL: https://eprint.iacr.org/2020/593.
+44 Zuoxia Yu, Man Ho Au, Jiangshan Yu, Rupeng Yang, Qiuliang Xu, and Wang Fat Lau. New
+empirical traceability analysis of CryptoNote-style blockchains. InFinancial Cryptography
+and Data Security (FC 2019), pages 133–149. Springer, 2019.
+A Additional Measurements
+Due to space constraints, we enclose many of our measurements in this section.
+ETHD→W ETHW→D ERC-20D→W ERC-20W→D
+0
+1,000
+2,000
+3,000
+4,000
+3,139
+3,620
+789
+1,253
+2,864
+3,568
+735
+1,187
+Asset and direction
+#Transactions
+All-time (baseline)
+Post-2023 sensitivity
+Figure 12The prevalence of transactions across depositor (D) and withdrawer (W) addresses
+motivates the formulation of Heuristic 2,cf.Section 4.2.
+CVIT 2016
+23:24A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+0 100 200 300 400 500 600 700 800
+WETH→USDC 745
+USDC→WETH 518
+WETH→USDT 451
+USDT→WETH 282
+DAI→WETH 132
+WETH→WBTC 122
+WETH→RAIL 118
+WETH→DAI 100
+WETH→ZKMEME 79
+APU→WETH 69
+RAIL→WETH 67
+WBTC→WETH 49
+WETH→CRVUSD 35
+JOE→WETH 32
+ZKMEME→WETH 28
+WETH→JOE 28
+WETH→DOG 22
+WETH→APU 19
+CRVUSD→WETH 15
+FLUID→WETH 10
+Swap transactions
+(a)Token pairs, top 20,n= 3,133
+0 400 800 1,200 1,600 2,000
+uniswap 1,726
+pancakeswap 430
+fluid 401
+curve 268
+sushiswap 184
+maverick 84
+balancer 26
+defiswap 11
+shibaswap 3
+Swap transactions
+(b)DEX venues, top 10
+Figure 13Swap transaction usage statistics. Majority of Railgun swap transactions are settled
+on Uniswap. The most popular trading pair is the WETH-USDC pair.
+0 2 4 6 8 10 12 14 16 18
+0
+2
+4
+6
+8
+·106
+Hamming Distanced(amt(di),amt(wj))
+Frequency
+Observed
+Scaled Trunc-Binom(18, 0.9)
+Figure 14Histogram of hamming distances for deposit-withdraw transaction amounts.
+Huseynov et al. 23:25
+0 2 4 6 8 10 12 14 16 18
+0
+1
+2
+3
+4
+5
+6
+·106
+Digit position (0..17; left→right in zero-padded string)
+# pairs
+Figure 15Differing Positions for Pairs with Hamming Distance at Most 10
+0 2 4 6 8 10 12 14 16 18
+0
+0.2
+0.4
+0.6
+0.8
+1
+Fractional digit index i (0 = first digit after decimal)
+P(match) for low-distance pairs
+Figure 16Fractional Digit Agreement Probability for low-distance pairs (Hamming distance
+≤10)
+2 4 6 8 10 12 14 16 18
+0
+500
+1,000
+Substring Length
+# Unique Substrings
+Figure 17Length Distribution of Value-Fingerprint Substrings (appear in exactly 1 low-Hamming
+pair)
+2023 2024 2025
+0
+2,000
+4,000
+Calendar year
+#Transactions
+Deposits
+Withdrawals
+Internal Transactions
+Figure 18Weekly Number of Deposit, Withdraw and Internal Transactions to Railgun Pool
+CVIT 2016
+23:26A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+100 101 102 103
+100
+101
+# Deposits sharing the same 3-digit fingerprint# Withdrawal fingerprints
+(a)Full range
+0 10 20
+0
+20
+40
+60
+# Deposits sharing the same 3-digit fingerprint
+# Withdrawal fingerprints
+(b)Zoomed: 0–20
+Figure 19Overlap Between Withdrawal Fingerprints and Deposits
+1 2 3 4 5 6 7+
+0
+1
+2
+3
+·104
+#Internal txs
+(a)#Input notes
+0 1 2 3 4 5 6 7+
+0
+1
+2
+·104
+#Internal txs
+(b)#Output notes
+Figure 20Number of input and output notes in Railgun internal transactions.
+Huseynov et al. 23:27
+0 5 100
+5
+10
+log2(#pool addrs)[bits]
+Hknap,addr [bits]
+step = 0.01 ETH
+median∆H= 3.59 bits
+0 5 100
+5
+10
+log2(#pool addrs)[bits]
+Hknap,addr [bits]
+step = 0.001 ETH
+median∆H= 3.68 bits
+0 5 100
+5
+10
+log2(#pool addrs)[bits]
+Hknap,addr [bits]
+step = 0.0001 ETH
+median∆H= 3.56 bits
+0 5 100
+5
+10
+log2(#pool addrs)[bits]
+Hknap,addr [bits]
+step = 0.00001 ETH
+median∆H= 3.42 bits
+100
+101
+102
+103
+# deposit transactions
+Figure 21Entropy reduction heatmap due to Heuristic 4 (knapsack matching). The knapsack
+solver algorithm is run fort= 30 days and for various bucket sizesb∈{ 0.01,0.001,0.0001,0.00001}
+(k-to-1, 30-day window).
+CVIT 2016
+23:28A Tattered Cloak of Invisibility:Measuring Anonymity Loss in Railgun on Ethereum
+0 2 4 60
+1,000
+2,000
+3,000
+∆H[bits]
+#deposits
+step = 0.01 ETH
+median∆H= 3.59 bits
+full deanon = 229
+0 2 4 60
+1,000
+2,000
+3,000
+∆H[bits]
+#deposits
+step = 0.001 ETH
+median∆H= 3.68 bits
+full deanon = 66
+0 2 4 60
+1,000
+2,000
+3,000
+∆H[bits]
+#deposits
+step = 0.0001 ETH
+median∆H= 3.56 bits
+full deanon = 44
+0 2 4 60
+1,000
+2,000
+3,000
+∆H[bits]
+#deposits
+step = 0.00001 ETH
+median∆H= 3.42 bits
+full deanon = 85
+Figure 22Entropy reduction histogram (k-to-1, 30-day window). The orange components of
+the stacked bars correspond to deposits that are fully deanonymized by the knapsack heuristic, i.e.,
+Hknap = 0. The dashed vertical lines indicate the median entropy reduction.

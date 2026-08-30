@@ -102,7 +102,7 @@ class ArxivProvider(AcademicProvider):
         entries = r.data.findall("atom:entry", ATOM_NS)
         if not entries:
             return failed("arxiv id not found", self.name)
-        return ok(_paper_from_arxiv_entry(entries[0]), self.name, raw=r.data)
+        return ok(_paper_from_arxiv_entry(entries[0]), self.name, raw=r.raw)
 
     def search_by_title(self, title: str, limit: int = 5) -> ProviderResult:
         # arXiv query: ti:"exact phrase" or all:word1 word2
@@ -112,7 +112,7 @@ class ArxivProvider(AcademicProvider):
             return failed(f"arxiv title search failed: {r.error}", self.name)
         entries = r.data.findall("atom:entry", ATOM_NS)
         papers = [_paper_from_arxiv_entry(e) for e in entries]
-        return ok(papers, self.name, raw=r.data)
+        return ok(papers, self.name, raw=r.raw)
 
     async def afetch_by_doi(self, doi: str) -> ProviderResult:
         return self.fetch_by_doi(doi)
@@ -134,4 +134,4 @@ class ArxivProvider(AcademicProvider):
         if r.status != "ok" or r.data is None:
             return failed(f"arxiv author works failed: {r.error}", self.name)
         entries = r.data.findall("atom:entry", ATOM_NS)
-        return ok([_paper_from_arxiv_entry(e) for e in entries], self.name, raw=r.data)
+        return ok([_paper_from_arxiv_entry(e) for e in entries], self.name, raw=r.raw)

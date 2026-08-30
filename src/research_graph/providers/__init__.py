@@ -58,6 +58,8 @@ def _bootstrap_provider_table() -> None:
         ("scihub",            "research_graph.providers.scihub",            "SciHubProvider",            False),
         ("annas",             "research_graph.providers.annas",             "AnnasArchiveProvider",       False),
         ("openalex_pdf",      "research_graph.providers.openalex_pdf",      "OpenAlexPdfProvider",        False),
+        ("unpaywall",         "research_graph.providers.unpaywall",         "UnpaywallProvider",          False),
+        ("scidb",             "research_graph.providers.scidb",             "SciDBProvider",              False),
         ("tavily",            "research_graph.providers.tavily",            "TavilyProvider",            True),
     ]:
         _register_provider(name, mod, cls, soft_fail=soft)
@@ -160,6 +162,19 @@ def get_default_registry(config: Config) -> ProviderRegistry:
             continue
         providers.append(p)
         seen_names.add(p.name)
+    # Download providers are gated by outputs.enable_pdf_download, not
+    # search.providers — register them too so download-pdfs finds them.
+    if getattr(getattr(config, "outputs", None), "enable_pdf_download", False):
+        alias = {"openalex": "openalex_pdf"}
+        for name in getattr(config.outputs, "pdf_download_providers", []):
+            rname = alias.get(name, name)
+            if rname in seen_names:
+                continue
+            p = _build_provider(rname, config)
+            if p is None:
+                continue
+            providers.append(p)
+            seen_names.add(rname)
     if not providers:
         _log.warning(
             "registry built with zero providers (config.search.providers=%s)",

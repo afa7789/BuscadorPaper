@@ -1,0 +1,1622 @@
+On How Zero-Knowledge Proof Blockchain Mixers Improve,
+and Worsen User Privacy
+Zhipeng Wang
+Imperial College London
+Stefanos Chaliasos
+Imperial College London
+Kaihua Qin
+Imperial College London
+UC Berkeley RDI
+Liyi Zhou
+Imperial College London
+UC Berkeley RDI
+Lifeng Gao
+Imperial College London
+Pascal Berrang
+University of Birmingham
+Benjamin Livshits
+Imperial College London
+Arthur Gervais
+University College London
+UC Berkeley RDI
+ABSTRACT
+Zero-knowledge proof (ZKP) mixers are one of the most widely-
+used blockchain privacy solutions, operating on top of smart contract-
+enabled blockchains. We find that ZKP mixers are tightly inter-
+twined with the growing number of Decentralized Finance (DeFi) at-
+tacks and Blockchain Extractable Value (BEV) extractions. Through
+coin flow tracing, we discover that 205 blockchain attackers and
+2,595 BEV extractors leverage mixers as their source of funds, while
+depositing a total attack revenue of 412.87M USD. Moreover, the
+US OFAC sanctions against the largest ZKP mixer, Tornado.Cash,
+have reduced the mixer’s daily deposits by more than 80%.
+Further, ZKP mixers advertise their level of privacy through a so-
+called anonymity set size, which similarly to 𝑘-anonymity allows
+a user to hide among a set of 𝑘 other users. Through empirical
+measurements, we, however, find that these anonymity set claims
+are mostly inaccurate. For the most popular mixers on Ethereum
+(ETH) and Binance Smart Chain (BSC), we show how to reduce the
+anonymity set size on average by 27.34% and 46.02% respectively.
+Our empirical evidence is also the first to suggest a differing privacy-
+predilection of users on ETH and BSC.
+State-of-the-art ZKP mixers are moreover interwoven with the
+DeFi ecosystem by offering anonymity mining ( AM) incentives,
+i.e., users receive monetary rewards for mixing coins. However,
+contrary to the claims of related work, we find that AM does not
+necessarily improve the quality of a mixer’s anonymity set. Our
+findings indicate that AM attracts privacy-ignorant users, who then
+do not contribute to improving the privacy of other mixer users.
+KEYWORDS
+Privacy; Anonymity; Blockchain; DeFi; Mixer
+1 INTRODUCTION
+It is well-known that non-privacy-focused permissionless blockchains,
+such as Bitcoin and Ethereum, offer pseudonymity rather than
+anonymity [2, 10, 12]. While privacy-preserving blockchains [14,
+21, 30] aim to protect their users’ privacy, retrofitting a blockchain
+with privacy has proven challenging and remains an active research
+area [7, 13, 19, 20, 28, 29, 31, 32, 37]. The solution space can be
+broadly divided into (i) privacy-by-design blockchains and (ii) add-
+on privacy solutions, which are retrofitted, e.g., as a Decentralized
+Application (DApp) on top of non-privacy-preserving blockchains.
+This paper is accepted at the ACM Web Conference 2023 (WWW ’23).
+ZKP mixers, inspired by Zerocash [ 30], are one of the most
+widely-used blockchain privacy solutions, where a user deposits a
+fixed denomination of coins into a pool and later withdraws these
+coins to an address. The goal of ZKP mixers is to break the linkabil-
+ity between a deposit and a new withdrawal address. The most ac-
+tive ZKP mixer on ETH, Tornado.Cash (TC), reports an anonymity
+set size of 51,286 for its largest pool (i.e., 1 ETH pool) on August
+8th, 2022. This number is simply derived from the count of equal
+user deposits and suggests that, given a withdrawal transaction,
+the corresponding deposit can be hidden among the 51K deposits.
+Moreover, to attract users, ZKP mixers offer anonymity mining
+(AM) incentives, where users can receive rewards for mixing coins.
+ZKP mixers have also attracted the attention of centralized reg-
+ulators. On August 8th, 2022, the US Treasury’s Office of Foreign
+Assets Control (OFAC) placed sanctions [36] on TC due to alleged
+facilitation of money laundering. To our knowledge, this is the
+first time that centralized regulators sanctioned a decentralized and
+open-source application.
+In this work, (i) we investigate to what degree adversarial ac-
+tors use ZKP mixer, (ii) how the OFAC sanctions affect mixer us-
+age, (iii) we challenge the mixer’s reported anonymity set sizes
+through heuristic intersections, and attempt to validate our heuris-
+tics through public side-channel data, and (iv) we investigate the
+privacy implications of anonymity mining.
+We summarize our contributions as follows:
+1. Analyzing Multi-Blockchain ZKP Mixers Usage: We empir-
+ically investigate through coin flow tracing the deposit and with-
+drawal behavior on the two most popularZKP mixers, TC (on ETH)
+and Typhoon.Network (TN) (on BSC). For mixer withdrawals, we
+discover that 141 malicious addresses and 545 BEV extractors with-
+draw coins from a mixer as the adversarial source of funds. For
+mixer deposits, we find that 172 malicious addresses and 2,376 BEV
+extractors deposit a total of 412.87M USD into TC (cf. Section 4).
+2. OFAC Sanctions Impact on Mixers: We are the first to analyze
+how OFAC sanctions affect ZKP mixers. We find that, although
+487 user addresses have still deposited 62.59M USD into TC after
+the sanctions, the total daily TC deposits have decreased by 83%.
+Additionally, we discover that more than 85% post-sanction TC
+withdrawn assets are transferred to intermediary addresses before
+being sent to Centralized Exchanges ( CEXs) or DeFi platforms,
+which indicates that users likely attempt to bypass the platforms’
+censorship (cf. Section 5).
+3. Anonymity Mining’s Impact on Privacy: We are the first to
+study and empirically evaluate the impact of AM in ZKP mixers.
+1
+arXiv:2201.09035v2  [cs.CR]  6 Mar 2023
+Wang et al.
+Contrary to the claims of related work [18], we find that AM does
+not always increase mixers’ anonymity set size quality, because AM
+appears to attract privacy-ignorant users with a primary interest
+in mining rewards. After pruning privacy-ignorant user addresses,
+we find that the advantage (cf. Eq. 13) that an adversary links a
+withdrawer to the correct depositor rises from 7.00% (before AM
+launch) to 13.50% (after AM launch) on average (cf. Section 6).
+4. Measuring Mixer Anonymity Set Size: We propose five on-
+chain data heuristics to derive a more accurate mixer anonymity
+set size, than naively enumerating equal user deposits. Combin-
+ing heuristics proves powerful, as our evaluation shows that an
+adversary can reduce the anonymity set size on average by 27.34%
+and 46.02% of TC (on ETH) and TN (on BSC) respectively. We are
+hence the first to provide quantitative evidence indicating a user
+behavior difference w.r.t. privacy on two non-privacy-preserving
+blockchains. Our results also show that the biggest anonymity set
+continues to attract privacy-aware users, similar to how liquidity
+attracts liquidity in financial exchanges (cf. Section 7).
+2 BACKGROUND
+2.1 Blockchain and Smart Contracts
+Permissionless blockchains act as a distributed ledger on top of
+a peer-to-peer ( P2P) network. Smart contracts are quasi Turing-
+complete programs that typically execute within a virtual machine
+and allow users to construct various applications. For instance,DeFi
+is a financial ecosystem that runs autonomously on smart-contracts-
+enabled blockchains. The total locked value in DeFi has reached
+over 41B USD at the time of writing. Many DApps are inspired by
+and mirror traditional centralized finance systems, such as asset
+exchanges, lending and borrowing platforms, and margin trading
+systems [11, 24, 26, 39, 45]. A transaction can be used to transfer
+blockchain tokens or to trigger the execution of smart contract
+functions. The sender of a transaction pays for the cost of the entire
+smart contract execution caused by that transaction.
+Transactions are propagated over a public P2P or a private relay
+network, prior to being validated by miners. Miners hence have the
+unilateral power to determine the transaction order in their mined
+blocks, creating an information asymmetry that yields a financial
+gain, i.e., Miner Extractable Value (MEV) [11]. Generalizing MEV,
+non-mining traders can also manipulate the transaction order and
+front-run their victims by paying higher transaction fees to extract
+blockchain extractable value (BEV) [25]. Related work [25] indicates
+that the dominant BEV activities include sandwich attacks [ 45],
+liquidations [24], arbitrages [44], and replay attacks [25].
+2.2 Mixing Services for DeFi
+Mixing services allow users to mix their coins with other users
+in an effort to break linkability of addresses. The literature fea-
+tures various proposals for mixing service designs, which can be
+centralized [7, 13, 31, 37] or governed by smart contracts.
+As DeFi adoption increases and all transactions, balances, senders,
+and recipients are public, the demand for privacy in DeFi has led
+to the launch of ZKP mixers. To date, the largest ZKP mixer on
+Ethereum is TC [33], which launched in December 2019. TC oper-
+ates four ETH pools (i.e., 0.1, 1, 10 and 100 ETH pools) which support
+the deposit and withdrawal of a fixed amount of ETH. When a user
+deposits a fixed amount ofETH into a TC pool, the user should safely
+back up a deposit note; to withdraw, the user should provide the
+deposit note, which needs to be verified by the TC smart contract.
+TC also supports the mixing of other tokens (e.g., USDC, USDT, etc),
+but most users appear to be mixing ETH. The total ETH deposited in
+TC reached over 3.54M ETH1 (4.70B USD) at the time of writing.
+AMR [18] is a new mixer design similar to TC, but additionally
+rewards its users for their participation in the system. Such incen-
+tivization of paying rewards is similar to the currently popular
+liquidity mining, also called “DeFi farming”, an attempt to attract
+more users. More users should translate to a larger anonymity
+set size, as AMR proclaims. Soon after AMR, TC was updated to
+support anonymity mining [34] to incentivize users to keep their
+deposited ETH in mixer pools for a longer time period. ZKP mix-
+ers can also run on other smart contract-enabled blockchains, e.g.,
+Typhoon.Cash (TP) on ETH, TN and Cyclone on BSC.
+2.3 OFAC Sanctions against TC
+On August 8th, 2022, the US Treasury’s OFAC placed sanctions [35,
+36] on TC, due to alleged assistance of money laundering. OFAC
+added the TC website and related addresses to the “Specially Des-
+ignated Nationals And Blocked Persons” (SDN) list. According to
+the sanctions, US citizens are no longer legally allowed to use the
+TC website or involve any property or interest transactions with
+the addresses in the SDN list. To our knowledge, this is the first
+time that centralized regulators sanction decentralized applications.
+The sanctions caused a series of consequences. For instance, many
+DeFi platforms (e.g., Uniswap), Front-running as a Service (FaaS)
+platforms (e.g., Flashbots), and miners (e.g., Ethermine) choose to
+censor TC-related transactions or addresses interacting withTC [8].
+3 SYSTEM MODEL AND PRIVACY METRICS
+In this section, we outline our system and privacy metrics.
+3.1 System Model
+Address: Users have at least one public/private key-pair (corre-
+sponding to their address), which controls cryptocurrency assets
+on a permissionless blockchain. To transfer or trade an asset, a
+user signs a transaction with its private key. Each transaction cor-
+responds to an event with various publicly readable features, such
+as the time of day and the transaction fees.
+Coin Transfer: A transfer of acoin is a tupletr = (bn, from, to, amt,
+coin), where bn is the block number (i.e., timestamp), amt is the
+amount of coin that is transferred from the address from to to.
+Coin Flow: A chain of transfers of coin between addresses.
+Link: Two addresses a1 and a2 belong to the same user are linked.
+Denoted as Link(a1, a2)= 1.
+Cluster: A cluster is a set of mutually-linked addresses.
+Mixer Pool: A mixer pool, denoted as P, is an aggregation of cryp-
+tocurrency assets governed by smart contracts (cf. Fig. 1). Users can
+only deposit and withdraw a specific cryptocurrencycoin. To avoid
+that deposit/withdrawal asset amounts leak privacy, mixer pools
+typically only accept a fixed currency denomination. The proper
+1We adopt the coin prices on CoinMarketCap on October 1st, 2022, e.g., 1 ETH =
+1,330 USD, 1 BNB = 285 USD.
+2
+On How Zero-Knowledge Proof Blockchain Mixers Improve, and Worsen User Privacy
+ 
+... 
+... 
+... 
+... 
+... 
+... 
+... 
+... 
+Mixer Pool
+1 
+2 
+3 
+4 
+Figure 1: System Model for a mixer pool, where DP(𝑡) =
+{𝑑1, ..., 𝑑𝑚 }and WP(𝑡)= {𝑤1, ..., 𝑤𝑠 }. ‘ −→’ represents a trans-
+fer of coin, and ‘ c’ represents a note transfer. When a user
+u deposits coin into pool P (in step 1), u receives a note from
+P (in step 2). To withdraw, u needs to provide note to P (in
+step 3), and will receive coin after P verifies note (in step 4). A
+user can control multiple addresses. An address can be used
+to deposit or withdraw multiple times.
+use of a mixer pool P requires choosing one address to deposit and
+another ideally unlinkable address to withdraw.
+A depositor is an address to depositcoin into P, and awithdrawer
+is an address to receivecoin from P. At time𝑡, given a poolP, denote
+its depositor set as DP(𝑡)and withdrawer set as WP(𝑡).
+To track users’ coin flows before and after interacting with a
+mixer pool, we extend the depositor and withdrawer set (cf. Fig. 2).
+Depositors Extension: At time 𝑡, we let DP(𝑡)= D(1)
+P (𝑡), and
+define the depositors in distance 𝑛 (where 𝑛 > 1), D(𝑛)
+P (𝑡), as the
+set of addresses that transfer coin to the addresses in D(𝑛−1)
+P (𝑡).
+Withdrawers Extension: At time𝑡, we letWP(𝑡)= W(1)
+P (𝑡)and
+define the withdrawers in distance𝑛 (where 𝑛 > 1), W(𝑛)
+P (𝑡), as the
+set of addresses that receivecoin from the addresses inW(𝑛−1)
+P (𝑡).
+Extended Mixer Pool: Based on the extension of depositors and
+withdrawers, the mixer pool model in Fig. 1 can be extended to a
+model in Fig. 2, which can cover depositors and withdrawers in
+longer distances.
+We propose the following definitions to further describe mixers
+and summarize the key definitions in Table 1.
+Address Balance in A Pool: An address’s balance is the amount
+of coins that an address holds in a pool at a time 𝑡 (cf. Eq. 7).
+Pool State: A pool’s state is the set of tuples constituted by all
+depositors, withdrawers, and their balances inP, at time 𝑡 (cf. Eq. 8).
+A pool P’s state is determined by users’ balances. For instance,
+if 𝑑1 deposits once, 𝑑2 deposits twice, and 𝑤1 withdraws once in a
+100 coin pool P100 before time 𝑡, then P100’s pool state is SP100 (𝑡)=
+{(𝑑1, 100), (𝑑2, 200), (𝑤1, −100)}. If there exists a link between a
+depositor and a withdrawer in a pool P, we can simplify the pools’
+state (cf. Eq. 10). For instance, if Link(𝑑1, 𝑤1)= 1, then we can
+simplify the state as Simp  SP100 (𝑡), (𝑑1, 𝑤1) = {(𝑑2, 200)}.
+Mixer Pool ... ... ... 
+... 
+... 
+... 
+... ... 
+... ... 
+... 
+... 
+... 
+... 
+... 
+... 
+... 
+... 
+Figure 2: Extended model of a mixer pool. The mixer pool
+model in Fig. 1 can be extended to a model, which can cover
+depositors and withdrawers in longer distances.
+3.2 Privacy Metrics
+Knowing the depositor set DP(𝑡)of a pool P at time 𝑡, we define
+the observed anonymity set and the true anonymity set of the pool.
+Observed Anonymity Set: Given a mixer pool P at time 𝑡, the
+observed anonymity set OASP(𝑡)of a pool P is the set of unique
+deposit addresses, i.e., DP(𝑡).
+True Anonymity Set: At time 𝑡, the true anonymity set TASP(𝑡)
+of a pool P is the set of addresses with a positive deposit balance in
+the pool, i.e., the set of depositors whose deposited assets have not
+yet been completely withdrawn from the pool P.
+Note that the true anonymity set might not be apparent from
+observing the blockchain data, because it is the mixer’s intention to
+obfuscate the addresses depositing into the mixer pool. However, an
+adversary can leverage on-chain data to compute a more “realistic”
+anonymity set, which can be more representative than OASP(𝑡).
+Simplified Anonymity Set: Given a mixer pool P at time 𝑡, the
+simplified anonymity set SASP(𝑡)is the set of depositors with a
+positive balance, which is computed by leveraging on-chain data
+to simplify the pool state. Note that SASP(𝑡)⊆ OASP(𝑡).
+Privacy Metric: The probability that an adversary without prior
+knowledge links a withdrawer (who withdraws at time 𝑡) to the
+correct depositor is Adv𝑜
+A(𝑡)= 1/|OASP(𝑡)|.
+If the adversary can link a withdrawer 𝑤, to a target set of de-
+positors SASP(𝑡), then the probability that the adversary links 𝑤
+to the correct depositor is Adv𝑠
+A(𝑡)= 1/|SASP(𝑡)|.
+We further defineRAdv as the increase ofAdv𝑠
+A(𝑡)over Adv𝑜
+A(𝑡),
+to represent the advantage that an adversary links a withdrawer to
+the correct depositor after simplifying the anonymity set (cf. Eq. 13).
+RAdv =
+Adv𝑠
+A(𝑡)−Adv𝑜
+A(𝑡)
+Adv𝑜
+A(𝑡) (13)
+4 EMPIRICAL MIXER ACTIVITY
+To gather empirical insights into the activities of existing ZKP
+mixers, we crawl the deposit, withdrawal events and transactions
+of the 73 pools on four ZKP mixers: TC, TP, TN and Cyclone, from
+December 16th, 2019 (i.e., the inception time of TC) to October 1st,
+2022. We observe that 97.36% of the mixer users deposit assets into
+3
+Wang et al.
+Table 1: System Model Definitions
+Name Definition Eq. Name Definition Eq.
+Coin Transfer tr = (bn, from, to, amt, coin)wherefrom
+coin
+−−−→to (1) Coin Flow F= (tr1, ...,tr𝑛)where
+tr𝑖−1.to = tr𝑖 .fromand tr𝑖−1.bn ≤tr𝑖 .bn (2)
+Link Link(a1, a2)= 1 ⇔a1 is linked toa2 (3) Cluster C= {a1, ..,a𝑛 }, ∀a𝑖 ∈C, ∃a𝑗 ∈C\{ a𝑖 },
+satisfiesLink(a𝑖, a𝑗 )= 1 (4)
+Pool Depositors DP (𝑡)= {d |d depositscoinintoP before𝑡 } (5) Pool Withdrawers WP (𝑡)= {w |w withdrawscoinfromP before𝑡 } (6)
+Address Balance bala (𝑡)= ua (𝑡)×𝑝 −va (𝑡)×𝑝, whereua (𝑡)and va (𝑡)are
+the numbers ofa’s deposit and withdrawal, respectively. (7) Pool State SP (𝑡)= {(a, bala (𝑡))| a ∈DP (𝑡)∪WP (𝑡)} (8)
+Merge Merge(SP (𝑡), (a1, a2))= {(a, bala (𝑡))|a ∈DP (𝑡)∪WP (𝑡)
+∧a ≠ a1 ∧a ≠ a2 }∪{( a1, bala1 (𝑡)+bala2 (𝑡))} (9) Simplified Pool
+State
+If S= ∅, Simp(SP (𝑡), S)= SP (𝑡);
+Else:Simp(SP (𝑡), S)= Simp
+
+Merge(SP (𝑡), (a𝑖, a𝑖+1)), S′
+where𝑆 is a set of linked addresses andS′= S\{( a𝑖, a𝑖+1)}
+(10)
+Depositors
+Extension D(𝑛)
+P (𝑡)= {a |∃a1 ∈D(𝑛−1)
+P (𝑡), a
+coin
+−−−→a1 before𝑡 } (11) Withdrawers
+Extension W(𝑛)
+P (𝑡)= {a |∃a1 ∈W(𝑛−1)
+P (𝑡), a1
+coin
+−−−→a before𝑡 } (12)
+2019-12
+2020-01
+2020-02
+2020-03
+2020-04
+2020-05
+2020-06
+2020-07
+2020-08
+2020-09
+2020-10
+2020-11
+2020-12
+2021-01
+2021-02
+2021-03
+2021-04
+2021-05
+2021-06
+2021-07
+2021-08
+2021-09
+2021-10
+2021-11
+2021-12
+2022-01
+2022-02
+2022-03
+2022-04
+2022-05
+2022-06
+2022-07
+2022-08
+2022-09
+2022-10
+0
+10K
+20K
+30K
+40K# depositors
+TC
+TP
+Cyclone
+TN
+Figure 3: ZKP mixer depositors over time. 41,441 (83.61%)and
+6,814 (13.75%)depositors appear in TC and TN, respectively.
+Table 2: Deposits/withdrawals in TC ETH and TN BNB pools.
+Pool # Deposits # Withdrawals # Depositors # Withdrawers
+TC 0.1ETH 26,069 22 ,281 11 ,941 13 ,227
+TC 1ETH 51,770 49 ,086 17 ,843 23 ,592
+TC 10ETH 45,238 44 ,228 16 ,227 21 ,872
+TC 100ETH 30,301 29 ,553 6 ,433 11 ,069
+TN 0.1BNB 10,485 9 ,877 3 ,972 4 ,541
+TN 1BNB 13,151 12 ,901 3 ,890 4 ,362
+TN 10BNB 4,886 4 ,860 1 ,675 1 ,983
+TN 50BNB 607 604 231 288
+TC and TN, and that the number of TP depositors has not changed
+since February, 2021 (cf. Fig. 3). Therefore, we focus on analyzing
+the two most active mixers, TC and TN.
+We analyze the top four active pools in TC (0.1, 1, 10 and 100
+ETH pools) and TN (0.1, 1, 10 and 50 BNB pools). For TC, we crawl
+the deposit and withdrawal events data from the Ethereum block
+9,116,966 (December 16th, 2019) to 15,650,000 (October 1st, 2022).
+The TC 1 ETH pool is the most active (51,770 deposits and 49,086
+withdrawals), while the TC 100 ETH pool has the smallest depositor
+and withdrawer set (6,433 deposit and 11,069 withdraw addresses).
+The TC pools accumulate deposits of 3.54M ETH (4.70B USD). More-
+over, from TN’s inception at BSC block 5,230,899 (February 27th,
+2021) until block 21,800,000 (October 1st, 2022), we find that 6,814
+addresses generate 29,129 deposits in the four BNB pools, accumu-
+lating 93,409.5 BNB (26.62M USD).
+4.1 Depositors and Withdrawers
+The four TC ETH pools contain 39,821 depositors and 61,026 with-
+drawers, depositing88.82 ETH (118K USD) and withdrawing56.52 ETH
+(75K USD) on average. In each pool, the number of withdrawers is
+greater than depositors, indicating that a user may adopt multiple
+addresses to withdraw than to deposit. Moreover, 58,998 (84.95%)
+withdrawers have zero ETH before receiving ETH from TC.
+Cross-pool Mixer Usage. Because a mixer pool only supports
+a fixed currency denomination, users may utilize multiple pools
+to mix arbitrary amounts of assets. We find that 327 depositors
+utilize all four TC pools, and 9,962 (25.02%) deposit in more than
+one pool. Additionally, 60 users withdraw from all four pools, and
+7,479 (12.26%)use more than one pool to withdraw. Likewise, for
+TN, we observe a slight increase in overlaps on both depositors (33%)
+and withdrawers (25%) appearing in at least two pools. The overlap
+of pools may help an adversary to link addresses (cf. Section 7.1).
+4.2 ZKP Mixer Coin Flow
+In addition to immediate depositors and withdrawers, we are also
+interested in the coins’ wider flow to get their origins and destina-
+tions. For example, users move their coins from exchanges or DeFi
+platforms via intermediary addresses into and outside the mixer.
+To track where the depositedETH in TC are transferred from and
+where the withdrawn ETH are transferred to, we extend our pool
+model to cover depositors and withdrawers in distance 2. We crawl
+the transaction history of user addresses before October 1st, 2022.
+For each depositor 𝑑 (1)in a TC 𝑝 ETH pool, we extract the most
+recent transfers of 𝑝 ETH that 𝑑 (1)receives before depositing into
+TC, and obtain the depositors in distance 2 that transferETH to 𝑑 (1).
+Similarly, we obtain the withdrawers in distance 2 by extracting
+the most recent transfers of 𝑝 ETH that the withdrawers in distance
+1 send after withdrawing from TC. Then, we tag the depositors
+and withdrawers in distance 2 using manually crawled labels from
+Etherscan. We finally cluster the addresses into different platforms
+based on their labels.
+Fig. 4 visualizes theETH flow via fourTC ETH pools before August
+8th, 2022. We observe that the top 10 clusters in distance 2 cover
+48.11% of the total deposit volume, and transfers from Decentralized
+Exchanges (DEXs), e.g., Uniswap, alone amount to 750.2K ETH
+(21.74% of the total deposit volume).DEXs are also the most popular
+4
+On How Zero-Knowledge Proof Blockchain Mixers Improve, and Worsen User Privacy
+Other Addresses
+P_100
+Uniswap
+TC
+SushiSwap
+Binance
+Compound
+Wrapped Ether
+1inch
+Bridges
+FTX
+0x
+ParaSwap
+dYdX
+Liquity
+Huobi
+Kraken
+Aave
+Curve
+Bitfinex
+Balancer
+OKEx
+Malicious Addresses
+Kyber
+KuCoin
+P_10
+P_1
+P_0.1
+Other Addresses
+Wrapped Ether
+TC
+Uniswap
+1inch
+SushiSwap
+0x
+Binance
+Aave
+Metamask
+Balancer
+LiquityCurve
+Bridges
+ParaSwap
+Compound
+dYdXKyber
+Kraken
+HuobiKuCoin
+Malicious Addresses
+FTX
+BitfinexOKEx
+Depositors in distance 2
+Withdrawers in distance 2
+TC ETH Pools
+Loading [MathJax]/extensions/MathMenu.js
+Figure 4: Prior-sanction TC ETH pools coin flow. The shown
+bandwidth of each flow represents the magnitude of the ag-
+gregate ETH transferred from depositors in distance 2 to TC
+(via depositors in distance 1), or from TC to withdrawers in
+distance 2 (via withdrawers in distance 1).
+2020-01
+2020-02
+2020-03
+2020-04
+2020-05
+2020-06
+2020-07
+2020-08
+2020-09
+2020-10
+2020-11
+2020-12
+2021-01
+2021-02
+2021-03
+2021-04
+2021-05
+2021-06
+2021-07
+2021-08
+2021-09
+2021-10
+2021-11
+2021-12
+2022-01
+2022-02
+2022-03
+2022-04
+2022-05
+0
+10K
+20K
+30K
+40K
+50K
+60KDeposit ETH
+DeFi Attackers
+Fake Phishing/Scam
+Figure 5: TC deposit amounts of malicious addresses in dis-
+tance 1 before May 2022. DeFi Attackers deposit more assets
+than Fake Phishing/Scam addresses.
+DeFi platforms to which TC users transfer their withdrawn ETH
+(27.2% of the total withdrawal volume). This is probably because
+users are swapping ETH to other tokens on DEXs. We also observe
+that 10.64% of the total deposit volume is re-deposited into TC.
+4.3 Why Do Users Resort to Mixers?
+Based on the coin flow, we analyze mixer user behaviors and find
+the following motivations for adopting mixers.
+Money laundering: Because mixers break the linkability between
+addresses, users can use them to conceal their traces. To do so,
+users withdraw ETH from a mixer pool to a fresh address, and
+then transfer their assets (via intermediary addresses) to CEXs, e.g.,
+Binance and Huobi, to receive fiat currencies. We crawl 364 labeled
+CEX addresses from Etherscan and identify that 63 out of them
+appear in the TC withdrawer sets in distance 2, which may attempt
+to leverage intermediary addresses to hide their traces. We find that
+4,062 addresses transfer 26.2K ETH (34.85M USD) into CEXs.
+Anonymity mining: TC incentivizes users to adopt mixers through
+AM [34]. Users can earn rewards for depositing and withdrawing
+funds from a TC ETH pool, and interacting with TC anonymity
+Table 3: 205 malicious addresses and 2,595 BEV extractors
+leverage TC to hide their traces. An address can appear in
+more than one distance of depositor and withdrawer set.
+Pattern Address Type Total Distance
+𝑛 =1 𝑛 =2
+Mixer𝑛− →Malicious Addresses
+Fake Phishing Scam 19 13 8
+DeFi Attacker 121 81 49
+CEX Attacker 1 0 1
+Malicious Addresses𝑛− →Mixer
+Fake Phishing/Scam 58 26 35
+DeFi Attacker 113 88 56
+CEX Attacker 1 0 1
+Mixer𝑛− →BEV Extractors
+Sandwich Attacker 431 240 230
+Arbitrageur 72 48 45
+Liquidator 51 27 34
+BEV Extractors𝑛− →Mixer
+Sandwich Attacker2,185 495 2 ,096
+Arbitrageur 128 33 124
+Liquidator 73 56 60
+mining contract (see Section 6 for more details). Our findings show
+that 1,141 depositors and 1,290 withdrawers are used to receive
+AM rewards, while depositing 532.3K ETH (707.98M USD) and with-
+drawing 512.6K ETH (681.79M USD) respectively. Furthermore, we
+find that addresses using AM typically deposit and withdraw mul-
+tiple times. For instance, among the top 100 withdrawers with the
+highest withdrawal amount, 40 addresses received AM rewards.
+Extracting BEV: Mixers also provide opportunities to BEV ex-
+tractors (a BEV extractor is an address which is used to perform a
+sandwich attack, liquidation, or arbitrage) to enhance their privacy.
+To understand how many BEV extractors utilize TC, we contacted
+the authors of [25] to reuse their quantification results on sandwich
+attacks, liquidations, and arbitrage from block 6,803,256 (December
+1st, 2018) to block 12,965,000 (August 5th, 2021). We then analyze
+whether the 11,289 BEV extractors identified in [25] appear in TC
+depositor and withdrawer sets. We find that 2,185 addresses are
+used for sandwich attacks,128 for arbitrages, and73 for liquidations
+(cf. Table 3), while depositing115,980.5 ETH (154.25M USD) into TC.
+Furthermore, 545 BEV extractors withdraw 45,536.8 ETH from TC.
+Launching attacks: Malicious actors may adopt mixers to hide
+their identities. To gain initial insights into how malicious users
+adopt TC, we first crawl 6,611 blockchain phishing- and attack-
+related addresses from the dataset provided by the DeFi Attack
+SoK [46]. This dataset contains data from (i) Etherscan, (ii) Rekt
+News, (iii) Slowmist, (iv) Cryptosec, and (v) CryptoscamDB. We
+regard the 6,611 addresses as malicious addresses and find that 205
+addresses out of them appear in TC depositor and withdrawer sets.
+We find that172 malicious addresses deposit194,448 ETH (258.62M
+USD) into TC, while 141 addresses withdraw 3,523.4 ETH from TC
+(cf. Table 3). We further cluster the 205 malicious addresses into
+three categories: (i) Fake Phishing/Scam ( 31.22%), which are la-
+beled as “Phish / Hack” on Etherscan or scam addresses on Cryp-
+toscamDB; (ii) DeFi attackers (68.29%), which attacked a DeFi plat-
+form; (iii) CEX attackers (0.49%), which steal assets from a CEX.
+Fig. 5 shows the malicious addresses directly depositingETH into
+TC overtime. Malicious addresses seem to be careful to use mixers:
+The first time a malicious address deposits ETH into TC is in July,
+2020, when the anonymity set size exceeds 1,000 (cf. Fig. 3).
+5
+Wang et al.
+2019-12
+2020-01
+2020-02
+2020-03
+2020-04
+2020-05
+2020-06
+2020-07
+2020-08
+2020-09
+2020-10
+2020-11
+2020-12
+2021-01
+2021-02
+2021-03
+2021-04
+2021-05
+2021-06
+2021-07
+2021-08
+2021-09
+2021-10
+2021-11
+2021-12
+2022-01
+2022-02
+2022-03
+2022-04
+2022-05
+2022-06
+2022-07
+2022-08
+2022-09
+2022-10
+-80K
+-60K
+-40K
+-20K
+0
+20K
+40K
+60K
+80KETH AM Starts
+TC Sanctions Start
+Daily Deposit
+Daily Withdrawal
+Figure 6: Daily transactions in TC ETH pools. There was a
+panic exit when the OFAC sanctions were announced.
+2021-02
+2021-03
+2021-04
+2021-05
+2021-06
+2021-07
+2021-08
+2021-09
+2021-10
+2021-11
+2021-12
+2022-01
+2022-02
+2022-03
+2022-04
+2022-05
+2022-06
+2022-07
+2022-08
+2022-09
+2022-10
+-15K
+-10K
+-5K
+0
+5K
+10K
+15KBNB
+Daily Deposit
+Daily Withdrawal
+TC Sanction Starts
+Figure 7: Daily transactions in TN BNB pools. There were al-
+most zero deposits and withdrawals in TN during June and
+July 2022, but the activities increased after the TC sanctions.
+Other Addresses
+P_100
+1inch
+Uniswap
+Bridges
+Wrapped Ether
+TC
+0x
+P_10
+SushiSwapFTX
+Binance
+P_1
+OKEx
+P_0.1
+Huobi
+Uniswap
+Other Addresses
+Curve
+Bridges
+Wrapped Ether
+1inch
+TC
+MetamaskSushiSwap0xKrakenFTXBinance
+Compound
+LiquityAave
+Bitfinex
+Depositors in distance 2
+Withdrawers in distance 2
+TC ETH Pools
+Loading [MathJax]/extensions/MathMenu.js
+Figure 8: Post-sanction TC ETH pools coin flow. After the
+sanctions, more than 85% of the TC withdrawn ETH are trans-
+ferred to intermediary addresses in distance 2, rather than
+being transferred to DeFi platforms or CEXs.
+5 OFAC SANCTIONS IMPACT ON ZKP
+MIXERS
+In this section, we investigate how OFAC sanctions affect mixers.
+Impact on Mixer Usage. To understand how users interact with
+ZKP mixers before and after the sanctions, we plot the daily de-
+posited and withdrawn ETH and BNB in TC and TN pools from
+December 16th, 2019 to October 1st, 2022 in Figures 6 and 7. We
+observe that the graphs of daily deposits and withdrawals seem to
+2020-01
+2020-02
+2020-03
+2020-04
+2020-05
+2020-06
+2020-07
+2020-08
+2020-09
+2020-10
+2020-11
+2020-12
+2021-01
+2021-02
+2021-03
+2021-04
+2021-05
+2021-06
+2021-07
+2021-08
+2021-09
+2021-10
+2021-11
+2021-12
+2022-01
+2022-02
+2022-03
+2022-04
+2022-05
+2022-06
+2022-07
+2022-08
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Percentage of
+TC Transactions
+Ethermine
+Spark Pool
+F2Pool Old
+Hiveon Pool
+Nanopool
+Others
+Figure 9: TC transactions mined by various mining pools be-
+fore August 23rd, 2022. Ethermine mined the most TC trans-
+actions before August 8th, 2022, but stopped processing TC
+transactions after the sanctions are announced.
+be approximately symmetrical before the TC sanctions were an-
+nounced (i.e., August 8th, 2022). Interestingly, there was a panic exit
+on August 8th, 2022:230 TC withdrawers withdrew their48,900 ETH
+due to the sanctions. The TC daily deposits decreased by approx-
+imately 83% after August 8th, 2022. Moreover, there were almost
+zero daily deposits and withdrawals in TN during July 2022, but
+there was a tiny increase in August after the sanctions (cf. Fig. 7).
+This is likely because privacy-seeking users leverage TN to replace
+TC to hide their identities.
+Post-Sanction TC Deposits. Although the TC official websites
+are banned by the US OFAC, users can still interact with TC con-
+tracts (e.g., through TC command line interface (CLI)) to deposit
+and withdraw assets. We notice that the deposits in TC are not
+zero after the sanctions started: from block 15,304,706 (August 9th,
+2022) to 15,650,000 (October 1st, 2022), 487 addresses deposited
+47,056.8 ETH (62.59M USD) into TC pools. Only 75 (15.40%) out of
+the 487 addresses ever deposited TC before the sanctions started.
+Post-Sanction TC Coin Flow. Moreover, we find that 671 ad-
+dresses withdraw 170,826.3 ETH (227.20M USD) from TC ETH pools.
+To understand the post-sanction TC ETH pools coin flow, we adopt
+extend the mixer pools to cover the distance 2 depositors and with-
+drawers. As shown in Fig. 8, we observe that after August 8th, 2022,
+more than 85.49% of the withdrawn ETH are transferred to interme-
+diary addresses in distance 2, before interacting with CEXs or DeFi
+platforms. We speculate this is likely because TC users attempt to
+bypass the censorship of CEXs or DeFi platforms, which claim to
+ban addresses receiving assets from TC [8].
+Impact on Mining TC Transactions. OFAC sanctions against
+TC also have an influence on Ethereum miners. As shown in Fig. 9,
+we plot the distribution ofTC transactions mined by various mining
+pools over time. Ethermine is the largest mining pool that mined the
+most TC transactions before August 8th, 2022. However, we observe
+that, after the sanctions started, Ethermine stopped processing any
+transactions related to deposits and withdrawals in TC (cf. Fig. 9).
+6 INCENTIVIZED ZKP MIXER POOLS
+Spearheaded by the introduction of AMR [18], we have witnessed a
+number of real-world mixer pools [34] (cf. Section 2.2) introducing
+rewarding governance tokens through anonymity mining (AM). In
+this section, we analyze how AM affects user privacy.
+6
+On How Zero-Knowledge Proof Blockchain Mixers Improve, and Worsen User Privacy
+shielded account
+AMM
+TC Pool
+Spent Notes
+Figure 10: Overview of the TC anonymity mining.
+6.1 Anonymity Mining in TC Pools
+TC incentivizes users to maintain their assets in TC ETH pools
+through AM [34]. Users receive TORN tokens as rewards through a
+so-called shielded liquidity mining protocol as follows (cf. Fig. 10).
+(1) Deposit: A user deposits ETH into a TC pool using addresses
+addr𝑑 , and receives a deposit note.
+(2) Withdraw: When the user withdraws ETH from a TC pool, the
+deposit note becomes a spent note .
+(3) Claim: After withdrawing from a pool, the user submits the
+spent note to the pool to claim the Anonymity Points AP. Because
+AP is determined by the deposit amount and duration (both are
+private information), AP is stored privately on a shielded account2.
+(4) Swap: A user can convert the shielded AP to public TORN tokens
+using a dedicated TC Automated Market Maker (AMM) exchange.
+The user receives the TORN tokens in an address addr𝑟 that can be
+different from the user’s deposit or withdrawal address.
+APu(𝑡)=
+∑︁
+𝑝 ∈{0.1,1,10,100}
+Weight𝑝 ·
+𝑣𝑝∑︁
+𝑖=1
+
+𝑡𝑤
+𝑝,𝑖 −𝑡𝑑
+𝑝,𝑖
+
+(14)
+Equation 14 from TC outlines the amount of AP a user u is
+entitled to at time 𝑡, where Weight𝑝 is a predefined parameter to
+calculate a user’s AP in various pools. Weight𝑝 is predefined as 10,
+20, 50 and 400 in TC 0.1, 1, 10, and 100 ETH pools, respectively. 𝑣𝑝
+corresponds to the number of withdrawals in the P𝑝 pool before
+time 𝑡. 𝑡𝑑
+𝑝,𝑖 and 𝑡𝑤
+𝑝,𝑖 are the block numbers of u’s 𝑖-th deposit and
+withdrawal, 0 ≤𝑖 ≤𝑣𝑝 . For instance, if a useru deposits twice 1 ETH
+into P1 at block 11,476,000 and 11,476,100, and deposits 10 ETH into
+the P10 pool at block 11,476,000, and u withdraws all the deposited
+funds at block11,476,200, then u’s AP is 20×(100+200)+400×200 =
+86,000.
+6.2 Linking User Addresses through AM
+AM aims to attract users to deposit more coins over a longer time-
+frame. However, AM also increases the required user interactions
+with mixers (e.g., claiming to receive rewards), and may thus pro-
+voke the leakage of privacy-compromising information. We explore
+how to link users’ withdrawals and deposits by solving Equation 14.
+We first identify the addresses that receivedTORN tokens fromTC
+pools. From block 11,474,710 (December 18th, 2020) to 15,650,000
+(October 1st, 2022), we identify 15,659 TC Reward Swap events,
+2According to [34], a shielded account is a secret key newly generated by a user, which
+is used to encrypt and submit claim and withdrawal data without revealing the user’s
+identity. For recoverability, the user encrypts this secret key using his ETH public key
+and stores the encrypted result on-chain.
+2019-12
+2020-01
+2020-02
+2020-03
+2020-04
+2020-05
+2020-06
+2020-07
+2020-08
+2020-09
+2020-10
+2020-11
+2020-12
+2021-01
+2021-02
+2021-03
+2021-04
+2021-05
+2021-06
+2021-07
+2021-08
+2021-09
+2021-10
+2021-11
+2021-12
+2022-01
+2022-02
+2022-03
+2022-04
+2022-05
+2022-06
+2022-07
+2022-08
+2022-09
+2022-10
+0
+100
+200
+300
+400
+500
+600
+700# Withdrawal
+Daily Withdrawal
+Withdrawal with reuse address
+0.07
+0.08
+0.09
+0.10
+0.11
+0.12
+0.13
+0.14
+Ratio
+RAdv after applying H1
+AM Starts
+TC Sanctions Start
+Figure 11: The AM launch does not increase the number
+of daily withdrawals but attracts privacy-ignorant users.
+Heuristic 1 performs better after AM started, i.e., the advan-
+tage of the probability that an adversary links a withdrawer
+to the correct depositor (cf. Eq. 13), rises from 7.00% to 13.50%.
+and find that 1,844 addresses received TORN. We then extract the
+converted AP value in swap events.
+Receive Rewards with Deposit Address. In the following, we
+show that re-using a deposit address to receive rewards can deteri-
+orate a user’s privacy. We discover that among the1,844 addresses
+receiving TORN, 1,141 are depositors. We extract their deposit time,
+receiving TORN time, and the converted values of AP. Based on the
+data, we divide the 1,141 depositors into three categories:
+•1 deposit/1 claim/1 pool: Out of the 1,141 depositors, 236 only
+deposited once in one TC pool and only received TORN tokens
+from AP with one transaction. In this case, Equation 14 can be
+simplified as APu(𝑡)= Weight𝑝 ·(𝑡𝑤
+𝑝,1 −𝑡𝑑
+𝑝,1). Because APu(𝑡)
+and 𝑡𝑑
+𝑝,1 are known, we can resolve the value of 𝑡𝑤
+𝑝,1 and search if
+there is a withdrawal transaction in block 𝑡𝑤
+𝑝,1. In total, we find
+the withdrawals for 53 depositors. For the remaining depositors,
+we speculate that they have likely not yet converted all their AP.
+•𝑛 deposits/1 claim/1 pool: 193 addresses deposited more than once
+in one TC pool but only received TORN once. Equation 14 can be
+simplified as APu(𝑡)= Weight𝑝 ·Í𝑣𝑝
+𝑖=1 (𝑡𝑤
+𝑝,𝑖 −𝑡𝑑
+𝑝,𝑖 ). In this case,
+we find the possible withdrawals for 51 depositors.
+•𝑛 deposits/𝑛 claims/𝑛 pools: For the remaining depositors receiving
+TORN more than once or using multiple pools, it is challenging
+to find their withdrawals, because it is uncertain whether they
+have claimed all AP and Equation 14 is hard to solve. However,
+we would suggest users avoid reusing addresses to receive TORN,
+because one conversion of AP for a depositor shows that this
+depositor has already (partly or entirely) withdrawn the deposits.
+In total, we can find the possible withdrawal transactions for104
+addresses, indicating that re-using a deposit address for receiving
+AM rewards can deteriorate users’ privacy.
+6.3 AM’s Impact on Mixer Anonymity Set
+To understand how AM affects a mixer pool’s anonymity set, we
+investigate the privacy-ignorant addresses attracted by AM. As
+shown in Fig. 11, we first plot the number of daily withdrawal
+transactions in TC ETH pools. We then highlight the withdrawals
+in which deposit addresses are reused to receive withdrawn assets.
+We observe that the daily withdrawals inTC ETH pools are not af-
+fected by AM as intended: the number started increasing beforeAM
+7
+Wang et al.
+launch on October 18th, 2020. However,AM does attract more users
+who reuse the deposit addresses to withdraw. Such “reusing depos-
+itors” are likely interested in mining TORN, but privacy-ignorant.
+Based on our observations, we introduce the following heuristic,
+which identifies privacy-ignorant users that reuse addresses. We
+apply Heuristic 1 to prune privacy-ignorant user addresses and
+compute a more accurate mixer anonymity set size (see Section 7.1.1
+for more details). We observe that Heuristic 1 performs better after
+AM started. As shown in Fig. 11, the advantage RAdv (cf. Eq. 13)
+that an adversary links a withdrawer to the correct depositor rises
+from 7.00% (before AM) to 13.50% (after AM) on average.
+Heuristic for Address Reuse (H1). If an address appears both
+in the depositor and withdrawer sets, then the deposits and with-
+drawals of this address are conducted by the same user (cf. Fig. 12(a)).
+In conclusion, contrary to the claims of related work [ 18], we
+find that AM does not always contribute to the mixers’ anonymity
+set size as expected, because it attracts privacy-ignorant users.
+7 MEASURING MIXER ANONYMITY SET SIZE
+In the following, we propose heuristics to measure a mixer pool’s
+anonymity set size, which is more representative than the naive
+OASP(𝑡). Our heuristics are best-effort methods and subject to
+known limitations [27, 38]. We thus attempt to construct ground
+truth from side channels to validate our heuristics (cf. Section 7.2).
+7.1 Linking Heuristics
+We propose the following heuristics (cf. Fig. 12) to leverage on-
+chain data and insights from our empirical study to link addresses
+and prune the OASP(𝑡). Table 1 summarizes the extended system
+model and definitions which are used in our linking heuristics.
+7.1.1 H1 - Address Reuse. Observation: We observe that an ad-
+dress can be reused to both deposit and withdraw, which could be
+incautious behavior and leak privacy [4, 38].
+Heuristic 1: If an address appears both in the depositor and with-
+drawer sets, we assume that the deposits and withdrawals of this
+address are conducted by the same user (cf. Fig. 12(a)). We apply
+Eq. 7 in Table 1 to compute a depositor’s balance and extract the
+depositors with a positive balance to evaluate the anonymity set:
+SAS(1)
+P (𝑡)= {a |a ∈DP(𝑡)∧bala (𝑡)> 0}.
+7.1.2 H2 - Improper Withdrawal Sender. Observation: Incautious
+users may adopt a deposit address a𝑤 to receive the withdrawn
+funds, while paying the transaction fees using their deposit address
+a𝑑 . This action infers that a𝑑 and a𝑤 are likely controlled by the
+same user. This action might happen when users are not familiar
+with the mixer functionality, which can leak users’ privacy.
+Heuristic 2: We assume that given a depositor-withdrawer pair
+(a𝑑, a𝑤)in a pool, where a𝑑 is not a relayer 3, if a𝑑 generates a
+withdrawal and assigns a𝑤 to receive the withdrawn coins, then a𝑑
+and a𝑤 belong to the same user (cf. Fig. 12(b)), i.e.,Link(a𝑑, a𝑤)= 1.
+Let Snt
+P (𝑡)be the set of linked address pairs in a pool P. Given
+Snt
+P (𝑡), we merge the balance of the linked addresses to simplify
+3Relayers are addresses who help users withdraw coins from a mixer towards a new
+address by paying for the transaction fees, in exchange receive a share of the withdrawn
+coins.
+the pool state, and then compute the anonymity set: SAS(2)
+P (𝑡)=
+{a |bala (𝑡)> 0 ∧(a, bala (𝑡))∈ Simp(SP(𝑡), Snt
+P (𝑡))}.
+7.1.3 H3 - Related Deposit-Withdrawal Address Pair.Observation:
+To withdraw coins, users are encouraged to choose a new address
+with no links to the deposit address. However, we observe that,
+users may adopt different deposit and withdrawal addresses, which
+are directly linked through a coin transfer.
+Heuristic 3: We assume that, given two addresses a𝑑 ∈ DP(𝑡)
+and a𝑤 ∈WP(𝑡), if a𝑑 transferred (received) coins or tokens to
+(from) a𝑤 before time 𝑡, then a𝑑 and a𝑤 are related and under
+the control of the same user (cf. Fig. 12(c)), i.e., Link(a𝑑, a𝑤)= 1.
+Let Stx
+P (𝑡)be the set of related depositor-withdrawer pairs in a
+pool P. We simplify the pool state and compute the anonymity set:
+SAS(3)
+P (𝑡)= {a |bala (𝑡)> 0 ∧(a, bala (𝑡))∈ Simp(SP(𝑡), Stx
+P (𝑡))}.
+7.1.4 H4 - Intermediary Deposit Address. Observation: We ob-
+serve that there are multiple depositors in distance 1 whose coins
+are all transferred from the same depositor in distance 2. Hence,
+these depositors in distance 1 are likely temporary addresses and
+are only used to transfer funds into a mixer.
+Heuristic 4: We hence assume that given two addresses 𝑑 (1) ∈
+D(1)
+P (𝑡)and 𝑑 (2) ∈D(2)
+P (𝑡), if all 𝑑 (1)’s coins are transferred from
+𝑑 (2)and 𝑑 (2)is a user account, then Link(𝑑 (1), 𝑑(2))= 1.
+We denote 𝑑 (1) as an intermediary deposit address , B(1)
+P (𝑡)as
+the set of intermediary deposit address, and B(2)
+P (𝑡)as the set
+of user accounts in distance 2 who transfer coins to an address
+in B(1)
+P (𝑡). For each address 𝑑 (1)in B(1)
+P (𝑡), we replace it by the
+address in B(2)
+P (𝑡)which transfers coins to 𝑑 (1). We then compute:
+SAS(4)
+P (𝑡)= {a |bala (𝑡)> 0 ∧a ∈B(2)
+P (𝑡)∪D (1)
+P (𝑡)\B (1)
+P (𝑡)}.
+7.1.5 H5 - Cross-pool Deposit. Observation: Current mixer pools
+only support the deposit and withdrawal of a fixed coin denomina-
+tion. When a user aims to mix an arbitrary amount of coins, the
+user needs to interact with multiple pools and may not change the
+respective deposit (or withdrawal) address (cf. Fig. 12(e)).
+Heuristic 5 : Given a depositor-withdrawer pair (a𝑑, a𝑤), we as-
+sume Link(a𝑑, a𝑤)= 1 if: (i) a𝑑 and a𝑤 are both in𝑚(𝑚 > 1)pools,
+(ii) in each pool, a𝑑 ’s total deposit amount equals a𝑤’s withdrawal
+amount, and (iii) for each a𝑤’s withdrawal transaction tx𝑤, at least
+one of a𝑑 ’s deposit transaction tx𝑑 is generated earlier than tx𝑤.
+Let Scu be the set of address pairs (a𝑑, a𝑤)that satisfy the
+above conditions. Given Scu, we simplify the state of a pool P,
+and then compute the anonymity set SAS(5)
+P (𝑡)= {a |bala (𝑡)>
+0 ∧(a, bala (𝑡))∈ Simp(SP(𝑡), Scu
+P (𝑡))}.
+7.1.6 Linking and Measuring Results. Through Heuristics 2–5, we
+can link 18,705 TC and 9,383 TN address pairs, which form 8,164
+and 2,046 clusters, respectively. Moreover,4,871 (57.14%)TC and
+1,190 (48.89%)TN clusters only have two addresses. Fig. 13 visual-
+izes the distribution of TC clusters over the number of addresses.
+Interestingly, we find that the cluster distribution is similar to pre-
+vious works on Bitcoin address clustering (e.g., Fig. 9(b) in [16]).
+Table 4 shows the SASP(𝑡)of mixer pools after applying each
+heuristic individually. OnTC pools, Heuristic 1 reduces the anonymity
+8
+On How Zero-Knowledge Proof Blockchain Mixers Improve, and Worsen User Privacy
+(a) Heuristic 1.
+ (b) Heuristic 2.
+ (c) Heuristic 3.
+ (d) Heuristic 4.
+ (e) Heuristic 5.
+Figure 12: Overview of Heuristics 1-5:
+(a) H1: A user applies the same address 𝑑 for deposit and withdrawal.
+(b) H2: A user adopts an address 𝑤 to receive the withdrawn coin but a deposit address to pay the withdrawal transaction fees.
+(c) H3: A user adopts two distinct addresses 𝑑 and 𝑤 to deposit and withdraw in P, while 𝑑 and 𝑤 are related in a transaction tx.
+(d) H4: An address 𝑑 (2)
+1 in distance 2 controls 3 intermediary addresses 𝑑 (1)
+𝑗 (𝑗 = 1, 2, 3)in the distance 1, to deposit coin in P.
+(e) H5: A user adopts an address 𝑑 to deposit into P0.1, P1 and P10, and uses address 𝑤 to withdraw the same times from the
+pools.
+Table 4: Heuristics 1-5 applied to TC ETH and TN BNB pools before October 1st, 2022. |SAS(𝑛)
+P (𝑡)|represents the Anonymity Set
+Size after applying Heuristic 𝑛. The percentages show the difference between the simplified anonymity set and OASP(𝑡).
+Pool |OASP(𝑡)| |SAS(1)
+P (𝑡)| |SAS(2)
+P (𝑡)| |SAS(3)
+P (𝑡)| |SAS(4)
+P (𝑡)| |SAS(5)
+P (𝑡)|
+Heuristic Combinations
+H1 +H2 H1 +H2 +H3 H1 +H2 H1 +H2 +H3
++H3 +H4 +H4 +H5
+TC 0.1ETH 11,941 10,745(−10.02%) 11,894(−0.39%) 9,890(−17.18%) 11,439(−4.20%) 11,857(−0.70%) −10.38% −26.76% −30.07% −30.68%
+TC 1ETH 17,843 16,422(−7.96%) 17,791(−0.29%) 15,445(−13.44%) 17,077(−4.29%) 17,733(−0.62%) −8.28% −20.83% −24.44% −24.98%
+TC 10ETH 16,227 14,587(−10.11%) 16,187(−0.25%) 14,348(−11.58%) 15,460(−4.73%) 16,111(−0.71%) −10.38% −20.34% −24.51% −25.14%
+TC 100ETH 6,433 5,608(−12.82%) 6,407(−0.40%) 5,754(−10.55%) 5,975(−7.12%) 6,347(−1.34%) −13.23% −21.14% −27.47% −28.57%
+TN 0.1BNB 3,972 2,820(−29.00%) 3,702(−6.80%) 2,501(−37.03%) 3,946(−0.65%) 3,934(−0.96%) −33.91% −54.00% −54.76% −55.39%
+TN 1BNB 3,890 2,868(−26.27%) 3,626(−6.79%) 2,531(−34.94%) 3,852(−0.98%) 3,845(−1.16%) −29.23% −48.15% −49.56% −50.41%
+TN 10BNB 1,675 1,156(−30.99%) 1,605(−4.18%) 1,068(−36.24%) 1,666(−0.54%) 1,635(−2.39%) −33.07% −47.58% −48.48% −50.15%
+TN 50BNB 231 217(−6.06%) 217(−6.06%) 204(−11.69%) 231(0.00%) 213(−7.79%) −12.12% −21.65% −21.65% −28.14%
+0 2 4 6 8 10 12 14 16 18 20+
+Number of addresses per cluster
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5Linked Clusters Fraction
+H2
+H3
+H4
+H5
+Figure 13: Number of addresses per TC cluster. 4,871 (57.14%)
+TC clusters only have two addresses.
+set by an average of10.23% from the reportedOASP(𝑡). For instance,
+in the TC 100 ETH pool P100, there are 6,433 unique depositors, but
+only 5,608 depositors have a positive balance, and therefore con-
+tribute to the anonymity set. Consequently, SAS(1)
+P (𝑡)of P100 is
+12.82% less than the respective OASP(𝑡). For TN, SAS(1)
+P (𝑡)is re-
+duced by an average of 23.08% from OASP(𝑡).
+We can further reduce the OASP(𝑡)by combining two or more
+heuristics (cf. Table 4). Combining all heuristics yields the largest
+reduction of OASP(𝑡): after applying Heuristics 1-5 to the TC (TN)
+pools, an adversary can reduce the reportedOASP(𝑡)on average by
+27.34% (46.02%). Therefore, the probability that an adversary links
+a withdrawer (who withdraws at time 𝑡) to the correct depositor
+rises by 37.63% (85.26%)on average (cf. Eq. 15).
+RAdv = 1/|SASP(𝑡)|−1/|OASP(𝑡)|
+1/|OASP(𝑡)| = 37.63% (85.26%) (15)
+7.1.7 User Privacy Behavior. Our heuristics appear to function bet-
+ter on the BSC mixer (TN) than on the ETH mixer (TC). While our
+study should be repeated once the other mixers grow on both chains
+(e.g., Cyclone and TP), our empirical evidence is the first to suggest
+a differing privacy-focus of users on ETH and BSC. One could also
+argue that privacy-aware users want the best available anonymity
+set, and will therefore use TC and follow all best practices. As such,
+a suitable assumption is that anonymity set attracts anonymity set,
+i.e., the biggest anonymity set will inherently attract more users,
+and particularly those that worry about privacy (which is analogous
+to how liquidity attracts liquidity in financial exchanges).
+7.2 Heuristics Validation Attempt
+Our heuristics in Section 7.1 are best-effort methods and may
+yield false positives and negatives, a known challenge of related
+works [2, 27, 38]. To validate our heuristics, we observe the ex-
+istence of a variety of publicly available side-channels that may
+indicate whether two blockchain addresses belong to the same en-
+tity. In this following, we expand on three of such side-channels,
+and then synthesize a candidate ground truth dataset to validate
+the results presented in Section 7.1.
+7.2.1 Airdrop Side-Channel. A blockchain airdrop is a form of
+donation, where a coin is given to a blockchain address without
+9
+Wang et al.
+Table 5: Validation attempt for TC linked address pairs. SH𝑖
+TC represents the linked address pairs obtained through Heuristic 𝑖.
+For Heuristic 2, 3, and 5, Test Pairs = depositors in SGT (Candidate Ground Truth) ×withdrawers in SGT. For Heuristic 4, Test
+Pairs = distance-2 depositors in SGT ×distance-1 depositors in SGT.
+Candidate Ground TruthSGT Heuristics Test Pairs𝑡𝑝 =SGT∩SH𝑖
+TC 𝑡𝑛=SGT∩SH𝑖
+TC 𝑓 𝑝=SGT∩SH𝑖
+TC 𝑓 𝑛=SGT∩SH𝑖
+TC precision recall F1
+SAirdrop(35,081)
+H2 931×580 2 539 ,747 4 227 0.33 0 .01 0.02
+H3 931×580 229 539 ,367 384 0 0.37 1 .00 0.54
+H5 931×580 0 539 ,751 0 229 0.00 0 .00 0.00
+H2 +H3 +H5 931×580 229 539,366 385 0 0.37 1.00 0.54
+H4 710×931 2 660 ,641 3 364 0.40 0 .01 0.01
+SENS(5,105)
+H2 291×213 1 61 ,928 2 52 0.33 0 .02 0.04
+H3 291×213 50 61 ,854 76 3 0.40 0 .94 0.56
+H5 291×213 0 61 ,930 0 53 0.00 0 .00 0.00
+H2 +H3 +H5 291×213 50 61,854 76 3 0.40 0.94 0.56
+H4 118×291 0 34 ,311 0 27 0.00 0 .00 0.00
+further explicit expectation. Victor et al. [38] present the following
+privacy-related airdrop approach: if a user receives an airdrop on
+multiple addresses and aggregates those funds within a short time-
+frame after the airdrop to one central address, this address can be
+labeled as the user’s primary address. As such the first side-channel
+we consider is the Airdrop approach.
+In our evaluation, we consider two particular instances of DeFi
+airdrops: the Uniswap airdrop and 1inch airdrop. To apply Victor’s
+heuristic, we crawl transaction data on the Ethereum network in
+the first seven days after an airdrop took place.
+Results. From the airdrop data, we identify a total of 35,081 linked
+address pairs (SAirdrop).
+7.2.2 Ethereum Name Service ( ENS) Side-Channel. In the following,
+we propose two novel approaches to link addresses using ENS [41]
+data. ENS is a decentralized naming service on Ethereum, aim-
+ing to map human-readable names (e.g., “alice.eth”) to blockchain
+addresses. Similar to DNS, ENS supports dot-separated hierarchi-
+cal domains, and a domain owner can create subdomains (e.g.,
+“foo.alice.eth”). To map a new name to an address a, a user registers
+the name with a and sets its expiry time. Users can also transfer the
+ownership of a name to another address, or assign subdomains to
+addresses.
+Linking Addresses through ENS Usage. To clusterENS addresses,
+we provide two approaches:
+Name Ownership Transfers : Given two addresses a1 and a2, if a1
+transfers the ownership of an ENS name to a2, before name expires,
+and a1 only transfers its name once, then Link(a1, a2)= 1.
+Subdomain Assignments : For addresses a1 and a2, if a1 has an ENS
+name and assigns a subdomain of name to a2, then Link(a1, a2)= 1.
+Results. To apply the Name Ownership Transfers approach, we
+crawl all (372,756) Transfer events of the ENS registry contract
+until November 1st, 2021. We extract the address pairs (a1, a2),
+where a1 transfers a name to a2 and a1 only transfers its name once.
+This approach can link 4,399 address pairs. To apply theSubdomain
+Assignments approach, we crawl all (900) NewOwner events emitted
+when a user directly calls theENS registry contract. We then extract
+the address pairs (a1, a2), where a1 assigns subdomains to a2. We
+can identify 725 linked address pairs. In total, from the ENS data,
+we can link 5,124 address pairs, denoted as SENS.
+7.2.3 Debank Side-Channel. Debank is an online blockchain ex-
+plorer for tracking DeFi user portfolios. Users can log into Debank
+through a wallet (e.g., MetaMask) and follow other addresses, sim-
+ilar to a social network. We hence assume that a user is unlikely
+to follow its own addresses and propose the following approach.
+Note that this is the first side-channel we consider which yields a
+negative signal on whether two addresses are linked.
+Debank Following Relationship : Given two addresses a1 and a2, if a1
+follows a2, or a1 is followed bya2 on Debank, thenLink(a1, a2)≠ 1.
+Results. For each TC depositor and withdrawer address, we crawl
+their follower and following addresses on Debank before November
+1st, 2021, i.e. those Debank addresses that follow or followed by TC
+addresses. Out of 54,504 TC addresses, we find that 655 +258 = 913
+(1.8%) addresses have at least one follower or following address
+on Debank. Let SDebank be the set of TC depositor-withdrawer
+pairs (a𝑑, a𝑤), where a𝑑 follows a𝑤, or a𝑑 is followed by a𝑤 on
+Debank. Our results show that |SDebank|= 150, i.e., 150 depositor-
+withdrawer pairs have a follower or following relationship.
+7.2.4 Validation Attempt. In the following, we attempt to validate
+the heuristics presented in Section 7.1, using SAirdrop, SENS and
+SDebank as the candidate ground truth data. Note that we can only
+validate the link of TC address pairs, not the link among deposit
+and withdrawal transactions. We, therefore, omit Heuristic 1 from
+the validation process, as H1 does not link addresses.
+SAirdrop + SENS. Table 5 shows the results of our heuristic vali-
+dation by applying the side-channels given by SAirdrop and SENS.
+Unfortunately, H2, H4, and H5 appear to perform rather poorly,
+when compared to H3. This result appears plausible, when consid-
+ering that H3 focuses on asset-transfers, which also applies to the
+Airdrop and ENS side-channel data. Luckily, heuristic 3 is the most
+potent heuristic to reduce the anonymity set size.
+Airdrop and ENS Side-Channel Intersection. To increase our
+confidence in the side-channel data, we intersect the candidate
+ground truth data sources: if an address pair (a1, a2)is linked both
+in SAirdrop and SENS, then a1 and a2 are more likely to be controlled
+by the same user. Nevertheless, the overlap size between the airdrop
+and the ENS data consists of only 13 pairs. We hence refrain from
+applying the intersected side-channel dataset to validate STC.
+SDebank. We find that, out of the 150 depositor-withdrawer pairs
+in SDebank, 34 (23%) pairs are linked through Heuristics 2, 3, and 5.
+Therefore, if we regard the Debank follower relationship data as
+10
+On How Zero-Knowledge Proof Blockchain Mixers Improve, and Worsen User Privacy
+time 
+Figure 14: Applying linking heuristics to trace Upbit Hack-
+ers.
+the ground truth, then those 34 addresses cannot be owned by the
+same user; thus, we consider them false positives.
+Validation Results Summary. In conclusion, by applying the air-
+drop and ENS side-channels as candidate ground truth datasets,
+our heuristics can achieve an average F1 score of 0.55 (cf. Table 5),
+whereas Heuristic 3 provides the strongest signal. Our results sug-
+gest that validating the heuristics presented in Section 7.1 is a chal-
+lenging, but feasible task. Our results can be further extended with
+additional side channels to synthesize a larger candidate ground
+truth dataset (e.g., by crawling Twitter data from testnet wallet
+validations, additional blockchain explorer labels, etc.).
+8 DISCUSSION AND IMPLICATIONS
+Our analyses show that although users may reveal their transaction
+history because they are not familiar with the workflow of mixers
+(cf. Section 7), or they only use mixers for rewards rather than
+privacy (cf. Section 6), most of the users can still stay anonymous.
+Our approach can be generalized to analyze any other ZKP mixers
+which adopt the same design as TC, e.g., Cyclone and TP.
+To improve the existing ZKP mixer design, a helpful function-
+ality could be to warn users proactively about potential risks. For
+example, TC could exploit our methodology and results to provide a
+service that would compute the probability that a provided address
+for a withdrawal could be linked with a depositor. In this way, users
+would know the risk of linking their addresses before withdrawing
+funds from the mixer. Moreover, besides the anonymity set size and
+the OFAC sanctions, there might be other potential factors (e.g.,
+AM profits and ETH or BNB prices) which could also affect the usage
+of ZKP mixers. We leave the detailed analysis for future work.
+8.1 Application: Tracing Malicious Addresses
+We provide the example of Upbit Hackers to show how to apply our
+linking results in TC to trace malicious addresses. On November
+27th, 2019, hackers stole 342K ETH from Upbit, a South-Korean
+centralized cryptocurrency exchange. As shown in Fig. 14, (1) A
+depositor 0xeFf receives 1,526.95 ETH from address 0x5a8, which
+obtains the same amount of ETH from four labeled Upbit Hackers.
+(2) 0xeFf then deposits 1,524 ETH into TC 1, 10, and 100 ETH pools
+before block 11,972,040. (3) From our linking results, we find that
+0xD7D withdraws the same amount from TC during block11,971,270
+and 11,972,098, and then transfers1,520 ETH to address0x361, which
+finally exchanges all ETH to fiat currency (e.g., USD) on a CEX,
+Houbi. Given the address’s registration information on Huobi, it
+would be able to pinpoint the hacker’s off-chain identity.
+9 RELATED WORK
+Mixers on Bitcoin: Mixers were originally applied in anonymous
+communications [9] and are also applied to enhance Bitcoin users’
+privacy [23, 40]. Mixcoin [ 7] and Blindcoin [ 37] are centralized,
+trusted mixers that support BTC. CoinJoin [ 19] allows a user to
+find other mixing partners to merge multiple transactions, thereby
+obfuscating the link between senders and recipients. Although the
+design of CoinJoin [19] is decentralized, its existing implementation,
+remains centralized but non-custodial. CoinShuffle [ 28, 29] and
+Xim [6] achieve better anonymity in a decentralized mixer. Wu et
+al. [40] propose a generic abstraction model for Bitcoin mixers.
+Mixers on Smart-contract-enabled Blockchains: ZKP mixers
+are inspired by Zerocash [ 30] to obfuscate the link between the
+users’ deposit and withdrawal using zero-knowledge proof. Several
+ZKP mixers attempt to operate on Ethereum, such as Miximus [3].
+AMR [18] proposes how to reward users for participating in a mixer,
+and shortly after, Blender implements a mixer with a reward scheme.
+TC follows by adding anonymity mining as a deposit reward scheme
+for users [34]. Besides ZKP mixers, a notable mixer example that
+relies on linkable ring signatures and the stealth addresses from
+Monero [1] is Möbius [20].
+Blockchain Privacy Analysis: Many researchers have studied
+privacy on non-privacy-preserving blockchains (e.g., Bitcoin [2, 12],
+Ethereum [4, 38]), as well as on privacy-preserving blockchains
+(e.g., Monero [17, 22, 43], Zerocash [5, 15]). Because ZKP mixers
+are inspired by Zerocash, our Heuristics 1 and 4 can also be ap-
+plied to link shielded and deshielded transactions in Zerocash [15].
+However, the majority of the transactions (i.e., with 65.6% of the
+withdrawn value) in [15] involve miners or founders, while this
+paper investigates generic ZKP mixers, and can be applied to trace
+malicious addresses. Moreover, recent studies [42] have shown that
+users’ privacy can be leaked when using cross-chain exchanges.
+10 CONCLUSION
+This paper empirically analyzes the usage of ZKP mixers. We find
+that 205 malicious addresses and 2,595 BEV extractors leverage
+mixers as their source of funds, while depositing a total attack rev-
+enue of 412.87M USD. We measure that the OFAC sanctions have
+reduced more than83% daily deposits in TC. Moreover, our findings
+show that the advertised anonymity set sizes of popular mixers
+do not represent the true privacy offered to users. We propose a
+methodology that can reduce the anonymity set size on average
+by 27.34% (46.02%) of TC (on ETH) and TN (on BSC) respectively.
+Worryingly, while previous work suggests that incentivized mixers
+could improve the offered mixer privacy, we find evidence that spec-
+ulators are likely to act in a privacy-ignorant manner, deteriorating
+the overall anonymity set size. We hope that our work engenders
+further research into user-friendly and privacy-enhancing ZKP
+mixer solutions.
+ACKNOWLEDGMENTS
+We thank the anonymous reviewers for providing valuable com-
+ments and feedback which helped us to strengthen the paper. We
+are moreover grateful to Nimiq for partially funding this work. This
+work was partially supported by the Algorand Centres of Excel-
+lence programme managed by Algorand Foundation. Any opinions,
+11
+Wang et al.
+findings, and conclusions or recommendations expressed in this
+material are those of the author(s) and do not necessarily reflect
+the views of Nimiq and Algorand Foundation.
+REFERENCES
+[1] Kurt M. Alonso. 2020. Zero to Monero: First Edition. A Technical Guide to
+A Private Digital Currency; for Beginners, Amateurs, and Experts. https:
+//web.getmonero.org/library/Zero-to-Monero-2-0-0.pdf.
+[2] Elli Androulaki, Ghassan O Karame, Marc Roeschlin, Tobias Scherer, and Srdjan
+Capkun. 2013. Evaluating User Privacy in Bitcoin. In International Conference on
+Financial Cryptography and Data Security . Springer, Springer Science & Business
+Media, Berlin, Heidelberg, 34–51.
+[3] barryWhiteHat. 2018. Miximus. Available at: https://github.com/barryWhiteHat
+/miximus.
+[4] Ferenc Béres, István A Seres, András A Benczúr, and Mikerah Quintyne-Collins.
+2021. Blockchain is Watching You: Profiling and Deanonymizing Ethereum
+Users. In 2021 IEEE International Conference on Decentralized Applications and
+Infrastructures (DAPPS). IEEE Computer Society, Los Alamitos, CA, USA, 69–78.
+[5] Alex Biryukov, Daniel Feher, and Giuseppe Vitto. 2019. Privacy Aspects and
+Subliminal Channels in Zcash. In Proceedings of the 2019 ACM SIGSAC Conference
+on Computer and Communications Security . ACM, London, UK, 1813–1830.
+[6] George Bissias, A Pinar Ozisik, Brian N Levine, and Marc Liberatore. 2014. Sybil-
+Resistant Mixing for Bitcoin. In Proceedings of the 13th Workshop on Privacy in
+the Electronic Society . ACM, Scottsdale, AZ, USA, 149–158.
+[7] Joseph Bonneau, Arvind Narayanan, Andrew Miller, Jeremy Clark, Joshua A Kroll,
+and Edward W Felten. 2014. Mixcoin: Anonymity for Bitcoin with Accountable
+Mixes. In International Conference on Financial Cryptography and Data Security .
+Springer, Springer, Christ Church, Barbados, 486–504.
+[8] Chainalysis. 2022. Understanding Tornado Cash, Its Sanctions Implications, and
+Key Compliance Questions. Available at: https://blog.chainalysis.com/reports/t
+ornado-cash-sanctions-challenges/.
+[9] David L Chaum. 1981. Untraceable Electronic Mail, Return Addresses and Digital
+Pseudonyms. Commun. ACM 24, 2 (1981), 84–90.
+[10] Mauro Conti, E Sandeep Kumar, Chhagan Lal, and Sushmita Ruj. 2018. A Survey
+on Security and Privacy Issues of Bitcoin. IEEE Communications Surveys &
+Tutorials 20, 4 (2018), 3416–3452.
+[11] Philip Daian, Steven Goldfeder, Tyler Kell, Yunqi Li, Xueyuan Zhao, Iddo Bentov,
+Lorenz Breidenbach, and Ari Juels. 2020. Flash Boys 2.0: Frontrunning, Transac-
+tion Reordering, and Consensus Instability in Decentralized Exchanges. In IEEE
+Symposium on Security and Privacy (SP) . IEEE, San Francisco, CA, USA, 910–927.
+[12] Arthur Gervais, Srdjan Capkun, Ghassan O Karame, and Damian Gruber. 2014.
+On the Privacy Provisions of Bloom Filters in Lightweight Bitcoin Clients. In
+Computer Security Applications Conference . ACM, New Orleans, LA, USA, 326–
+335.
+[13] Ethan Heilman, Leen Alshenibr, Foteini Baldimtsi, Alessandra Scafuro, and
+Sharon Goldberg. 2017. Tumblebit: An Untrusted Bitcoin-Compatible Anony-
+mous Payment Hub. In Network and Distributed System Security Symposium . The
+Internet Society, San Diego, California, USA.
+[14] Abraham Hinteregger and Bernhard Haslhofer. 2018. An Empirical Analysis of
+Monero Cross-Chain Traceability. CoRR abs/1812.02808 (2018). http://arxiv.org/
+abs/1812.02808
+[15] George Kappos, Haaroon Yousaf, Mary Maller, and Sarah Meiklejohn. 2018. An
+Empirical Analysis of Anonymity in Zcash. In 27th USENIX Security Symposium,
+USENIX Security . USENIX Association, Baltimore, MD, USA, 463–477.
+[16] Ghassan O Karame, Elli Androulaki, Marc Roeschlin, Arthur Gervais, and Srdjan
+Čapkun. 2015. Misbehavior in Bitcoin: A Study of Double-Spending and Ac-
+countability. ACM Transactions on Information and System Security (TISSEC) 18,
+1 (2015), 2.
+[17] Amrit Kumar, Clément Fischer, Shruti Tople, and Prateek Saxena. 2017. A Trace-
+ability Analysis of Monero’s Blockchain. In European Symposium on Research in
+Computer Security (Lecture Notes in Computer Science, Vol. 10493) . Springer, Oslo,
+Norway, 153–173.
+[18] Duc Viet Le and Arthur Gervais. 2021. AMR: Autonomous Coin Mixer with
+Privacy Preserving Reward Distribution. In AFT ’21: 3rd ACM Conference on
+Advances in Financial Technologies . ACM, Arlington, Virginia, USA, 142–155.
+[19] Greg Maxwell. 2013. CoinJoin: Bitcoin Privacy for The Real World. Available at:
+https://bitcointalk.org/index.php?topic=279249.0.
+[20] Sarah Meiklejohn and Rebekah Mercer. 2018. Möbius: Trustless Tumbling for
+Transaction Privacy. Proceedings on Privacy Enhancing Technologies 2018, 2 (2018),
+105–121.
+[21] Ian Miers, Christina Garman, Matthew Green, and Aviel D. Rubin. 2013. Zerocoin:
+Anonymous Distributed E-Cash from Bitcoin. In2013 IEEE Symposium on Security
+and Privacy . IEEE Computer Society, Berkeley, CA, USA, 397–411.
+[22] Malte Möser, Kyle Soska, Ethan Heilman, Kevin Lee, Henry Heffan, Shashvat
+Srivastava, Kyle Hogan, Jason Hennessey, Andrew Miller, Arvind Narayanan,
+et al. 2018. An Empirical Analysis of Traceability in the Monero Blockchain.
+Proceedings on Privacy Enhancing Technologies 2018, 3 (2018), 143–163.
+[23] Jaswant Pakki, Yan Shoshitaishvili, Ruoyu Wang, Tiffany Bao, and Adam Doupé.
+2021. Everything You Ever Wanted to Know About Bitcoin Mixers (But Were
+Afraid to Ask). In International Conference on Financial Cryptography and Data
+Security. Springer, Virtual Event, 117–146.
+[24] Kaihua Qin, Liyi Zhou, Pablo Gamito, Philipp Jovanovic, and Arthur Gervais.
+2021. An Empirical Study of DeFi Liquidations: Incentives, Risks, and Instabilities.
+In Proceedings of the 21st ACM Internet Measurement Conference . ACM, Virtual
+Event, USA, 336–350.
+[25] Kaihua Qin, Liyi Zhou, and Arthur Gervais. 2022. Quantifying Blockchain Ex-
+tractable Value: How dark is the forest?. In 2022 IEEE Symposium on Security and
+Privacy (SP) . IEEE, San Francisco, CA, USA, 198–214.
+[26] Kaihua Qin, Liyi Zhou, Benjamin Livshits, and Arthur Gervais. 2021. Attack-
+ing the DeFi Ecosystem with Flash Loans for Fun and Profit. In International
+Conference on Financial Cryptography and Data Security . Springer, Virtual Event,
+3–32.
+[27] Matteo Romiti, Friedhelm Victor, Pedro Moreno-Sanchez, Peter Sebastian Nord-
+holt, Bernhard Haslhofer, and Matteo Maffei. 2021. Cross-Layer Deanonymization
+Methods in the Lightning Protocol. In International Conference on Financial Cryp-
+tography and Data Security . Springer, Virtual Event, 187–204.
+[28] Tim Ruffing, Pedro Moreno-Sanchez, and Aniket Kate. 2014. CoinShuffle: Practical
+Decentralized Coin Mixing for Bitcoin. In European Symposium on Research in
+Computer Security . Springer, Wroclaw, Poland, 345–364.
+[29] Tim Ruffing, Pedro Moreno-Sanchez, and Aniket Kate. 2017. P2P Mixing and
+Unlinkable Bitcoin Transactions. In 24th Annual Network and Distributed System
+Security Symposium, NDSS . The Internet Society, San Diego, California, USA.
+[30] Eli Ben Sasson, Alessandro Chiesa, Christina Garman, Matthew Green, Ian Miers,
+Eran Tromer, and Madars Virza. 2014. Zerocash: Decentralized anonymous
+payments from bitcoin. InSymposium on Security and Privacy . IEEE, San Francisco,
+CA, USA, 459–474.
+[31] Erkan Tairi, Pedro Moreno-Sanchez, and Matteo Maffei. 2021. A2L: Anonymous
+Atomic Locks for Scalability in Payment Channel Hubs. In 2021 IEEE Symposium
+on Security and Privacy (SP) . IEEE, San Francisco, CA, USA, 1834–1851.
+[32] Weizhao Tang, Weina Wang, Giulia Fanti, and Sewoong Oh. 2020. Privacy-
+Utility Tradeoffs in Routing Cryptocurrency over Payment Channel Networks.
+Proceedings of the ACM on Measurement and Analysis of Computing Systems 4, 2
+(2020), 1–39.
+[33] Tornado.Cash. 2019. Tornado cash. Available at: https://tornado.cash/, before
+August 8th, 2022.
+[34] TornadoCash. 2020. Tornado.Cash Governance Proposal. Available at: https://to
+rnado-cash.medium.com/tornado-cash-governance-proposal-a55c5c7d0703.
+[35] U.S. DEPARTMENT OF THE TREASURY. 2022. Cyber-related Sanctions. Avail-
+able at: https://home.treasury.gov/taxonomy/term/1546.
+[36] U.S. DEPARTMENT OF THE TREASURY. 2022. U.S. Treasury Sanctions Notorious
+Virtual Currency Mixer Tornado Cash. Available at: https://home.treasury.gov/
+news/press-releases/jy0916.
+[37] Luke Valenta and Brendan Rowan. 2015. Blindcoin: Blinded, Accountable Mixes
+for Bitcoin. In Financial Cryptography and Data Security - FC 2015 International
+Workshops, BITCOIN. Springer, San Juan, Puerto Rico, 112–126.
+[38] Friedhelm Victor. 2020. Address Clustering Heuristics for Ethereum. In Interna-
+tional Conference on Financial Cryptography and Data Security . Springer, Kota
+Kinabalu, Malaysia, 617–633.
+[39] Zhipeng Wang, Kaihua Qin, Duc Vu Minh, and Arthur Gervais. 2022. Speculative
+multipliers on defi: Quantifying on-chain leverage risks. In Financial Cryptogra-
+phy and Data Security: 26th International Conference, FC 2022, Grenada, May 2–6,
+2022, Revised Selected Papers . Springer, Springer, Grenada, 38–56.
+[40] Lei Wu, Yufeng Hu, Yajin Zhou, Haoyu Wang, Xiapu Luo, Zhi Wang, Fan Zhang,
+and Kui Ren. 2021. Towards Understanding and Demystifying Bitcoin Mixing
+Services. In Proceedings of the Web Conference 2021 . ACM / IW3C2, Virtual Event
+/ Ljubljana, Slovenia, 33–44.
+[41] Pengcheng Xia, Haoyu Wang, Zhou Yu, Xinyu Liu, Xiapu Luo, and Guoai Xu.
+2021. Ethereum Name Service: the Good, the Bad, and the Ugly. arXiv preprint
+arXiv:2104.05185 (2021).
+[42] Haaroon Yousaf, George Kappos, and Sarah Meiklejohn. 2019. Tracing Trans-
+actions Across Cryptocurrency Ledgers. In 28th USENIX Security Symposium
+(USENIX Security 19) . USENIX Association, Santa Clara, CA, USA, 837–850.
+[43] Zuoxia Yu, Man Ho Au, Jiangshan Yu, Rupeng Yang, Qiuliang Xu, and Wang Fat
+Lau. 2019. New Empirical Traceability Analysis of CryptoNote-Style Blockchains.
+In International Conference on Financial Cryptography and Data Security . Springer,
+Frigate Bay, St. Kitts and Nevis, 133–149.
+[44] Liyi Zhou, Kaihua Qin, and Arthur Gervais. 2021. A2MM: Mitigating Fron-
+trunning, Transaction Reordering and Consensus Instability in Decentralized
+Exchanges. CoRR abs/2106.07371 (2021). https://arxiv.org/abs/2106.07371
+[45] Liyi Zhou, Kaihua Qin, Christof Ferreira Torres, Duc V Le, and Arthur Gervais.
+2021. High-Frequency Trading on Decentralized On-Chain Exchanges. In 2021
+IEEE Symposium on Security and Privacy (SP) . IEEE, San Francisco, CA, USA,
+428–445.
+12
+On How Zero-Knowledge Proof Blockchain Mixers Improve, and Worsen User Privacy
+[46] Liyi Zhou, Xihan Xiong, Jens Ernstberger, Stefanos Chaliasos, Zhipeng Wang, Ye
+Wang, Kaihua Qin, Roger Wattenhofer, Dawn Song, and Arthur Gervais. 2022.
+SoK: Decentralized Finance (DeFi) Attacks. Cryptology ePrint Archive (2022),
+1773. https://eprint.iacr.org/2022/1773
+13
