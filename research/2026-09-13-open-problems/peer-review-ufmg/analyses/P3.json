@@ -1,0 +1,86 @@
+{
+  "reviewer": "P3",
+  "ideas": [
+    {
+      "id": 1,
+      "relevance": 8.0,
+      "originality": 6.3,
+      "feasibility": 5.4,
+      "main_objection": "A redução de custo depende de uma composição segura ainda ausente entre lookup privado e a mesma nota do gasto; o custo completo desse vínculo permanece desconhecido.",
+      "confidence": "medium",
+      "weighted": 6.625
+    },
+    {
+      "id": 2,
+      "relevance": 8.5,
+      "originality": 6.8,
+      "feasibility": 8.3,
+      "main_objection": "O limiar genérico de agregação já foi estudado; falta estabelecer contribuição específica do Zswap e reproduzir interoperabilidade dos artefatos.",
+      "confidence": "medium",
+      "weighted": 7.845
+    },
+    {
+      "id": 3,
+      "relevance": 8.2,
+      "originality": 6.5,
+      "feasibility": 8.4,
+      "main_objection": "Uma prova por cotação pode inflar artificialmente o baseline; demanda real de checagem e anterioridade dos certificados por faixa não foram estabelecidas.",
+      "confidence": "medium",
+      "weighted": 7.665
+    },
+    {
+      "id": 4,
+      "relevance": 8.2,
+      "originality": 7.4,
+      "feasibility": 4.5,
+      "main_objection": "A atualização privada de witnesses vetoriais KZG ainda exige construir e justificar o algoritmo central, com risco de exceder o desejo de apenas combinar técnicas.",
+      "confidence": "medium",
+      "weighted": 6.81
+    },
+    {
+      "id": 5,
+      "relevance": 8.6,
+      "originality": 7.3,
+      "feasibility": 5.9,
+      "main_objection": "Autenticação da resposta para o cliente não garante apresentação segura para terceiros; faltam a composição e a origem da versão aceita.",
+      "confidence": "medium",
+      "weighted": 7.335
+    },
+    {
+      "id": 6,
+      "relevance": 8.6,
+      "originality": 7.2,
+      "feasibility": 6.4,
+      "main_objection": "A camada recente cobra trabalho em cada entrega; falta demonstrar benefício total contra histórico periódico e processamento contínuo.",
+      "confidence": "medium",
+      "weighted": 7.45
+    }
+  ],
+  "ranking": [
+    2,
+    3,
+    6,
+    5,
+    4,
+    1
+  ],
+  "recommended": 2,
+  "backup": 3,
+  "sources": [
+    "https://ppgcc.dcc.ufmg.br/wp-content/uploads/2025/10/Edital-Regular_Ciencia-da-Computacao_MD_2026.pdf",
+    "https://ppgcc.dcc.ufmg.br/docentes/",
+    "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+    "https://eprint.iacr.org/2022/957",
+    "https://github.com/geometryxyz/semacaulk",
+    "https://research.protocol.ai/publications/snarkpack-practical-snark-aggregation/",
+    "https://eprint.iacr.org/2025/1802",
+    "https://eprint.iacr.org/2026/832",
+    "https://eprint.iacr.org/2023/1830",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/edalatnejad",
+    "https://eprint.iacr.org/2025/2177",
+    "https://eprint.iacr.org/2022/1362",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/shuhan",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/liang",
+    "https://eprint.iacr.org/2026/910"
+  ]
+}

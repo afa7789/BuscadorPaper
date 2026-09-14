@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Um recorte de pesquisa sobre trocar estruturas de pertencimento e atualizar provas privadamente em pools com ZK.">
+  <title>Trocar o acumulador — Merkle, RSA e KZG</title>
+  <style>
+    body { max-width: 76ch; margin: 0 auto; padding: 1rem; font-family: system-ui, sans-serif; line-height: 1.6; overflow-wrap: break-word; }
+    h1, h2, h3 { line-height: 1.25; }
+    section { margin-block: 3rem; }
+    li { margin-block: .75rem; }
+    summary { cursor: pointer; }
+    footer { margin-top: 3rem; border-top: 1px solid; }
+  </style>
+</head>
+<body>
+  <header>
+    <p><a href="../">Voltar às propostas</a> · <a href="../#revogacao">Ideia 5 — Credenciais</a> · <a href="../#carteira">Ideia 6 — Carteira offline</a></p>
+    <h1>Trocar o acumulador</h1>
+    <p><strong>Recorte:</strong> partir de um protocolo existente, substituir sua estrutura de pertencimento e estudar uma propriedade específica. Aplicação possível: um pool de depósitos e saques privados no estilo Tornado Cash.</p>
+    <p><strong>Ponto de partida encontrado:</strong> um paper de 2026 propõe, em seus trabalhos futuros, estender a atualização privada de provas para vector commitments e polynomial commitments. Isso é uma direção indicada pelos autores; a construção abaixo ainda é uma hipótese, com novidade e viabilidade a confirmar.</p>
+    <nav aria-label="Conteúdo">
+      <p><a href="#troca">O que já existe</a> · <a href="#proposta">Proposta principal</a> · <a href="#leitura">Papers para ler</a> · <a href="#outras">Outros recortes</a></p>
+    </nav>
+  </header>
+  <main>
+    <section id="troca">
+      <h2>O que já existe</h2>
+      <p><a href="https://github.com/tornadocash/tornado-core/blob/master/circuits/withdraw.circom">Tornado Cash usa uma árvore de Merkle</a> para provar que o depósito pertence ao conjunto. RSA é a estrutura usada no <a href="https://zerocoin.org/media/pdf/ZerocoinOakland.pdf">Zerocoin</a>.</p>
+      <p><strong>Merkle → compromisso KZG + prova de pertencimento com índice oculto</strong> já foi feito no <a href="https://geometryxyz.github.io/semacaulk/">Semacaulk</a>, usando Caulk+. Ele oferece uma funcionalidade semelhante à do Semaphore e pode servir de base para aplicações de privacidade.</p>
+      <p>Portanto, a pesquisa precisa escolher uma propriedade adicional: atualizar a prova com menos trabalho no cliente, reduzir a comunicação, lidar com períodos offline ou melhorar um custo sob uma carga de depósitos definida.</p>
+      <details>
+        <summary>Por que “polynomial commitment” e “vector commitment” se sobrepõem?</summary>
+        <p>Um vector commitment compromete uma lista ordenada de valores. Podemos representar essa lista pelas avaliações de um polinômio e usar KZG para comprometer o polinômio. Nesse caso, KZG também implementa um vector commitment.</p>
+        <p>Já um acumulador bilinear pode representar um conjunto pelas raízes de um polinômio. Também pode usar KZG, mas sua operação de inserção é diferente da atualização de uma posição em um vetor.</p>
+        <p>O paper de delegação de 2026 já trata RSA e acumuladores bilineares. A extensão para o compromisso vetorial usado em um lookup não vem automaticamente dessa construção.</p>
+      </details>
+      <p><strong>Uma abertura comum de KZG não esconde o depósito.</strong> A prova de saque precisa ocultar a posição e o valor procurado, provar conhecimento do segredo e vincular o nullifier e o destinatário. Caulk+ ajuda com o pertencimento de índice oculto; não substitui sozinho a relação completa de saque.</p>
+    </section>
+
+    <section id="proposta">
+      <h2>Proposta principal: atualizar a prova sem revelar o depósito</h2>
+      <p><strong>Título provisório:</strong> Atualização privada de witnesses em compromissos vetoriais KZG para pools com depósitos frequentes.</p>
+      <p>Um <em>witness</em> é o dado auxiliar que permite provar pertencimento. A carteira tem um witness válido, fica offline e volta depois de muitos depósitos. Ela quer atualizar esse dado sem revelar ao servidor qual depósito é o seu.</p>
+      <p><strong>A combinação a investigar:</strong> técnicas de delegação privada do paper de 2026 + a representação vetorial KZG usada por Caulk+/Semacaulk.</p>
+      <p><strong>Pergunta:</strong> é possível delegar a atualização desse witness a um servidor, ocultando a posição consultada, com menos trabalho no cliente e comunicação aceitável?</p>
+      <p>Os autores de Semacaulk já discutem pré-computação, atualizações, processamento em lotes e serviços verificáveis, incluindo suas implicações de privacidade. A contribuição teria que especificar e avaliar a atualização privada, não apenas colocar um servidor na frente do prover.</p>
+      <h3>Escopo inicial</h3>
+      <ul>
+        <li>Um único compromisso vetorial KZG, com capacidade fixa e apenas novos depósitos.</li>
+        <li>Uma nota por cliente e uma posição privada. Sem exclusões, múltiplos ativos ou DEX.</li>
+        <li>Um servidor de atualização que pode tentar descobrir a posição ou fornecer um resultado incorreto.</li>
+        <li>O cliente confere o resultado contra o compromisso público aceito pelo protocolo.</li>
+      </ul>
+      <h3>Experimento proposto</h3>
+      <p>Começar com 2¹²–2¹⁶ posições e períodos offline equivalentes a 16, 256 e 4.096 novas inserções, respeitando a capacidade. Comparar a atualização local do witness KZG, a delegação candidata e a recuperação privada de witnesses pré-computados por PIR.</p>
+      <p>Medir tempo e memória do cliente, bytes transferidos, custo do servidor, pré-processamento e armazenamento. Se a atualização funcionar, ligar o resultado a uma prova real de pertencimento e, depois, a um pequeno contrato de saque local.</p>
+      <p>A comparação com um pool Merkle precisa medir depósito e saque completos, mantendo a mesma função e explicitando diferenças de segurança e setup. Uma prova auxiliar curta não implica automaticamente um saque mais barato.</p>
+      <details>
+        <summary>Onde está a dificuldade e quando reformular</summary>
+        <p>Uma técnica de ocultação que funciona em RSA pode não funcionar na atualização de uma avaliação KZG. Será preciso construir a composição e justificar correção, privacidade e rejeição de respostas falsas. Isso é trabalho criptográfico, mesmo com o escopo pequeno.</p>
+        <p>Usar PIR para buscar witnesses já calculados é uma referência simples de arquitetura, mas manter essa base atualizada também custa. Medir esse custo evita atribuir ao protocolo uma economia que só foi transferida para o servidor.</p>
+        <p>Já existem <a href="https://github.com/PIR-PIXR/TreePIR">TreePIR</a>, <a href="https://pse.dev/projects/scaling-semaphore-pir">PIR aplicado ao Semaphore</a> e <a href="https://github.com/valargroup/enhance-pir">recuperação privada de dados para Zcash</a>. “PIR para buscar uma prova” não é novidade suficiente.</p>
+        <p>Se o protocolo de 2026 já se adaptar diretamente com as mesmas garantias, ou se a contribuição se limitar a substituir chamadas de bibliotecas, será preciso outro recorte. A primeira etapa é reproduzir e comparar; a extensão teórica vem depois.</p>
+        <p><strong>Não presumir equivalência de formatos:</strong> o acumulador de polinômio-produto, a abertura KZG em uma posição e o witness de Caulk+ são objetos relacionados, mas diferentes. O protocolo final deve produzir exatamente os dados consumidos pela prova escolhida.</p>
+      </details>
+    </section>
+
+    <section id="leitura">
+      <h2>Papers para ler</h2>
+      <ol>
+        <li>
+          <h3>Private Delegation of (Non-)Membership Proof Updates in Cryptographic Accumulators</h3>
+          <p>Bence Soóki-Tóth, Botond Glasz, Alireza Kavousi e István András Seres · ePrint 2026/832.</p>
+          <p>Estuda como um cliente pede a um servidor para atualizar sua prova sem revelar o elemento correspondente. Já apresenta construções para RSA e acumuladores bilineares.</p>
+          <p><strong>Começar pela página 30:</strong> o item “Other authenticated data structures” aponta explicitamente vector commitments, polynomial commitments e Hyperproofs como direções para extensão. Depois ler o modelo de segurança e a seção 5.4.</p>
+          <p><a href="papers/private-delegation-2026.pdf#page=30">Abrir os trabalhos futuros (página 30)</a> · <a href="papers/private-delegation-2026.pdf">PDF completo, 46 páginas</a> · <a href="https://eprint.iacr.org/2026/832">Página do paper</a> · <a href="https://github.com/GlaszBoti/private-accumulator-proof-delegation">Código dos autores</a></p>
+        </li>
+        <li>
+          <h3>Caulk+: Table-independent lookup arguments</h3>
+          <p>Jim Posen e Assimakis A. Kattis · ePrint 2022/957.</p>
+          <p>Permite provar que valores pertencem a uma tabela comprometida, ocultando as posições correspondentes. É a peça usada pelo Semacaulk para substituir a prova de caminho na árvore.</p>
+          <p>Começar pela introdução e pela seção 4, dedicada ao caso de um único elemento. Os witnesses pré-computados são relevantes para o recorte de atualização.</p>
+          <p><a href="papers/caulk-plus-2022.pdf">Ler Caulk+ (PDF, 11 páginas)</a> · <a href="https://eprint.iacr.org/2022/957">Página de Caulk+</a> · <a href="https://github.com/geometryxyz/semacaulk">Implementação no Semacaulk</a></p>
+        </li>
+        <li>
+          <h3>Vector Commitments with Efficient Updates</h3>
+          <p>Ertem Nusret Tas e Dan Boneh · trabalho da AFT 2023; cópia local do ePrint 2023/1830.</p>
+          <p>Explica a relação entre quantidade de dados de atualização e trabalho do cliente. A seção 3.1 mostra como atualizar compromissos e aberturas KZG.</p>
+          <p>O paper não entrega sozinho o saque com posição oculta. Serve para entender as operações e os custos antes de tentar delegá-los.</p>
+          <p><a href="papers/vector-updates-2023.pdf#page=11">Abrir a seção sobre atualizações KZG (página 11)</a> · <a href="papers/vector-updates-2023.pdf">PDF completo, 46 páginas</a> · <a href="https://eprint.iacr.org/2023/1830">Versão ePrint</a> · <a href="https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.AFT.2023.29">Publicação AFT</a></p>
+          <p>As versões têm diferenças na avaliação prática. Não misturar seus números sem conferir a revisão usada.</p>
+        </li>
+        <li>
+          <h3>Pay Less for Your Privacy: Towards Cost-Effective On-Chain Mixers</h3>
+          <p>Zhipeng Wang, Marko Cirkovic, Duc V. Le, William Knottenbelt e Christian Cachin · AFT 2023.</p>
+          <p>Reduz custos de mixers com atualização da árvore por lotes e computação verificável fora da blockchain. É uma comparação necessária: Merkle também pode ser otimizado.</p>
+          <p><a href="papers/mixer-batching-2023.pdf">Ler Pay Less for Your Privacy (PDF, 25 páginas)</a> · <a href="https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.AFT.2023.16">Página da publicação</a></p>
+        </li>
+      </ol>
+      <p><strong>Leitura prática antes dos detalhes matemáticos:</strong> a <a href="https://kohweijie.com/articles/23/semacaulk.html">apresentação de Semacaulk pelos autores</a>, especialmente “Precomputation and updates”. É um texto técnico de projeto, não um paper revisado por pares.</p>
+    </section>
+
+    <section id="outras">
+      <h2>Dois recortes próximos</h2>
+      <h3>Mais experimental: Merkle versus KZG para a carteira que fica offline</h3>
+      <p>Construir a mesma função de pool com duas estruturas já existentes e investigar como o custo muda com depósitos frequentes, tamanho dos lotes e tempo offline. Incluir atualização incremental, histórico de raízes aceitas e Merkle com batching entre as comparações.</p>
+      <p>É um começo de implementação mais controlável. Só repetir um benchmark não assegura contribuição acadêmica: seria necessário identificar um regime pouco estudado, explicar o resultado e propor uma melhoria mensurável.</p>
+      <h3>Mais teórico: permitir exclusões na delegação bilinear</h3>
+      <p>Na <a href="papers/private-delegation-2026.pdf#page=19">página 19, seção 5.4</a>, os autores dizem que sua delegação bilinear suporta adições, mas não exclusões, e deixam essa extensão como trabalho futuro.</p>
+      <p>Esse problema pode ser relevante para revogação de credenciais. É uma lacuna explícita no protocolo estudado, não uma ausência de acumuladores bilineares com exclusão em geral. Já existem construções com um gestor que conhece o segredo do acumulador, em outro modelo de confiança.</p>
+      <p>Eu não escolheria esse como primeiro passo se a prioridade for reduzir a dificuldade: seria preciso uma construção e uma prova de segurança novas. Para um pool no estilo Tornado, a lista de depósitos pode apenas crescer e o contrato pode controlar gastos pelos nullifiers, sem exigir essa extensão.</p>
+    </section>
+  </main>
+  <footer>
+    <p>Este recorte complementa as ideias 2 e 3 selecionadas. Fontes consultadas e trechos relevantes foram conferidos; ineditismo, implementação e resultados experimentais continuam pendentes.</p>
+    <p><a href="sources.json">Fontes, versões e hashes dos PDFs</a> · <a href="../">Voltar às propostas</a></p>
+  </footer>
+</body>
+</html>

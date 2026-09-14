@@ -1,0 +1,121 @@
+{
+  "search_date": "2026-09-13",
+  "scope": "Recorte em acumuladores, polynomial commitments, vector commitments e pools privados após preferência pelas ideias 2 e 3.",
+  "novelty_status": "Direção VC/PCS explicitada pelos autores; adaptação proposta a Caulk+/Semacaulk não demonstrada nem confirmada inédita.",
+  "implementation_status": "Nenhum protocolo implementado ou benchmark reproduzido nesta extensão da pesquisa.",
+  "principal_queries": [
+    "Semacaulk",
+    "Vector Commitments with Efficient Updates",
+    "private delegation vector commitments",
+    "private delegation Hyperproofs",
+    "bilinear private delegation deletions",
+    "Caulk PIR",
+    "KZG witness private information retrieval"
+  ],
+  "search_limit": "Busca dirigida, não exaustiva. Consultas sobre Caulk/PIR trouxeram também ruído não criptográfico e não provam ausência de trabalho relacionado.",
+  "sources": [
+    {
+      "id": "private_delegation",
+      "title": "Private Delegation of (Non-)Membership Proof Updates in Cryptographic Accumulators",
+      "url": "https://eprint.iacr.org/2026/832",
+      "pdf_url": "https://eprint.iacr.org/2026/832.pdf",
+      "file": "papers/private-delegation-2026.pdf",
+      "code_url": "https://github.com/GlaszBoti/private-accumulator-proof-delegation",
+      "reading": "Modelo, seções 5.4, 6, tabela 3, construção e conclusão, incluindo página 30; leitura parcial das provas formais.",
+      "evidence": "Página 30 propõe extensão a vector commitments e polynomial commitment schemes. Página 19 deixa exclusões na delegação bilinear para trabalhos futuros. Página 20 declara k rodadas para a delegação bilinear de não pertinência. O próprio paper já cobre RSA e acumuladores bilineares; não apresentar essa troca como inédita.",
+      "sha256": "d931d2fcec0873ea90a4ac66c3ef267bca517e9adc27d8e87e4809cab7f1d398",
+      "bytes": 801625,
+      "pages": 46
+    },
+    {
+      "id": "caulk_plus",
+      "title": "Caulk+: Table-independent lookup arguments",
+      "url": "https://eprint.iacr.org/2022/957",
+      "pdf_url": "https://eprint.iacr.org/2022/957.pdf",
+      "file": "papers/caulk-plus-2022.pdf",
+      "reading": "Introdução, relação de lookup, pré-computação e construção para um elemento; provas formais não revisadas integralmente.",
+      "evidence": "Compromisso KZG usado como VC; ocultação de posições é uma propriedade adicional à abertura comum.",
+      "sha256": "a5881da7a1465fed2ba1a5ca48e63f813816274ca57dd4e72d1398f1826292e6",
+      "bytes": 457347,
+      "pages": 11
+    },
+    {
+      "id": "vector_updates",
+      "title": "Vector Commitments with Efficient Updates",
+      "url": "https://eprint.iacr.org/2023/1830",
+      "publication_url": "https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.AFT.2023.29",
+      "pdf_url": "https://eprint.iacr.org/2023/1830.pdf",
+      "file": "papers/vector-updates-2023.pdf",
+      "reading": "Introdução, tabela de comparação, seção 3.1 nas páginas 11–12 do PDF.",
+      "evidence": "Relação entre dados de atualização e trabalho do cliente; fórmulas para atualização de compromisso e abertura KZG. As versões AFT e ePrint diferem na avaliação prática; nenhum ganho numérico é reivindicado aqui.",
+      "sha256": "973ef03d1999de4c7ea91a6883c7ad3176a91bcaf585ace47f92f8993a3e3d72",
+      "bytes": 671782,
+      "pages": 46
+    },
+    {
+      "id": "mixer_batching",
+      "title": "Pay Less for Your Privacy: Towards Cost-Effective On-Chain Mixers",
+      "url": "https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.AFT.2023.16",
+      "pdf_url": "https://drops.dagstuhl.de/storage/00lipics/lipics-vol282-aft2023/LIPIcs.AFT.2023.16/LIPIcs.AFT.2023.16.pdf",
+      "file": "papers/mixer-batching-2023.pdf",
+      "reading": "Resumo, construção básica, contribuição de batching e modelo de mixer.",
+      "evidence": "Merkle com atualizações por lotes e computação verificável já é uma alternativa publicada; comparar apenas Merkle ingênuo seria insuficiente.",
+      "sha256": "0a335f70ea9269252ec768bf26b5e09f9c4a0fa5a96fa87a9a6029fa962f0967",
+      "bytes": 1343160,
+      "pages": 25
+    },
+    {
+      "id": "semacaulk_docs",
+      "title": "Semacaulk — documentação do projeto",
+      "url": "https://geometryxyz.github.io/semacaulk/",
+      "code_url": "https://github.com/geometryxyz/semacaulk",
+      "reading": "Visão geral, operação, requisitos de setup, README.",
+      "evidence": "Troca Merkle por KZG com Caulk+ já implementada; o projeto não é um paper revisado por pares."
+    },
+    {
+      "id": "semacaulk_author",
+      "title": "Geometry Presents — Semacaulk, a gas-efficient zero-knowledge set membership protocol",
+      "url": "https://kohweijie.com/articles/23/semacaulk.html",
+      "reading": "Texto técnico dos autores, especialmente Precomputation and updates.",
+      "evidence": "Já discute atualização eficiente de pré-computação, histórico de compromissos, lotes e serviço verificável, com implicações de privacidade. Não apresentar essas ideias isoladas como novas."
+    },
+    {
+      "id": "tornado_circuit",
+      "title": "Circuito withdraw do Tornado Cash clássico",
+      "url": "https://github.com/tornadocash/tornado-core/blob/master/circuits/withdraw.circom",
+      "reading": "Código do circuito, incluindo MerkleTreeChecker e entradas públicas/privadas.",
+      "evidence": "Estrutura de pertencimento é uma árvore de Merkle; não RSA."
+    },
+    {
+      "id": "zerocoin",
+      "title": "Zerocoin: Anonymous Distributed E-Cash from Bitcoin",
+      "url": "https://zerocoin.org/media/pdf/ZerocoinOakland.pdf",
+      "reading": "Fonte histórica para o uso de acumulador RSA, não revisão integral."
+    },
+    {
+      "id": "bilinear_manager",
+      "title": "Dynamic Universal Accumulator with Batch Update over Bilinear Groups",
+      "url": "https://eprint.iacr.org/2020/777",
+      "reading": "Resumo e conclusão; construção detalhada não revisada nesta rodada.",
+      "evidence": "Adições, exclusões e atualizações por lotes já existem no modelo com gestor do acumulador. Não confundir com a lacuna do protocolo de delegação de 2026."
+    },
+    {
+      "id": "treepir",
+      "title": "TreePIR",
+      "url": "https://github.com/PIR-PIXR/TreePIR",
+      "reading": "Referência de trabalho próximo identificada na rodada anterior."
+    },
+    {
+      "id": "semaphore_pir",
+      "title": "Scaling Semaphore — PIR Merkle-Path Retrieval",
+      "url": "https://pse.dev/projects/scaling-semaphore-pir",
+      "reading": "Referência de trabalho próximo identificada na rodada anterior."
+    },
+    {
+      "id": "zcash_pir",
+      "title": "enhance-pir",
+      "url": "https://github.com/valargroup/enhance-pir",
+      "reading": "Referência de trabalho próximo identificada na rodada anterior."
+    }
+  ]
+}

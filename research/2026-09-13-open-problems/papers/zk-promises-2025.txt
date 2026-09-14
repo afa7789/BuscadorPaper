@@ -1,0 +1,1379 @@
+zk-promises: Anonymous Moderation, Reputation, and
+ Blocking from Anonymous Credentials with Callbacks
+  Maurice Shih, Michael Rosenberg, and Hari Kailad, University Of Maryland;
+                     Ian Miers, University of Maryland
+        https://www.usenix.org/conference/usenixsecurity25/presentation/shih
+
+
+
+
+        This paper is included in the Proceedings of the
+               34th USENIX Security Symposium.
+                    August 13–15, 2025 • Seattle, WA, USA
+                                 978-1-939133-52-6
+
+
+                      Open access to the Proceedings of the
+             34th USENIX Security Symposium is sponsored by USENIX.
+                           zk-promises: Anonymous
+Moderation, Reputation, and Blocking from Anonymous Credentials with Callbacks
+
+              Maurice Shih                     Michael Rosenberg                         Hari Kailad
+          University of Maryland              University of Maryland                University of Maryland
+           maurices@umd.edu                    micro@cs.umd.edu                  harikeshkailad@gmail.com
+                                                         Ian Miers
+                                                   University of Maryland
+                                                     imiers@umd.edu
+
+                         Abstract                                 ideas when it might otherwise not be safe. But, particularly
+                                                                  on the web, anonymous speech is a double-edged sword
+Anonymity is essential for free speech and expressing dissent,
+                                                                  platforms may not wish to allow: while necessary for free
+but platform moderators need ways to police bad actors. For
+                                                                  expression, it can also be used to derail debate, disrupt social
+anonymous clients, this may involve banning their accounts,
+                                                                  consensus, or distribute disinformation.
+docking their reputation, or updating their state in a complex
+                                                                     Policing participants on an anonymous platform poses a fun-
+access control scheme. Frequently, these operations happen
+                                                                  damental challenge: the site does not know who committed the
+asynchronously when some violation, e.g., a forum post, is
+                                                                  offending act, and so cannot easily penalize their bad behavior
+found well after the offending action occurred. Malicious
+                                                                  by banning their account, limiting their ability to post, or dock-
+clients, naturally, wish to evade this asynchronous negative
+                                                                  ing their reputation score. This holds even if the penalty itself,
+feedback. This raises a challenge: how can multiple parties
+                                                                  such as banning the poster from making future posts, does not
+interact with private state stored by an anonymous client while
+                                                                  directly identify the client. In a non-anonymous system, these
+ensuring state integrity and supporting oblivious updates?
+                                                                  actions can be accomplished by a simple update to the client’s
+   We propose zk-promises, a framework supporting state-
+                                                                  state in a server-side database. In the anonymous setting, the
+ful anonymous credentials where the state machines are
+                                                                  site cannot know the client’s identity or their current state.
+Turing-complete and support asynchronous callbacks. Client
+state is stored in what we call a zk-object held by the client,      Starting with BLAC [TAKS10], a long line of
+zero-knowledge proofs ensure the object can only be updated       work [TAKS08, AKS12, AK12, XF14, RMM22, MC23]
+as programmed, and callbacks allow third party updates even       builds schemes for anonymous blocklisting. These provide
+for anonymous clients, e.g, for downvotes or banning. Clients     an elegant solution to banning anonymous users that does not
+scan for callbacks periodically and update their state. When      rely on a Trusted Third-Party (TTP) who can de-anonymize
+clients authenticate, they anonymously assert some predicate      users. These schemes allow clients to make a zero-knowledge
+on their state and that they have scanned recently (e.g, within   proof that they did not author posts on some blocklist or, for
+the past 24 hours).                                               more advanced schemes, that the weighted sum of flags on
+                                                                  posts they did author is below some threshold.
+   zk-promises allows us to build a privacy-preserving account
+model. State that would normally be stored on a trusted server       Existing anonymous blocklisting schemes, while inno-
+can be privately outsourced to the client while preserving the    vative, suffer from efficiency and functionality limitations
+server’s ability to update the account.                           that fall short of what applications need. These protocols
+   To demonstrate the feasibility of our approach, we design,     cannot support the basic features we expect for moderation
+implement, and benchmark an anonymous reputation system           on non-anonymous forums, like upvote/downvote scoring,
+with better-than-state-of-the-art performance and features,       rate-limiting low-reputation users, or implementing temporary
+supporting asynchronous reputation updates, banning, and          bans and probationary periods. Moreover, the stateless nature
+reputation-dependent rate limiting to better protect against      of these systems necessitates a one-size-fits-all approach to the
+Sybil attacks.                                                    statements clients make about the blocklist, making very active
+                                                                  and less active clients do the same work. This computational
+                                                                  expense forces real-world deployments to either impose
+1   Introduction                                                  stringent limits on all clients or suspend the system until
+                                                                  moderators can adjudicate each event, significantly hampering
+Systems like Tor and Apple Private Relay make anonymous           the system’s utility and scalability.
+speech on the web possible, allowing the free expression of          In this paper, we design and implement a new solution,
+
+
+
+USENIX Association                                                                   34th USENIX Security Symposium           4995
+zk-promises: an anonymous credential scheme that supports                           not require real-world identity verification. Services like Stack-
+arbitrary programmatic logic and mutable client state while                         Exchange [Atw09] define arbitrary server-side logic tying
+preserving client anonymity. The core of our construction                           allowed behavior to the account’s history, e.g., rate-limiting the
+allows asynchronous anonymous callbacks to modify state                             number of posts and, separately, the number of (possibly spam)
+stored client-side, while assuring both integrity and anonymity.                    links in posted question for new accounts, or gating moderator
+A set of callbacks can safely be associated with a sequence of                      privileges behind a sequence of achievements. Looking ahead,
+client actions (e.g., posts on a forum, edits to Wikipedia, etc.)                   using zk-promises, we can realize this approach for privacy-
+without identifying the user or linking their actions together.                     preserving protocols without a trusted server by “outsourcing”
+Third parties can then invoke these callbacks to invoke a                           this type of reputation and rate limiting logic to the user.
+particular function (e.g., setting the client’s state to banned,                    A starting point: zk-objects as anonymous credentials.
+decrementing their reputation, or placing them on a probation-                      We start, somewhat surprisingly, by repurposing techniques
+ary period). Clients periodically scan for invoked callbacks                        developed for privacy-preserving cryptocurrency payments
+and apply them to their state. When clients authenticate,                           and smart contracts. Starting with Zerocash [BCG+ 14] and
+clients assert some predicate on their state and that they have                     commercial derivatives like Zcash, TornadoCash, and Railgun
+recently (e.g., within 24 hours) scanned for pending callbacks.                     [HBHW, PSS, rai], through to academic [KMS+ 16, BCG+ 20,
+The challenge of third party updates to private state and                           XCZ+ 22] and commercial products on privacy-preserving
+asynchronous negative feedback. Consider a version of                               smart contract systems [Wil, ale], there is a robust line of
+Wikipedia that supports anonymous edits. A user who makes                           work which builds efficient protocols for privately manipu-
+an edit must show that their account is in a valid state in                         lating Turing-complete state machines. Although designed for
+order to authenticate. Various existing anonymous credential                        blockchains, these systems can just as easily operate in a cen-
+systems support this. The problem comes when we need to                             tralized setting with a trusted server. We give a new view of this
+update this state—e.g., when moderators score the quality                           style of computation, which we refer to as the zk-object model.
+of a Wikipedia edit or ban the user’s account—after the                                In the zk-object model, method calls manipulate the object
+user’s session has ended. Revocation systems for anonymous                          and return outputs. For integrity and replay/forking prevention,
+credentials [CL01, BCC04] are insufficient: we do not know                          every object—even from different owners—is controlled by
+the identity to revoke. The core challenge in this setting is that                  a global bulletin board or trusted server, which verifies zero-
+state updates are asynchronous—the user is not guaranteed                           knowledge proofs of update correctness. For confidentiality,
+to be online when the state update is made. In addition,                            the bulletin board stores only cryptographic commitments to
+depending on application, users may have ample motive                               the objects. To hide access patterns and ensure anonymity, ob-
+and opportunity to evade an update.1 We refer to this as the                        jects are not accessed directly or mutated in-place. Instead, up-
+asynchronous negative feedback problem.                                             dates are made through an oblivious copy-on-write approach,
+    Workarounds to the asynchronous negative feedback prob-                         where a fresh commitment to the updated object is appended
+lem may be possible for simple cases, such as some escrow                           to the bulletin board along with the zero-knowledge proof the
+system to provide sufficient incentive to apply updates, but                        update results from a valid method call on the previous version
+these offer limited functionality and are challenging to apply to                   of the object. To ensure obliviousness, rather than identifying
+complex logic. For example, for anonymous banning in a real                         the old committed object version directly, the proof shows that
+application, a forum moderator may have to respond differently                      a secret previous version exists by, e.g., checking membership
+to a user posting hate speech versus spam or explicit content.                      in a Merkle tree built over all entries on the bulletin board. The
+They may implement a three-strikes policy for specific infrac-                      proof also reveals a serial number (a.k.a. a nullifier or nonce) of
+tions, or have a probation system when a second infraction trig-                    the old version to prevent replay of the previous object version
+gers consequences. Since there is no one-size-fits-all approach,                    in subsequent updates (a double-spend in payment systems).
+it is necessary to have a programmable protocol. The practical                      When these zero-knowledge proofs are instantiated with zk-
+adoption and success of such a scheme requires flexibility.                         SNARKs, we can achieve Turing-complete functionality and
+Preventing banned users from making new accounts. If a                              efficient verification by the bulletin board, giving us zk-objects
+banned user can simply make a new account, bans are not effec-                      with integrity, confidentiality, obliviousness, and atomicity.
+tive. This is a challenge, even without anonymity. One option                       Our contribution. We design, implement, and benchmark
+is to have a single account with robust identity requirements,                      zk-promises, a protocol that augments the zk-object model
+e..g, real-world identity verification. Anonymous credentials,                      with asynchronous oblivious callbacks. Conceptually, our
+including zk-promises support such an approach without                              approach is simple: we give zk-objects access to a public
+linking every action to the identity. There are options that do                     bulletin board that supports efficient membership and
+    1 There is no incentive for the user to accept an indirect update, e.g., some
+                                                                                    non-membership checks from inside the program. The bulletin
+signed statement posted on a server. This is in contrast to, e.g., an anonymous
+                                                                                    board maps psuedorandom tickets to callbacks, complete
+payment system, where users are financially incentivized to receive updates         with encrypted method arguments, posted by third parties.
+that increase their account balance.                                                Through careful protocol design, we force programs to track
+
+
+
+4996      34th USENIX Security Symposium                                                                                       USENIX Association
+their tickets in object state, check if tickets are mapped to                      discuss specialized protocols for this, often themselves using
+posted callbacks, and execute the callbacks to update their                        techniques from anonymous credentials, below. We note
+state if needed. With zk-promises, we then build an example                        that the problem is distinct from a long-studied problem of
+application for programmable anonymous blocking and                                revocation of anonymous credentials (e.g. [CL01, BL07]).
+moderation, complete with user reputation and more complex                         These schemes assume the revoking authority knows either
+functionality such as reputation-dependent rate limiting.                          the public key or private key of a party.
+   Our approach is inspired by PEREA’s [TAKS08] ticket                                For a broad view of existing specialized protocols, we refer
+approach for simple bans, but overcomes a few key challenges                       readers to the overviews of Henry and Goldberg for anonymous
+to offer drastically improved performance, and generalize to                       blocklisting [HG11] and Gurtler and Goldberg [GG21] for rep-
+arbitrary Turing-complete state machines. First, to achieve our                    utation. The anonymity property we want—that users’ actions
+performance requirements, we must describe a fixed-size state                      are not linked to each other or to the user—corresponds to what
+machine that allows users to incrementally iterate through                         Gurtler and Godlberg term Reputation-Usage Unlinkability for
+an unbounded list of open callbacks, using zk-friendly data                        Votee Privacy. Gurtler and Goldberg give a number of schemes
+structures, while revealing nothing to the server and preventing                   that provide this property, but if we exclude schemes that
+skipping callbacks.2 Second, we must support multiple call-                        require a trusted third parties (TTP) who can de-anonymize
+backs and callers, while ensuring confidentiality of callback                      users or schemes only supporting positive feedback, the
+arguments, the authenticity of the caller, and the integrity (i.e.,                relevant related work is restricted to specific approaches in the
+non-evasion) of the callback and the object itself. Since neither                  anonymous blocklisting literature for token-based anonymous
+the client nor the caller are trusted,3 we must carefully design a                 blocklisting (previously called blacklisting).
+protocol that avoids malicious inputs, fault injections, and key                      The core of anonymous blocklisting schemes is a pseudo-
+misbinding issues. With these resolved, we achieve a scheme                        random token clients associate with each action (e.g., a
+which permits arbitrary callbacks on user-defined zk-objects.                      forum post) and an anonymous credential embedding the
+   To summarize, in this paper we design, build, and benchmark                     key used to generate the tokens. In BLAC [TAKS10] and its
+zk-promises, an anonymous credentail system which:                                 successors [AKS12, RMM22], clients had to iterate over the
+                                                                                   entire blocklist for each authentication, proving each token
+   • supports Turing-complete state machines and pro-
+                                                                                   could not be derived using their key. As an improvement,
+     grammable logic for zk-objects with arbitrary callbacks;
+                                                                                   in PEREA [TAKS08], the author develop a new approach
+   • adds asynchronous callbacks to the line of privacy-                           where clients use a pseudo-random function and a counter
+     preserving payment and smart contract systems                                 to enumerate only their past n tokens and show they are
+     developed in [BCG+ 14, KMS+ 16, BCG+ 20];                                     not blocked, avoiding the need to compute proofs about the
+   • yields an anonymous reputation and blocking system                            entire blocklist. However, this method, refined in subsequent
+     with significant performance and feature improvements                         work [AK12, XF14, MC23], presents a trade-off, since clients
+     over the state of the art, including multi-dimensional rep-                   are stateless and cannot store how many tokens they have
+     utation with support for arbitrary state-dependent logic                      actually made, n is a fixed value shared across all clients. As
+     such as probationary periods and reputation-dependent                         a result: (1) n must be small enough to keep authentication
+     rate limiting for improved Sybil resistance; and                              efficient, as client work scales linearly with n. (2) A small n
+                                                                                   necessitates either severe rate limiting on clients or frequent
+   • is concretely efficient, offering server verification times
+                                                                                   global halts for misbehavior adjudication..
+     of less than 4ms and client-side authentication times of
+                                                                                      Ma and Chow [MC23] note this tradeoff and propose a
+     less than a second in realistic scenarios.
+                                                                                   partial solution using multiple parallel adjudication queues.
+                                                                                   However, this approach, while elegant, does not fully resolve
+1.1      Related work                                                              the underlying issues. Moreover, all of these schemes lack
+The approach we take builds, conceptually, on a line of                            the comprehensive state management and logic required to
+foundational work on anonymous credentials [Cha82, CL01],                          implement the complex moderation procedures common in
+allowing clients to make privacy-preserving assertions about                       non-anonymous forums.
+their credentials. Such schemes have been extended to be
+stateful [CGH09], allowing, e.g., an updateable reputation
+score. The challenge here, however, is the mechanism to
+                                                                                   2   An example application: anonymous banning
+support updates by third parties that are asynchronous. We                             and reputation dependent rate limiting.
+    2 Naïvely using a zkSNARK for every such statement is insufficient: the
+                                                                                   In this section, we introduce an example application of
+verifier learns the length of the statement (and the statement itself), exposing
+how many tickets the user has.
+                                                                                   zk-promises. This example serves two purposes. First, it
+    3 The client may evade calls and the caller may, e.g., provide a garbage       demonstrates zk-promises and its programming model
+callback to deadlock the client.                                                   for enforcing callbacks on arbitrary anonymous objects.
+
+
+
+USENIX Association                                                                                    34th USENIX Security Symposium          4997
+Second, it will provide the concrete application we evaluate                 c l a s s AnonUserRecord :
+in Section 6. The application features have been chosen to                       / / A t t r i b u t e s a r e a c c e s s i b l e v i a methods only
+                                                                                 private const instanceID
+emphasize the flexibility of our approach and we stress that the                 p r i v a t e a u t h o r i z e d C a l l e r / / Pubkey o f owner
+techniques described here have broader applications beyond                       p r i v a t e cbMgr / / F o r e n f o r c i n g i s s u e d c a l l b a c k s
+                                                                                 / / R e p u t a t i o n c a n be a m u l t i d i m e n s i o n a l v e c t o r o f i n t s
+this example, as they permit arbitrary programmable logic and                    p r i v a t e r e p = ( 0 , 0 , 0 ) / / E . g , ( h a t e , spam , q u a l i t y )
+Turing-complete state machines with arbitrary callbacks.                         / / We d e f i n e a l e a k y b u c k e t f o r r a t e l i m i t i n g
+                                                                                 private leakyBucket = 0
+   We have an anonymous individual (the user) editing a page                     p r i v a t e l a s t P o s t = c u r r T i m e ( ) / / Used f o r l e a k r a t e
+on Wikipedia (the service provider), where their account is a
+                                                                                AnonUserRecord ( w i k i P k ) : / / C o n s t r u c t o r
+zk-object and callbacks are used to ban them or update their rep-                 i n s t a n c e I D = randomUID ( )
+utation. We assume the user hides their IP address and avoids                     t h i s . cbMgr = C a l l b a c k M a n a g e r ( t h i s )
+                                                                                  a u t h o r i z e d C a l l e r = wikiPk / / f o r a c c e s s c o n t r o l .
+other forms of fingerprinting, e.g., by using the Tor Browser. In
+this section, we give the programming model and, for ease of ex-                / / Shows t h e u s e r i s a l l o w e d t o e d i t and s e n d s
+                                                                                / / c a l l b a c k s t o h o l d them a c c o u n t a b l e f o r t h a t e d i t . As
+position, we phrase all actions imperatively, as if they were oc-               / / arguments a r e p u b l i c , s e r v e r s can d y n a m i c a l l y change
+curring on a mutable finite state machine. As we will see in the                / / what w e i g h t s , t h r e s h o l d s o r c u t o f f s t h e c l i e n t must
+                                                                                / / use .
+next section, every state transition and assertion in zk-promises               public ShowAuthorizedForEditAndMakeCallbacks (
+is backed by a zero-knowledge proof on an append-only log.                         curTime , r e p W e i g h t s , r e p T h r e s h o l d , r a t e T r e s h o l d ,
+                                                                                   cutOffTime
+   Figure 1 gives pseudocode for our example                                    ):
+AnonUserRecord. It stores both a multidimensional                                  t h i s . l e a k y B u c k e t −= t h i s . c a l c D r a i n ( c u r T i m e )
+                                                                                   / / A u t h o r i z a t i o n c h e c k s f o r e d i t s . Checks r e p u t a t i o n
+reputation score (e.g., containing separate scores for spam                        / / i s s u f f i c i e n t , e d i t i s w i t h i n r a t e l i m i t , and t h a t
+versus hateful content), state for a leaky-bucket-style rate limit                 / / a l l c a l l b a c k s were h a n d l e d a s o f c u t O f f T i m e .
+                                                                                   i f t h i s . rep . dotProd ( repWeights ) > repThreshold
+on edits per day, and metadata to support callbacks. When                            and t h i s . l e a k y B u c k e t < r a t e T r e s h o l d
+making an edit to Wikipedia, users will prove they called                            and t h i s . cbMgr . l a s t F u l l S c a n T i m e >= c u t O f f T i m e :
+                                                                                       u p d a t e C b = t h i s . cbMgr . makeCb ( t h i s . u p d a t e R e p )
+ShowAuthMakeCB and provide the server with the generated                               banCb = t h i s . cbMgr . makeCb ( t h i s . ban )
+callbacks. The server can later use these two callbacks to either                      t h i s . l e a k y B u c k e t ++
+                                                                                       t h i s . l a s t P o s t = curTime
+update their reputation or ban them. Executing this method also                        r e t u r n ( updateCb , banCb )
+proves to the server the following authorization checks passed:                    else :
+                                                                                       return n u l l / / user isn ’ t a u t h o r i z e d
+
+  1. The user’s projected reputation, defined as the dot                        public updateRep ( c a l l e r , d e l t a ) :
+     product of their reputation with a public weight vector,                     / / U s e r s c a n n o t u p d a t e t h e i r own r e p
+                                                                                  i f c a l l e r == a u t h o r i z e d C a l l e r :
+     exceeds a specified threshold.                                                  t h i s . r e p += d e l t a
+
+  2. The user is within their rate limit for edits. To demonstrate              p u b l i c ban ( ) : / / no a c c e s s c h e c k n e e d e d f o r ban
+     the flexibility of zk-promises, we use a leaky bucket for the                 t h i s . rep = (− inf , −inf , − i n f )
+
+     rate limit where the rate depends on the user’s reputation.4               private calcDrain ( currTime ) :
+                                                                                  i f | r e p | > 10 / / t h r e s h o l d a r b i t r a r i l y s e t t o 10
+  3. The user has recently scanned for all their open callbacks.                      l e a k R a t e = 1 0 / 8 6 4 0 0 / / 10 a u t h s p e r day i n s e c o n d s
+                                                                                  e l s e : / / l o w e r r e p u t a t i o n g e t s 1 e d i t p e r day
+The reputation threshold and weighting are dynamically                                leakRate = 1/86400                 / / 1 a u t h p e r day i n s e c o n d s
+                                                                                  elapsedTime = curTime − t h i s . l a s t P o s t
+configurable via method arguments. As these method                                / / c a n n o t d r a i n more t h a n c u r r e n t b u c k e t c a p a c i t y .
+arguments are public, the server can reject invalid parameters.                   r e t u r n min ( l e a k R a t e * e l a p s e d T i m e , t h i s . l e a k y B u c k e t )
+
+Again, these features are picked to demonstrate the flexibility
+of zk-promises and its ability to handle arbitrary programs                  Figure 1: Pseudocode for an anonymous user record with
+with branching, not just linear logic.                                       reputation, bans, and rate limiting.
+   Note, the object defines its own access control. Users cannot
+alter data except by calling valid methods. In addition, the
+updateRep method is restricted to Wikipedia.                                 a source that is making the callback (in our case Wikipedia
+                                                                             moderators) and destination (the anonymous user).
+2.1      Callbacks and their lifecycle                                       Callback and authenticated origins. A key component
+                                                                             of callbacks is an authentication origin. This prevents
+The core of zk-promises is a callback, a function which is                   unwarranted modification, e.g., a user calling updateRep
+used to modify the user record (here, ban and updateRep).                    themselves to increase their reputation. Looking ahead, in our
+Callbacks are first-class objects that can be passed around,                 system, we assume the caller is identified by a public key, and
+transferred over the network, and stored, e.g., alongside an                 the bulletin board verifies posted callbacks contain a signature
+edit that is queued for moderation. Conceptually, they have                  under that key. Alternatively, callbacks could be generated by
+   4 Edits require the bucket has remaining capacity. Once a user’s bucket   code executed by the bulletin board (e.g., in smart contracts),
+is full, they must wait for the bucket to partially drain.                   a trusted execution environment, or from the invocation of
+
+
+
+4998      34th USENIX Security Symposium                                                                                                       USENIX Association
+c l a s s CallbackManager :                                                                users assert they have scanned through all open callbacks as
+    private userObj                              //   P t r t o AnonForumUser              of some time tracked by the callback manager.
+    private cbList = []                          //   L i s t of c a l l b a c k s
+    private curCbIter = 0                        //   cbList i t e r a t o r                  We note that the callback manager, although defined as
+    private scanStartTime = 0                    //   Current scan s t a r t               a separate object, will, for efficiency, be stored in the same
+    private lastFullScanTime = 0                 //   S t a r t of l a s t f u l l scan
+                                                                                           commitment along side user object, and calls will be inlined.
+  CallbackManager ( userObj )                / / Constructor
+    / / Bind t h i s cbManager t o o b j e c t
+                                                                                              In our example, callbacks are represented by a random 32-
+    t h i s . userObj = userObj                                                            byte ticket tik created by the user’s zk-object invoking makeCb
+    / / I n i t i a l i z e the i t e r a t o r
+    t h i s . curCbIter = t h i s . cbList . begin ( )
+                                                                                           in ShowAuthMakeCB. The server, Wikipedia in our example,
+                                                                                           later calls the callback by placing the ticket on a bulletin board
+  / / C r e a t e s a new c a l l b a c k . C a n n o t r u n i f
+  / / c u r r e n t l y in the process of s e t t l i n g
+                                                                                           along with the method arguments. For example, a moderator,
+  p r i v a t e makeCb ( f u n c ) :                                                       after reviewing the post, could decrement the anonymous users
+      / / T h i s means we ’ r e n o t s e t t l i n g , i e n o t i n a s c a n
+      a s s e r t t h i s . c u r C b I t e r == t h i s . c b L i s t . b e g i n ( )
+                                                                                           reputation by 3 via posting (tik,−3) to the bulletin board. The
+      t i c k e t = randBytes (32)                                                         callback would then be ingested when the user scans through its
+      t h i s . c b L i s t . append ( t i c k e t , func )
+     return t i c k e t
+                                                                                           open callbacks and is forced to run updateRep(moderator,
+                                                                                           -3).5 We note that the reputation update portion of the callback,
+  / / Shows a l l c a l l b a c k s were h a n d l e d a s o f some t i m e .
+  public showSettledUpTo ( cutoffTime ) :
+                                                                                           −3 in this example, will be encrypted.
+     r e t u r n t h i s . l a s t F u l l S c a n T i m e >= c u t o f f T i m e
+
+  / / I n c r e m e n t a l l y s c a n s t h e l i s t o f open c a l l b a c k s
+  / / I f a c a l l b a c k i s on t h e b u l l e t i n b o a r d , i t s s e t t l e d
+                                                                                           2.2    Security properties
+  / / I f one i s e x p i r e d , i t s removed from t h e open l i s t
+  p u b l i c s c a n I n c r e m e n t a l ( b u l l e t i n , curTime ) :                We first describe the security properties off the zk-object
+     i f t h i s . c u r C b I t e r == t h i s . c b L i s t . b e g i n ( ) :            model before then discussing the specific security properties
+          / / I f s t a r t i n g a new s c a n , mark t h e s t a r t t i m e
+          t h i s . s c a n S t a r t T i m e = curTime                                    of our example applicaton Informally, the zk-object model
+                                                                                           has the following security properties:
+     / / Take t h e n e x t c a l l b a c k and s e e i f i t s b e e n c a l l e d
+     ( t i c k e t , func ) = * t h i s . curCbIter
+     call = bulletin [ ticket ]                                                            Confidentiality An object’s contents are only directly visible
+     / / I f t h e c a l l i s on t h e b u l l e t i n b o a r d , e x e c u t e i t
+     i f c a l l not null :
+                                                                                               to the owner. Function callers may deduce some amount
+         ( c a l l e r , cbArgs ) = c a l l                                                    of information solely based on the call they make on the
+          t h i s . userObj . func ( c a l l e r , cbArgs )
+          / / Mark t h e c a l l b a c k f o r d e l e t i o n and move t o n e x t
+                                                                                               object.
+          this . curCbIter . deleteAndIncr ()
+     else :
+                                                                                           Obliviousness An object update does not reveal which object
+          / / Move t o n e x t i t e m i n c a l l b a c k l i s t                             was updated. Nor can updates on the same object be
+          this . curCbIter . incr ()
+                                                                                               linked to each other.
+     i f t h i s . c u r C b I t e r == t h i s . c b L i s t . end ( ) :
+        / / We h a v e a new f u l l c o m p l e t e s c a n , u p d a t e t i m e s       Integrity An object is only updated according to its pro-
+        t h i s . lastFullScanTime = t h i s . scanStartTime                                    grammed methods. From this it follows callbacks must
+        t h i s . curCbIter = t h i s . cbList . begin ( )
+                                                                                                be applied. Authorized entities may exclusively make
+                                                                                                changes, and only in accordance with the programmed
+Figure 2: Pseudocode for the callback manager, responsible                                      methods.
+for creating and settling callbacks.                                                       Atomicity There is one valid version of an object at a time and
+                                                                                               it cannot be rolled back (i.e., no forking or double spend-
+                                                                                               ing). The act of state transition consumes the prior state.
+another zk-object.
+Lifecycle and callback management. During its lifecycle, a                                    We capture these properties in a simplified ideal function-
+callback is: created by the user, called by the service provider,                          ality for a zk-callback system, described later in Figure 4. This
+and finally ingested by the user again.                                                    ideal functionality describes a generic system for manipulating
+    Callbacks consist of pseudorandom tickets, which must be                               objects via method calls that can produce callbacks. The
+tracked to prevent evasion of asynchronous negative feedback.                              callbacks are later called and, subsequently, ingested and
+In zk-promises, we build a separate zk-object, called a callback                           applied to the underlying object. The ideal functionality
+manager, to create, track, and handle callbacks. As shown in                               guarantees that when a client asserts it has handled all pending
+Figure 2, it keeps a list cbList of all created callbacks. In order                        callbacks, it must have actually done so. For ease of exposition,
+to get up to date, a user repeatedly calls scanIncremental,                                we limit the ideal functionality to expressing the scheme itself,
+incrementally iterating over every callback on the list to check                           and omit details in the real protocol for replay prevention and
+if it has been called or expired. When one full iteration of that                          authenticated channels.
+loop completes, lastFullScanTime is set to the start time                                     5 This must happen by the next time the user calls ShowAuthMakeCB, as
+
+of the current loop. This implies a polling-like model where                               that code requires this.cbMgr.lastFullScanTime ≥ cutOffTime
+
+
+
+
+USENIX Association                                                                                              34th USENIX Security Symposium              4999
+Security Goals for Anonymous Reputation. For the                       parameter of our system is denoted by λ.
+anonymous reputation system example application, we require
+a strong anonymity property: unlinkability. Any action by a
+                                                                       3.2    Cryptographic primitives
+user should not be associable with any other action, even if
+all servers and other users are malicious. Naturally, we need at       Zero-knowledge proofs. A noninteractive zero-knowledge
+least two honest users for any meaningful notion of anonymity          proof of knowledge (NIZKPok) is a representation of a
+and assume clients use an anonymized internet connection               statement “I know w such that P(x, w)” where x is the
+(e.g., Tor or Apple Private Relay). This anonymity property            instance (or public input), w is the witness, and P is some
+should hold even after users are banned (so-called backward            efficiently computable predicate. We use the relation notation
+anonymity [HG11]). At a high level, zk-promises meets these            R = {(x,w) : P(x,w)} to represent the set of such statements.
+requirements because the only information associated with              A NIZKPoK is a tuple of algorithms:
+each client action is a pseudorandom tag—the zero-knowledge
+proof and commitments hide all other state.                            Setup(P) → (srsP ,srsV ,τ) Receives a description of the
+   We also require non-frameability—no one other than the                  predicate P and returns two structured reference strings,
+service provider can ban a user or alter their state. Finally,             one used for proving, and one for verifying. Setup also
+we need basic correctness and authenticity requirements that               produces a trapdoor τ used for simulating proofs (only
+allow legitimate clients to use the system while prohibiting               used in establishing the zero-knowledge property).
+clients with insufficient reputation. All of these properties are
+in-line with previous work.                                            Prove(srsP ,x,w) → π Computes a proof that (x,w) ∈ R.
+   We note two practical constraints on security. First, we            Verify(srsV ,x,π) Verifies π with respect to x, i.e., verifies that
+assume, as does all previous work taking the token-based                    there exists a w such that (x,w) ∈ R.
+approach, that all clients share access to a single view of the
+blocklist (in our case, this is the bulletin board). This can be ac-      A NIZKPoK is perfectly correct if Verify succeeds on every
+complished by, e.g., gossiping the hash. Failure to do so could        proof that is honestly computed, with an honestly generated
+allow a malicious server to launch targeted attacks by feeding         srs. A NIZKPoK is perfectly zero-knowledge if there exists
+a target client a special blocklist that blocks everyone else.         a simulator Sim(τ,x) which, given trapdoor τ and instance x,
+The feasibility of this attack depends heavily on the setting.         produces proofs which are perfectly indistinguishable from
+   A more significant concern is that while client posts are           honest proofs generated with Prove(srsP ,x,w) for any witness
+unconditionally anonymous from the server’s perspective,               w. Finally, a NIZKPoK has knowledge soundness if there
+this anonymity does not hold if client state is disclosed (e.g.,       exists an efficient extractor which, given access to a prover,
+through compromise or subpoena). The client must store                 can extract the prover’s witness. For a more in-depth treatment
+non-expired callbacks and check if they have been used.                of zero-knowledge proofs, see [Tha23].
+Consequently, the client maintains a list identifying their               We say that a NIZKPoK scheme is a succinct noninteractive
+actions until the callbacks expire. This limitation seems              argument of knowledge (zkSNARK) if the runtime Verify is
+inherent to the functionality: we cannot have accountability           O(log|P|), that is, at most logarithmic in the size of a circuit
+if even the client does not know what they did in the past.            to compute the predicate P.
+Looking ahead, our construction does not maintain identifying          Pubkey-rerandomizable signature schemes. For our main
+information for any actions after callbacks have expired. With         construction, we will require a digital signature scheme with
+an expiration time of, e.g., 24 hours, this would allow a user         rerandomizable public keys. We say that Σ = (Keygen,
+to build up a history of good behavior (e.g., posts not being          SkToPk, Sign, Verify, RerandPk, RerandSk) is a pubkey-
+banned in 24 hours), without tying their account and reputation        rerandomizable signature scheme if (Keygen, SkToPk, Sign,
+to their posting history. However, the exposure risk for posts         Verify) is an ordinary signature scheme, and the following hold:
+prior to callback expiry may make anonymous reputation
+systems unsuitable for extremely sensitive applications.                 1. If pk is a valid public key, then RerandPk(pk) → (pk′ ,r)
+                                                                            returns a fresh public key with randomness r such that
+                                                                            pk′ is computationally indistinguishable from a public
+3     Notation and cryptographic preliminaries                              key generated with Keygen.
+
+3.1    General notation                                                  2. If (sk, pk) is a valid keypair and (pk′ , r) is honestly
+                                                                            generated by RerandPk(pk), then RerandSk(sk,r) → sk′
+We write x := z to denote variable assignment. y := A(x; r)                 returns a secret key corresponding to pk′ , i.e.,
+denotes the execution of a probabilistic algorithm A on input               SkToPk(sk′ ) = pk′ .
+x, using randomness r. We write y ←$ S to denote sampling
+uniformly from a set S and y ← Alg(x) to denote sampling                 Two simple examples of pubkey-rerandomizable signature
+r ←$ {0, 1}∗ and assigning y := Alg(x; r). The security                schemes are EdDSA and ECDSA, where the keypair (x,P) can
+
+
+
+5000    34th USENIX Security Symposium                                                                             USENIX Association
+be rerandomized as (rx,rP), where r is a uniformly selected                     expiry, creation-calling unlinkability, and function argument
+scalar. The resulting public key is perfectly indistinguishable                 authenticity and confidentiality. We will use these features to
+from one generated with Keygen.                                                 define the scheme we implement and benchmark in Section 6.
+                                                                                A formal description of the final scheme can be found in
+                                                                                Appendix B.
+3.3      zk-objects
+We now describe the components of the zk-objects model.                         4.1    Basic system
+Object. An object contains arbitrary state, e.g, payment
+account balances, reputation, ban status, account creation                      zk-promises is, at its core, a zk-object system, and thus carries
+date, etc. In addition, an object contains a serial number (or                  with it all the same requirements (fresh serial numbers, per-
+nullifier or nonce)—a random string6 which is revealed when                     sistent states in a bulletin board, zero-knowledge proofs over
+the object is updated. By checking if a transaction updating an                 user predicates, etc.). In order to not trivially de-anonymize
+object contains a serial number that has already been revealed,                 the users, we assume that all communication done by the user
+we prevent stale object states from being replayed.                             is through anonymous channels. In this section we augment
+                                                                                zk-objects to support callbacks. In doing so, we ensure that
+Object bulletin board. Objects must be stored in a way that                     all these base requirements are still met.
+permits a consistent global view of the same state. We thus
+                                                                                Data structures. There are two globally accessible data
+require the existence of a global append-only log, called the
+                                                                                structures in zk-promises. bbobj stores every committed object
+object bulletin board. The bulletin board does not store objects
+                                                                                obj on the bulletin board. bbcb stores every callback posted
+directly, but rather cryptographically-hiding commitments
+                                                                                to the bulletin board. These structures permit efficient lookup
+to objects. As a result, object owners need to store both the
+                                                                                of items inside zero-knowledge proofs. In addition, bbcb must
+object’s opening, i.e., its contents and the randomness used
+                                                                                support efficient non-membership proofs. Non-membership
+in its commitment. When discussing these constructions
+                                                                                requires the bulletin board operator to commit to the com-
+informally, we will refer to an object and its commitment
+                                                                                plement of bbcb . For signature-backed bulletin boards, this
+interchangeably, assuming that all authorized parties have the
+                                                                                requires a bulletin board rollover—a full recomputation of
+commitment opening data.
+                                                                                the complement set—whenever bbcb changes.
+   The bulletin board needs to support efficient zero-
+                                                                                   zk-promises permits the bulletin board manager(s) to
+knowledge set membership proofs. For the systems mentioned
+                                                                                represent passing time in whichever way they choose. This
+above, this is done via Merkle tree inside a zkSNARK. Proving
+                                                                                can mean a centralized server publishing a new bulletin
+membership of a leaf x in the Merkle tree with root r amounts
+                                                                                board commitment every minute, or a blockchain-backed
+to proving knowledge of an authentication path—a list of the
+                                                                                append-only log growing as block height grows.
+siblings of x’s ancestors—whose iterated hash equals r.
+                                                                                   Created callbacks are associated with a ticket, tik ∈ {0,1}256
+Updating an object. To update an object commitment                              that the service provider will eventually post to the bulletin
+obj, a user must submit a new object commitment obj′ and a                      board along with the arguments to the callback.
+zero-knowledge proof π of the conjunction of the following                         We will denote service providers by their ID spid. We will
+statements:                                                                     present algorithms which depend on service-provider-specific
+                                                                                keypairs (pkspid , skspid ), but the structure of these keys is
+    1. obj ∈ T
+                                                                                generic (later, we will describe an extension that uses skspid
+    2. sn = obj.sn
+                                                                                to compute signatures).
+    3. Φ(obj,obj′ )
+                                                                                Methods. zk-promises permits deployers to define multiple
+where Φ is a predicate which determines validity of an update                   methods, functions which mutate the object, these methods
+(e.g., a method mutating the object) and the public inputs to                   can both create callbacks and be called by them. For example,
+the ZKP are the serial number sn, the (committed) object obj′ ,                 as we saw in Section 2, it may be desirable for one callback
+and (the root of) the Merkle tree T .                                           creation method to enforce rate limiting on itself, while
+                                                                                another creation method does not.
+                                                                                   Finally, we describe how user-programmable functionality
+4     Construction of zk-objects with callbacks                                 fits into zk-promises. In our zero-knowledge proofs, we will
+                                                                                use Φmeth (obj,obj′ ,...) to represent a valid transition from obj
+We now provide a more detailed description of zk-promises
+                                                                                to obj′ using method meth.
+using primitives from the zk-object model. We begin by
+defining the algorithms for an extremely simple callback                        Algorithms.        zk-promises consists of the following
+system. We then build features on top of it, including callback                 algorithms:
+    6Whether this is directly used as the nonce or materialized through a PRF   Setup(Φ) → pp Takes a representation of zk-promises
+and some key material depends on implementation.                                    application-specific predicates and produces public
+
+
+
+USENIX Association                                                                                 34th USENIX Security Symposium           5001
+     parameters for our zero-knowledge proof scheme. This              the callback to, and let x represent any additional public values,
+     may be a trusted setup procedure as required by, e.g., the        including the method meth′ the user wishes to create a callback
+     Groth16 zkSNARK [Gro16].                                          for. The user performs the following updates to its objects.
+
+ExecMethodAndCreateCallback(pp,obj,pkspid ,meth,x)                       1. Create a fresh ticket tik ←$ {0,1}256
+    → (obj′ ,π,cbData,aux) Invoked by a user with object obj             2. Set obj′ := meth(obj,x)
+    for service provider with public key pkspid , this executes
+    the specified method and creates a callback ticket tik for           3. Set obj′ .cbList             :=        obj.cbList∥entry          where
+    the service provider. Additional public input is given in x.            entry = (tik,meth′ )
+    The function may modify obj. The resulting object obj′ ,             4. Set obj′ .sn to be a fresh serial number
+    its zero-knowledge proof π, and any additional execution
+    metadata cbData are sent to bbobj . The same, plus some            In upcoming sections, we will modify the first step to create
+    auxiliary data aux are sent to the service provider. In the        tickets which depend on pkspid .
+    most basic system, cbData contains tik and the object’s               The user then computes a zero-knowledge proof that the
+    serial number, and aux is empty.                                   new object obj′ is correctly computed. Let the public inputs
+                                                                       of the proof be obj′ , x, and cbData := (entry,obj.sn). Let the
+VerifyCreate(pp,skspid ,obj′ ,π,cbData,aux) → {0,1}                    new callback list entry be (tik,meth′ ) where meth′ ∈ x. The
+     Invoked by the service provider spid with secret                  user proves the conjunction of the following statements:
+     key skspid , this verifies π with respect to obj′ and cbData,
+     and verifies that these values appear in bbobj . This also         zk-object bookkeeping:
+     optionally takes an auxiliary input aux.
+                                                                               The old object exists. obj ∈ bbobj
+Call(pp,tik,args) Invoked by a service provider, calls the
+                                                                               The serial number is revealed. obj.sn = sn
+     callback represented by tik, with callback arguments
+     args. These values are sent to bbcb .                                     The entry has been appended. obj′ .cbList                           =
+                                                                                  obj.cbList∥entry7
+VerifyCall(pp,tik,args,aux) → {0,1} Invoked by the manager
+     of bbcb , this verifies that the call (tik,args) (with optional    The predicate is satisfied. Φmeth (obj,obj′ , /0,entry,x) = 1
+     caller-provided auxiliary input aux) is well-formed. The
+     notion of well-formedness is application-defined.                 The empty input corresponds to the fact that methods used
+                                                                       for creation do not have external callers, and thus do not
+ScanOne(pp,obj,x) → (obj′ ,π,cbData) Invoked by a user                 receive a separate args input, as seen later in ScanOne. We
+    with object obj, this takes one step in the callback list,         note zk-promises allows a choice of whether to reveal meth.
+    checks on bbcb if the callback has been called, and, if            We discuss the tradeoffs later in this section.
+    so, executes it. Additional public input is given in x. The           The user sends (obj′ ,π,cbData) to the object bulletin bbobj ,
+    order of iteration through the list is application-specific.       and sends the same values, plus some auxiliary data aux, to
+    The resulting object obj′ , its zero-knowledge proof π,            the service provider.
+    and the execution’s metadata cbData are sent to bbobj .            VerifyCreate(pp,skspid ,obj′ ,π,cbData,aux) → {0,1}. The
+                                                                       service provider must check well-formedness of the callback
+VerifyMethodExec(pp,obj′ ,π,cbData) → {0,1} Invoked by
+                                                                       created in ExecMethodAndCreateCallback. Otherwise, the
+     the manager of bbobj , this verifies π with respect to
+                                                                       callback may be uncallable, or callable by parties other than
+     obj′ and cbData. This is used to verify bulletin board
+                                                                       the service provider, or a duplicate callback that has already
+     submissions from ExecMethodAndCreateCallback and
+                                                                       been called.
+     ScanOne. On verification success, (obj′ , π, cbData) is
+                                                                         To verify well-formedness, the service provider with secret
+     posted to bbobj .
+                                                                       key skspid it does the following:
+  We now describe each algorithm in detail.
+                                                                         1. Verify that (obj′ , π, cbData) appears on bbobj , i.e., that
+ExecMethodAndCreateCallback(pp, obj, pkspid , meth, x) →                    the callback was created.
+(obj′ ,π,cbData,aux). This algorithm performs two important
+functions: (1) it updates obj according to the given method;             2. Verify the proof π with respect to inputs cbData and obj′ .
+and (2) it creates a new callback entry and appends it to the
+list of created callbacks obj.cbList. The resulting new object           3. Extract tik from cbData or aux, and verifies that it has
+obj′ is accompanied by a zero-knowledge proof that it was                   never received tik in the past.
+computed correctly.                                                        7We omit details for now on how precisely the callback list works. For
+   We describe the update more formally. Let pkspid represent          now, it may be treated as a fixed-size list, where the callback manager retains
+the public key of the service provider the user intends to give        a running index of unfilled slots. We extend this later in this section.
+
+
+
+
+5002    34th USENIX Security Symposium                                                                                    USENIX Association
+The final check is to ensure the user does not attempt to            ExecMethodAndCreateCallback and ScanOne. To do so, it
+double-create the same callback.                                     does the same proof verification as VerifyCreate. Specifically,
+   The service provider may perform additional checks on             given (π,cbData,obj′ ) it verifies the zero-knowledge proof π
+cbData and aux using its knowledge of skspid .                       with respect to its inputs cbData and obj′ . In addition, as with
+Call(pp,tik,args). Recall that to call a callback, the service       any zk-object update, it must ensure that the serial number is
+provider must post some data to a bulletin board so that it may      not repeated. That is, cbData’s obj.sn ̸∈ S, where S is the set of
+be handled asynchronously.                                           all serial numbers observed by the bulletin board operator. If all
+   Formally, for a callback ticket tik and associated function       checks succeed, the operator posts (obj′ ,π,cbData) to bbobj .
+arguments args, the algorithm Call(tik, args) simply posts           VerifyCall(pp,tik,args,aux) → {0,1}. The operator of the
+(tik,args) to bbcb . We will later extend Call to sign and encrypt   callback bulletin board must verify incoming calls (tik,args)
+args.                                                                before placing them on the bulletin board. In our basic construc-
+ScanOne(pp, obj, x) → (obj′ , π, cbData). This algorithm             tion, aux is empty, and there is nothing that requires verification.
+reads the next entry of the list of issued callbacks, checks         Later in this section, we will let aux be a digital signature, and
+whether the callback has been called, and, if so, executes that      condition acceptance on the signature’s successful verification.
+method.
+   We describe the update more formally. Let x represent some
+additional public data and let entry := (tik,meth) represent the
+                                                                     4.2    Unlinking Create and Call
+next entry in the callback list obj.cbList (later in this section    Currently, a passive observer of the (possibly public) bulletin
+we give a concrete list traversal construction). If the entry        board sees tik, meaning it can correlate executions of
+has been called, i.e., (entry.tik, args) ∈ bbcb , then the user      ExecMethodAndCreateCallback and Call. While this does
+performs the following updates to its object:                        not identify the user, it may, e.g., leak what post was moderated.
+  1. Set obj′ := meth(obj,args,x)                                       To fix this, we slightly modify the zero-knowledge
+                                                                     proof and public input of ExecMethodAndCreateCallback.
+  2. Delete tik from obj′ .cbList                                    The user replaces entry in cbData with a commitment
+  3. Set obj′ .sn to be a fresh serial number                        comentry := Com(entry;s) for some randomness s, and opens
+                                                                     the commitment in the proof. In addition, the auxiliary data sent
+If tik has not been called, then the user sets obj′ := obj and       to the service provider is now aux := (entry,s). In VerifyCreate,
+skips (1) and (2).                                                   the service provider checks that comentry = Com(entry;s).
+   The user must then compute a zero-knowledge proof that
+                                                                        The Call algorithm is unchanged. Since tik is not sent in the
+the new object obj′ is correctly computed. Let the public inputs
+                                                                     clear at any time before Call, there is no longer any event to
+of the proof be obj′ and cbData := obj.sn. The user constructs
+                                                                     link it to.
+a proof π of the conjunction of the following statements:
+ The old object exists. obj ∈ bbobj
+                                                                     4.3    Callback Expiry
+ The serial number is revealed. obj.sn = sn
+                                                                     Currently, there is no limit on the amount of time that can pass
+ entry     is     the    current         entry. entry          =     between creation and calling of a callback. This gives service
+     obj.cbList.nextUnscanned()                                      providers the power to rate old and irrelevant posts for any
+                                                                     reason. In addition, it requires the user to store all callbacks
+ Callback was applied if called. If (tik,args) ∈ bbcb then           indefinitely until they are called. Over time, this makes a full
+    Φmeth (obj,obj′ ,entry,args,x) = 1 and                           scan computationally infeasible.
+    obj′ .cbList = obj.cbList.tail()                                    We solve both of these problems by associating an expiry
+ No-op if not called. If tik ̸∈ bbcb , then obj′ = obj               with every callback. With expirable callbacks, users only have
+                                                                     to store the tickets that have not expired, and calls are limited
+As in ExecMethodAndCreateCallback, the user sends                    to the expiry period, e.g., at most one day after creation. We
+(obj′ , π, cbData) to the object bulletin bbobj . We note that       detail the changes to the base system that this feature entails.
+the last two statements are the reason we require efficient             ExecMethodAndCreateCallback now takes an expiry exp
+zero-knowledge proofs of membership and non-membership               as an argument, and includes exp in entry.
+in bbcb .                                                               In VerifyCall, the bulletin board operator does as before,
+   In practice, ScanOne may be batched. A user may process           but additionally stores the time t that the call was received. So
+100 callbacks at a time, and produce a single zero-knowledge         each element of bbcb is now of the form (tik,args,t).
+proof that all 100 were applied correctly.                              ScanOne now takes as part of its public input x
+VerifyMethodExec(pp, obj′ , π, cbData) → {0, 1}. The                 the current time c. When deciding whether to apply
+object bulletin board must handle zk-object updates from             entry = (tik,meth,exp) ∈ obj.cbList, they do as follows:
+
+
+
+USENIX Association                                                                       34th USENIX Security Symposium           5003
+  1. If tik was posted, i.e., (tik,args,t) ∈ bbcb :                     In VerifyCreate, the service provider computes
+                                                                     sk′spid := Σ.RerandSk(skspid , r) and checks that tik is
+       (a) If t < exp, the callback was called in time. The user     well-formed, i.e., tik = Σ.SkToPk(sk′spid ).
+           applies it: obj′ := meth(obj,args,x) and deletes this        In Call, instead of sending (tik,args), the service provider
+           entry from cbList.                                        sends (tik,args,σ), where σ = Σ.Signsk′ (args). This binds
+                                                                                                               spid
+       (b) If t ≥ exp, the callback was called after expiry. The     the arguments to the ticket.
+           user ignores it obj′ := obj and deletes this entry           In VerifyCall, instead of posting (tik,args) unconditionally,
+           from cbList.                                              it now receives aux = σ and posts the call iff Σ.Verifytik (y,σ)
+  2. If tik was not posted, i.e., tik ̸∈ bbcb :                      is true.
+                                                                     Confidentiality: encrypted method arguments and
+       (a) If c ≥ exp, the callback has already expired. The user    in-circuit decryption. To encrypt args, the caller computes
+           sets obj′ := obj and deletes this entry from cbList.      args := Enck (plaintextArgs), where k is an encryption key and
+       (b) If c < exp, the callback is unposted and unexpired.       Enc is a circuit-friendly CCA-secure authenticated symmetric
+           The user sets obj′ := obj and leaves this entry cbList.   encryption algorithm. Two challenges arise. First, the scheme
+                                                                     must be key-committing to prevent users from intentionally
+The user’s zero-knowledge proof in ScanOne is also updated           using the wrong key to decrypt arguments incorrectly. We
+to reflect the above logic.                                          can achieve this generically by simply requiring a proof
+                                                                     of decryption under the correct key. However, this leads to
+4.4 Authenticity and confidentiality for call-                       our second problem: requiring clients to prove decryption
+    back inputs                                                      correctness could allow malicious callers to deadlock clients
+                                                                     with invalid ciphertexts.
+Our construction so far still has the following limitations:            To address these issues, we include a separate encryption key
+(1) callback arguments are sent in the clear in Call, meaning a      with each callback list entry and mandate its use for decryption
+passive adversary can, e.g., learn correlations between activity     via the circuit. This ensures clients use the correct key, while
+and moderation decisions; and (2) callback arguments are not         ticket holder authentication prevents ciphertext tampering. If
+authenticated in any way, meaning that a malicious bulletin          decryption fails, the circuit allows clients to skip the callback,
+board provider or an active adversary can modify the callback        preventing deadlocks from malformed ciphertexts and result-
+arguments in a Call payload.                                         ing only in a failed callback. Here, the circuit must be carefully
+   We would like to give service providers the ability to            crafted to ignore malformed ciphertexts. CCA security is insuf-
+include encrypted, non-malleable arguments in their call. This       ficient, since the worst case attacker is the callback maker who
+must satisfy a few constraints simultaneously:                       deliberately encrypts an invalid message into a valid ciphertext.
+  1. If a service provider posts a ticket and callback arguments,       ExecMethodAndCreateCallback now generates a fresh
+     the arguments cannot be malleable.                              encryption key k, and includes k in entry.
+                                                                        In Call, rather than letting args be plaintext, it uses its
+  2. If the arguments are malformed, the user must be able           knowledge of k to compute args = Enck (plaintextArgs).
+     to reject the callback during ScanOne.                             In ScanOne, the user simply decrypts the payload in-circuit.
+                                                                     That is, rather than using args directly, it uses Deck (args),
+  3. If the arguments are well-formed, the user cannot reject
+                                                                     where k comes from the current entry in obj.cbList. If
+     the callback during ScanOne.
+                                                                     decryption fails, it skips the callback.
+We now describe how to add authenticity and confidentiality
+in a way that meets these goals.
+                                                                     4.5    Private and public method identifiers
+Authenticity: tickets are signature pubkeys. To bind tik
+to args, we interpret tik as a public key for a signature scheme.    So far we have not specified whether the method being
+Surprisingly, this requires few modifications to our protocol        called in ExecMethodAndCreateCallback or ScanOne is
+overall, and no modifications to our zero-knowledge proofs.          hidden from passive adversaries or not. We describe how to
+   Let Σ represent an EUF-CMA-secure pubkey-                         implement either choice, and discuss tradeoffs.
+rerandomizable signature scheme. We assume a public-key                 If method IDs are private, then Φ is a single predicate that
+infrastructure for all service providers. That is, every service     is used for every operation, and takes in meth as an argument.
+provider has an associated keypair (pkspid ,skspid ), and a user,    While this provides method privacy, it means that a user
+given spid, can discover pkspid .                                    performing a ScanOne operation must prove a circuit whose
+   In ExecMethodAndCreateCallback, rather than selecting a           size is the sum of all the method sizes.
+random tik, the user computes (tik,r) ← Σ.RerandPk(pkspid )             Public method IDs can be used to mitigate this. That is,
+and places r in aux for the service provider.                        we may let each Φmeth be a separate circuit, and have every
+
+
+
+5004    34th USENIX Security Symposium                                                                          USENIX Association
+ExecMethodAndCreateCallback and ScanOne also post                    merges the membership and non-membership trees, instead
+meth in the clear to the bulletin board.                             adding a pointer-like hash indicated the next leaf. Compared
+   Finally, we note it is possible to trade off method anonymity     to our approach, this saves the cost, outside of the circuit,
+with performance by grouping different methods together into         of maintaining two data structures and offers some other
+the same circuit.                                                    properties, at the cost of more implementation complexity and
+                                                                     the marginal cost of an additional hash check in the circuit.
+                                                                     Optimizations for the centralized setting. In the centralized
+5    Implementation
+                                                                     setting, we have a trusted party who can maintain the bulletin
+We now detail key design decisions when building an                  board. As such, we can replace Merkle membership checks,
+implementation of our system. We note that these are for our         using log|bbobj | hashes, with a single signature verification.
+system as a generic framework for anonymous callbacks, and
+not for the specific proof of concept application for anonymous      5.2    Efficiently tracking callbacks
+reputation and banning we evaluate in the next section.
+                                                                     A key challenge in zk-promises is efficiently managing the
+                                                                     cbList, which tracks issued callbacks. We require a data
+5.1 Supporting centralized and decentralized                         structure that supports efficient append, remove, and iteration
+    settings                                                         operations within the arithmetic circuit used for the ZK
+                                                                     proof. Naïve approaches do not work here: a large fixed-size
+We have, up until now, defined zk-promises generically in            array means a full scan requires traversing even the empty
+terms of bulletin boards, suggesting it can be instantiated both     slots in the array. And we do not want to resort to expensive
+in a centralized setting and in a decentralized one run by a         mechanisms for persistent zero-knowledge random access
+transparency log or a blockchain. We now detail how each             memory (e.g, [OWWB20]), that would be necessary both to
+setting is accomplished and discuss optimizations.                   support random access and persistence of the now modified
+   In the decentralized setting, we build a Merkle tree over all     callback list across scans.
+callback entries in the bulletin board and require proof to show        We observe that we do not need to support O(1) random-
+membership in that tree. In the centralized setting, the bulletin    access operations on cbList to scan and ingest callbacks. Since
+board is operated by a single server that is trusted for integrity   users must ensure all called callbacks are ingested, they must
+but not confidentiality or obliviousness. This allows us to          traverse the full list at some point. Thus, it suffices to support
+replace Merkle tree membership checks with simple signature          O(1) removal amortized, while traversing a list in order, and
+checks. Both settings raise interesting design considerations.       O(1) append for new callbacks. We define the representation
+Efficient callback lookups. We require a mechanism to ver-           of a list ℓ as
+ifiably lookup callbacks and either: (1) Confirm their absence
+                                                                                    hℓ := H(H(H(H(ℓ1 ),ℓ2 ),ℓ3 )...ℓn ),
+from the bulletin board, or (2) Retrieve the associated callback
+arguments if present. To do this, one might use a conventional       where H is a collision-resistant hash function. This supports
+verifiable key-value store using a sparse Merkle tree, with keys     O(1) appending, since ℓ′ := ℓ∥x implies hℓ′ = H(hℓ ,x), but it
+as paths and values as leaves. However, since we are limited         does not support efficient removal.
+to a fixed size circuit for the ZK proof, this incurs worst-case        To support amortized O(1) removal when incrementally
+costs for verifiable reads. This requires d hashes where d is        iterating through the list, we encode list traversal as a state
+the bit length of the hashed keys (in our case, 256 bits).           machine in our user object, keeping track of the previous
+   In the setting of zk-promises, however, we can do better,         cbList as well as the new version that will be the result of a
+since the trees themselves are public and there structure can        complete scan. Removal consists of not adding the value to
+be verified outside the circuit. We implement two Merkle             the new list. We note we can readily make this incremental
+trees, one storing tuples of (key, value) at the leaves and one      logic handle multiple entries in the list at a single time and thus
+storing intervals of unused keys. A lookup consists of either        create a batch proof. The complete zero-knowledge relation
+retrieving a tuple and checking it contains the appropriate key,     for variable-length cbList is provided in Appendix B.
+or retrieving an unused interval and checking the key falls
+in the interval. Here, the circuit need only verify a path of
+                                                                     5.3    Pruning and expiring old state
+length log|bbcb |. Updating the trees consists of at most three
+insertions outside the circuit: one to add a callback, and two       In the current construction, bbobj and the list of revealed serial
+to split the unused interval in two. In addition, we efficiently     numbers grow indefinitely. We can address both of these by
+verify membership or non-membership by only checking a               defining an expiry period for zk-object commitments older
+single valid path in one of the two Merkle trees, instead of         than t (e.g., one year). If the user has not updated their state in
+computing both and conditionally selecting the valid one. This       that time, they are locked out. The set of witnessed serial num-
+is similar to the approach taken in Verdict [TKPS21]. Verdict        bers can similarly be pruned with the same cutoff, since any
+
+
+
+USENIX Association                                                                       34th USENIX Security Symposium           5005
+serial number revealed at time t must correspond to an object       approach where the parties(s) holding a signing key are trusted
+that is older than t, has been pruned, and cannot be replayed.      for integrity but not anonymity.
+Pruning state in the centralized setting. Recall that, in           Hardware. All benchmarks were performed on a desktop
+the centralized setting, checking membership in the ledger is       computer with a 2021 Intel i9-11900KB CPU with 8 physical
+accomplished simply by checking a signature from the server         cores and 64GiB RAM running Ubuntu 20.04 with kernel
+on the entry. Pruning, in this case, requires we expire the         5.15.0-69-generic.
+signature, not just remove data. To do so, we include an expiry
+time in the signed value, and modify the circuit to prove all
+signatures are valid and unexpired. This additional comparison      6.1    Experiments
+against the current time removes the need of the server             Our measurements are done in the client-server setting, where
+regularly rotate signing keys and re-sign all valid entries.        clients send requests to a server to authenticate. We measure
+                                                                    the median time it takes a client to complete various operations
+5.4     Software                                                    and the median time it takes the server to process them. Over
+                                                                    all benchmarks, the maximum observed relative standard error
+Instantiating cryptographic primitives.            We use           of the median was 1.2%.
+Groth16 [Gro16] as our zkSNARK and Poseidon [GKR+ 21]               Client. Table 1 shows the (multi-threaded) client run time
+for all hash functions. For circuit-friendly encryption, we         to complete one of three operations with their account, and the
+use key-prefixed Poseidon in counter mode as a stream               corresponding time for the server to verify the operation. Show
+cipher. For signatures, we implement Schnorr over the Jubjub        Authorized is a simple assertion the client is authorized and
+curve [ZCa19].                                                      has scanned through all pending callbacks, it corresponds to
+zk-promises code. zk-promises is written in Rust 8 , using          the logic in ShowAuthorizedForEditAndMakeCallbacks
+the Arkworks [Ar22] zkSNARK crates and Rayon for                    in Figure 1. Incremental Scan advances the client scan
+parallelization where possible.                                     by one callback, corresponding to the similarly named
+                                                                    method in Figure 2. Since, in many cases, the client may
+                                                                    have only a single callback and need to show they are
+6     Evaluation                                                    authorized, we also give a combined procedure that performs
+                                                                    both operations, saving some overhead. As expected, client
+In this section, we evaluate a prototype of the application         runtime (in the decentralized setting) increases linearly with
+described in Section 2 built with the implementation of             the global allowed number of callbacks (and therefore the
+zk-promises described in Section 5 . We benchmark circuits for      cost of the Merkle tree membership check) increases. The
+two versions of the prototype application, one for the decentral-   signature-based setting, which replaces the membership check
+ized setting and one for the centralized setting of zk-promises.    with a fixed single signature verification, takes constant time.
+   Our prototype application consists of a client and server           While Incremental Scan only checks for a single
+written in Rust that communicate via RPC calls. The client          callback, a complete scan must handle all open callbacks,
+holds a zk-object corresponding to its user account record          requiring multiple invocations. We construct a batched scan
+(see Figure 1). This record includes the user’s reputation,         method for clients to handle a fixed number of pending
+state for a reputation dependent leaky-bucket rate-limit on         callbacks. Benchmarks can be found in Figure 3. As expected,
+the users ability to post, and ban status. The client submits its   a batched scan is more efficient compared to the same number
+zk-object updates to the server. When the client wishes to post     of single-scan calls. For example, for the tree height of 32,
+anonymously, they submit an update to their object that both        computation savings range from 20–40% when doing batched
+demonstrates their current authorization to post, expends part      scans from 2 to 32 callbacks. Incrementing the batch size
+of their rate limit, and provides callbacks that allow the server   increases the client computation by about 242ms, 343ms, and
+to later either ban them or modify their reputation.                422ms for tree heights of 216 , 232 , and 264 , respectively.
+   The server, implemented using Actix Web [Act], hosts
+the bulletin boards and can process requests such as user           Server. In our prototype implementation , we instantiate the
+registration, client operations on the zk-object, and callbacks     bulletin board as a single server where clients can gossip the
+for moderation. The server does not implement a full forum          hash of the data to ensure a consistent view of the bulletin board.
+or wiki, rather it models the component necessary for access            The server-side verification times for each client request are
+control and applying moderation decisions (i.e., bans and           constant, regardless of client operation, at 2.8ms, because the
+upvotes/downvotes) In this setting, we benchmark both               only difference in operation is the circuit, and proof verification
+constructions, i.e., the Merkle tree construction where no          times are constant for all circuit sizes. To test throughput of
+parties are trusted for integrity, and the signature bases          the server, we sent client requests at a rate of 1 per millisecond.
+                                                                    It took on average 3.73ms to process a request with a standard
+    8 Code repository: https://github.com/moshih/zk-promises        deviation of 0.02ms. This gives of us a throughput of 268
+
+
+
+5006     34th USENIX Security Symposium                                                                        USENIX Association
+                                                                                        Client Computation (ms)                         Server Computation (ms)
+                        Callback Capacity:                      216       218        223    226 232      264       Unlimited                         -
+                                                                                     Tree-Based                 Signature-based       ( Identical for both settings)
+                         Show Authorized                        316       325        339   347   372    558            337                        2.81
+                         Incremental Scan                       535       563        585   585   638    972            571                        2.81
+                         Show Authorized
+                                                                716       741        772   791   829    1123           909                        2.81
+                        + Incremental Scan
+
+Table 1: Runtimes for client and server computation. The signature-based variants correspond to the centralized setting and the
+tree-based variants correspond to the decentralized setting. Incremental scan includes the cost of applying the callback. Because
+the proofs produced by a client are constant size, server side verification times are the same for both applications
+
+
+                            Decentralized, CB capacity = 2^16                                           6.2    Discussion and case studies
+                   25       Decentralized, CB capacity = 2^32
+                            Decentralized, CB capacity = 2^64
+                            Centralized                                                                 Performance of zk-promises depends both on how we
+                   20                                                                                   configure the system and on the actual demands of the
+                                                                                                        scenario, i.e., how many posts a user makes and how many
+
+  Runtime (secs)
+                   15
+                                                                                                        result in moderator action. To determine feasibility, we need
+                                                                                                        data from real forums, not just for active users and posts,
+                   10
+                                                                                                        but for the frequency of moderation events. Unfortunately,
+                   5
+                                                                                                        this data, particularly for moderation events, is not readily
+                                                                                                        available in many cases. We find two case study datasets.
+                   0                                                                                    First, the number of edits and reversions to Wikipedia (with
+                        0      10         20        30       40         50      60                      reversions being the moderation event), and, separately, data
+                                    Batch Size of Scan (number of callbacks)
+                                                                                                        from the Stack Exchange platform, specifically the top 3 by
+ Figure 3: Client’s proving runtime to batch settle callbacks                                           number of users: Stack Overflow, Super User and Ask Ubuntu.
+ as the size of the batch increases.                                                                    Wikipedia. In the Wikipedia scenario, we assume editors
+                                                                                                        are anonymous and are penalized via callbacks when their
+                                                                                                        edits are reverted.
+                                                                                                           Wikipedia (across all languages) has an edit rate of 18
+client requests per second. We attribute the additional 1ms                                             edits per second (average rate across April 2023–March
+of processing time, relative to the raw verification, from the                                          2024 [Wik]), well below the throughput our single server can
+overhead of the server handling the HTTP request.                                                       handle for authentication. Data on edit-reversions (our mod-
+  We note that applying techniques for batching Groth16                                                 eration event) is only available for select languages. For the
+proof verification would give a substantial performance                                                 largest, English Wikipedia, the average editor makes around
+improvement. In particular, in a standalone microbenchmark,                                             239 edits a month, and 90% of edit reversals are done within 5
+we saw a 4× throughput improvement over individual                                                      hours of the edit [JNV], so we can safely have callbacks expire
+verifications. However, we did not integrate this into our                                              after 24 hours. In this scenario, we think it’s reasonable to
+server, as it requires additional implementation of a queue,                                            require clients to scan for callbacks at least once every 24 hours,
+logic for when to trigger a batch verification, and handling                                            and we can let client accounts expire after 1 year of inactivity.
+asynchronous authorizations for, e.g., a forum post.                                                       Using the peak month statistic, we expect 239·12 =2,868
+                                                                                                        edits, which, with 39,711 active users, gives us a total of
+   Communication costs for zk-promises are very low, with                                               113,891,148 callbacks. bbcb , bbobj , and the list of revealed
+constant proof sizes and small public inputs. Concretely, Show                                          serial numbers would need a capacity of at least 226 . For
+Authorized uses 608B and 568B for signature-based and                                                   this configuration, each authentication takes 347ms of client
+tree-based settings, respectively. Similarly, Incremental                                               computation and each pending edit made by a client adds a
+Scan and batched scans use 396B and 268B, respectively                                                  cost of at most 585ms per day to scan, with that cost decreasing
+in the Merkle-tree backed setting, and Show Authorized +                                                if we batch scans. Increasing batch size, however, imposes a
+Incremental Scan use 748B and 708B, respectively.                                                       cost on inactive clients, who must pay that scan cost even if
+   We detail standalone measurements for the costs of                                                   they did not make an edit.
+maintaining the bulletin board in terms of size and data                                                   We believe these numbers are reasonable, especially since
+structure costs, in Appendix E.                                                                         client computation can be done in parallel to drafting the edit,
+
+
+
+USENIX Association                                                                                                           34th USENIX Security Symposium            5007
+and the drafting time will take substantially longer (perhaps        in [BCG+ 14, KMS+ 16, BCG+ 20, XCZ+ 22], state is split into
+upwards of 30 seconds). We note that our numbers are an              multiple locations. This is sometimes referred to as the UTXO
+overestimation of the system requirements, as most edits are         model. The UTXO model is generally regarded as impractical
+(non-anonymous) editing bots [PCL+ 07].                              to work with, and brings with it challenges similar to the asyn-
+Stack Exchange. Stack Exchange is one of the largest                 chronous negative feedback problem we articulate in Section 1.
+question-and-answer website with over 26 million users                  zk-promises yields a practical account model for privacy-
+registered on their most popular sub site, StackOverflow [sta].      preserving computation, as shown by our example application.
+In each of these sites, users may post questions, answer them,       Users can store their state in a single account that gets asyn-
+and earn achievements. Unfortunately, publicly available data        chronously updated by other calls. In the zk-promises model,
+for Stack Exchange is more limited than data about Wikipedia.        users are responsible for sequencing updates to their object
+Data we retrieved from the statistics API is shown below. We         requested by others, but they cannot drop particular update
+do not have moderation events or active users. Instead, the          requests. We believe this is useful for many applications,
+API gives us total users, and the number of questions, answers,      ranging from anonymous access control to privacy-preserving
+and badges per minute, which we can use as a stand-in for            smart contract systems.
+moderation events.                                                      A second consequence of this model is the possibility of
+              Site:   StackOverflow   SuperUser    AskUbuntu         having zk-objects themselves make callbacks. Currently,
+     Answers/min           6.23         0.29          0.28           in our prototype applications, the caller is identified by a
+      Badges/min           4.24         0.09          0.07           signature, but this can easily be tied to a TEE, a public smart
+    Questions /min         2.86         0.06          0.06           contract, or even another zk-object. This would allow an
+   Similarly to the Wikipedia case study, we set cutoff time to      account model where objects can, programmatically, be
+be one year , scan time to be one day, and expiry to be one day.     controlled by another entity in full or in part even if that entity
+If we assume all three events generate callbacks, then the capac-    is not trusted to know the state of the object.
+ities needed for Stack Overflow, Super User and Ask Ubuntu
+are 223 , 218 , and 218 , respectively. Authentication takes 339ms
+                                                                     Acknowledgements We would like to thank Hal Triedman
+or less (325ms for Super User and Ask Ubuntu) of client com-
+                                                                     for his insights into the Wikipedia moderation, Christina
+putation and each pending edit made by a client adds a cost of at
+                                                                     Garman for useful comments on an earlier draft, and the
+most 585ms (563ms for Super User and Ask Ubuntu) per day to
+                                                                     anonymous reviewers for their helpful discussion of encrypted
+scan per callback, with that cost decreasing substantially with
+                                                                     callback mechanics and deployment considerations.
+batching. Since the server load is less than that of Wikipedia,
+again, a single lightweight server can handle all client
+interactions. Both from the client and server side, zk-promises      Ethics and OpenScience
+can practically be deployed to support Stack Exchange traffic.
+                                                                     Ethics
+7      Conclusion                                                    Anonymous speech raises a number of questions, both on
+                                                                     when to allow it and how to ensure anonymity protections,
+In this paper, we define zk-promises, which adds callbacks to
+                                                                     when offered, are sound. Moderation tools, similarly, raise
+the zk-object model. While we have used this to demonstrate
+                                                                     questions for what policies are appropriate. Our goal here is
+the feasibility of an anonymous reputation system, the potential
+                                                                     simply to provide more options.
+applications are much broader. A long line of work on proof-
+carrying data [CT10, BCCT12] have explored zero-knowledge
+incremental computation. Zerocash [BCG+ 14] introduced               Open Science
+the idea of replay- and forking-prevention for simple objects
+(limited to payments). Hawk [KMS+ 16] generalized the class          In keeping with the USENIX open science policy, the
+of functions, but each object was isolated and could not interact    artifacts (codebase) is available with the stable URL here:
+with other object types. Zexe [BCG+ 20] offered inter-object         https://zenodo.org/records/14728077.
+communication between oblivious objects of different types
+and, additionally, used recursive proofs to hide the program         References
+being called. But up until now, using this programming model
+in many real applications has been challenging.                      [Act]         Actix web. URL: https://actix.rs/.
+   To explain the challenge for applications, we borrow a
+distinction from the cryptocurrency literature. Smart con-           [AK12]        Man Ho Au and Apu Kapadia.              PERM:
+tract systems, such as Ethereum, typically operate in the ac-                      practical reputation-based blacklisting without
+count model, where there is a single authoritative state for                       TTPS.      In Ting Yu, George Danezis, and
+an account and methods can be called on it. In contrast,                           Virgil D. Gligor, editors, ACM CCS 2012,
+
+
+
+5008      34th USENIX Security Symposium                                                                        USENIX Association
+            pages 929–940. ACM Press, October 2012.          [CGH09]     Scott E. Coull, Matthew Green, and Susan
+            doi:10.1145/2382196.2382294.                                 Hohenberger. Controlling access to an oblivious
+                                                                         database using stateful anonymous credentials.
+[AKS12]     Man Ho Au, Apu Kapadia, and Willy Susilo.                    In Stanislaw Jarecki and Gene Tsudik, editors,
+            BLACR: TTP-free blacklistable anonymous                      PKC 2009, volume 5443 of LNCS, pages
+            credentials with reputation. In NDSS 2012. The               501–520. Springer, Heidelberg, March 2009.
+            Internet Society, February 2012.                             doi:10.1007/978-3-642-00468-1_28.
+
+[ale]       How Aleo Works.         URL: https:              [Cha82]     David Chaum. Blind signatures for untraceable
+            //www.aleo.org/how-aleo-works/.                              payments. In David Chaum, Ronald L. Rivest,
+                                                                         and Alan T. Sherman, editors, CRYPTO’82,
+[Ar22]      Arkworks-rs. Arkworks Ecosystem Homepage,                    pages 199–203. Plenum Press, New York, USA,
+            2022. URL: https://arkworks.rs/.                             1982.
+
+[Atw09]     Jeff Atwood.       New question / an-            [CL01]      Jan Camenisch and Anna Lysyanskaya. An
+            swer rate limits, Feb 2009.      URL:                        efficient system for non-transferable anony-
+            https://stackoverflow.blog/2009/02/                          mous credentials with optional anonymity
+            21/new-question-answer-rate-limits/.                         revocation. In Birgit Pfitzmann, editor, EU-
+                                                                         ROCRYPT 2001, volume 2045 of LNCS, pages
+[BCC04]     Ernie Brickell, Jan Camenisch, and Liqun                     93–118. Springer, Heidelberg, May 2001.
+            Chen. Direct anonymous attestation. In                       doi:10.1007/3-540-44987-6_7.
+            Proceedings of the 11th ACM Conference           [CT10]      Alessandro Chiesa and Eran Tromer. Proof-
+            on Computer and Communications Security,                     carrying data and hearsay arguments from
+            CCS ’04, page 132–145, New York, NY, USA,                    signature cards. In Andrew Chi-Chih Yao,
+            2004. Association for Computing Machinery.                   editor, ICS 2010, pages 310–331. Tsinghua
+            doi:10.1145/1030083.1030103.                                 University Press, January 2010.
+[BCCT12]    Nir Bitansky, Ran Canetti, Alessandro            [GG21]      Stan Gurtler and Ian Goldberg.     SoK:
+            Chiesa, and Eran Tromer. Recursive com-                      Privacy-preserving  reputation  systems.
+            position and bootstrapping for SNARKs                        PoPETs, 2021(1):107–127, January 2021.
+            and proof-carrying data.      Cryptology                     doi:10.2478/popets-2021-0007.
+            ePrint Archive, Report 2012/095, 2012.
+            https://eprint.iacr.org/2012/095.                [GKR+ 21]   Lorenzo Grassi, Dmitry Khovratovich, Chris-
+                                                                         tian Rechberger, Arnab Roy, and Markus
+[BCG+ 14]   Eli Ben-Sasson, Alessandro Chiesa, Christina                 Schofnegger. Poseidon: A new hash function
+            Garman, Matthew Green, Ian Miers, Eran                       for zero-knowledge proof systems. In Michael
+            Tromer, and Madars Virza. Zerocash: Decen-                   Bailey and Rachel Greenstadt, editors, USENIX
+            tralized anonymous payments from bitcoin. In                 Security 2021, pages 519–535. USENIX
+            2014 IEEE Symposium on Security and Privacy,                 Association, August 2021.
+            pages 459–474. IEEE Computer Society Press,
+                                                             [Gro16]     Jens Groth. On the size of pairing-based
+            May 2014. doi:10.1109/SP.2014.36.
+                                                                         non-interactive arguments. In Marc Fischlin
+[BCG+ 20]   Sean Bowe, Alessandro Chiesa, Matthew                        and Jean-Sébastien Coron, editors, EURO-
+            Green, Ian Miers, Pratyush Mishra, and Howard                CRYPT 2016, Part II, volume 9666 of LNCS,
+            Wu. ZEXE: Enabling decentralized private                     pages 305–326. Springer, Heidelberg, May 2016.
+            computation.      In 2020 IEEE Symposium                     doi:10.1007/978-3-662-49896-5_11.
+            on Security and Privacy, pages 947–964.          [HBHW]      Daira Emma Hopwood, Sean Bowe, Taylor
+            IEEE Computer Society Press, May 2020.                       Hornby, and Nathan Wilcox. Zcash Proto-
+            doi:10.1109/SP40000.2020.00050.                              col Specification, Version 2023.4.0 [NU5].
+                                                                         URL:     https://zips.z.cash/protocol/
+[BL07]      Ernie Brickell and Jiangtao Li. Enhanced pri-                protocol.pdf.
+            vacy ID: A direct anonymous attestation scheme
+            with enhanced revocation capabilities. Cryp-     [HG11]      Ryan Henry and Ian Goldberg. Formalizing
+            tology ePrint Archive, Report 2007/194, 2007.                anonymous blacklisting systems. In 2011 IEEE
+            https://eprint.iacr.org/2007/194.                            Symposium on Security and Privacy, pages
+
+
+
+USENIX Association                                                           34th USENIX Security Symposium       5009
+             81–95. IEEE Computer Society Press, May            [RWGM23] Michael Rosenberg, Jacob White, Christina
+             2011. doi:10.1109/SP.2011.13.                               Garman, and Ian Miers.      zk-creds: Flex-
+                                                                         ible anonymous credentials from zk-
+[JNV]        URL:            https://nbviewer.org/
+                                                                         snarks and existing identity infrastructure.
+             github/wikimedia-research/
+                                                                         In 2023 IEEE Symposium on Security
+             automoderator-measurement/
+                                                                         and Privacy (SP), pages 790–808, 2023.
+             blob/main/baselines/T348860_
+                                                                         doi:10.1109/SP46215.2023.10179430.
+             median_time_to_revert.ipynb#
+             Time-to-Revert-Percentiles.                        [sta]       URL:       https://stackexchange.com/
+[KMS+ 16]    Ahmed E. Kosba, Andrew Miller, Elaine Shi,                     sites#users.
+             Zikai Wen, and Charalampos Papamanthou.            [TAKS08]    Patrick P. Tsang, Man Ho Au, Apu Kapadia,
+             Hawk: The blockchain model of cryptography                     and Sean W. Smith. PEREA: towards practical
+             and privacy-preserving smart contracts. In                     TTP-free revocation in anonymous authen-
+             2016 IEEE Symposium on Security and Privacy,                   tication. In Peng Ning, Paul F. Syverson,
+             pages 839–858. IEEE Computer Society Press,                    and Somesh Jha, editors, ACM CCS 2008,
+             May 2016. doi:10.1109/SP.2016.55.                              pages 333–344. ACM Press, October 2008.
+[MC23]       Jack P. K. Ma and Sherman S. M. Chow. SMART                    doi:10.1145/1455770.1455813.
+             Credentials in the Multi-queue of Slackness (or
+                                                                [TAKS10]    Patrick P. Tsang, Man Ho Au, Apu Kapadia,
+             Secure Management of Anonymous Reputation
+                                                                            and Sean W. Smith. Blac: Revoking repeatedly
+             Traits without Global Halting). In 2023 IEEE 8th
+                                                                            misbehaving anonymous users without relying
+             European Symposium on Security and Privacy
+                                                                            on ttps. ACM Trans. Inf. Syst. Secur., 13(4), dec
+             (EuroS&P), pages 896–912, Delft, Netherlands,
+                                                                            2010. doi:10.1145/1880022.1880033.
+             July 2023. IEEE. URL: https://ieeexplore.
+             ieee.org/document/10190534/,                       [Tha23]     Justin Thaler.      Proofs, Arguments,
+             doi:10.1109/EuroSP57164.2023.00057.                            and Zero-Knowledge.    2023.    URL:
+[OWWB20] Alex Ozdemir, Riad S. Wahby, Barry Whitehat,                       https://people.cs.georgetown.edu/
+         and Dan Boneh. Scaling verifiable computation                      jthaler/ProofsArgsAndZK.pdf.
+         using efficient set accumulators. In Srdjan Cap-       [TKPS21]    Ioanna    Tzialla, Abhiram      Kothapalli,
+         kun and Franziska Roesner, editors, USENIX                         Bryan Parno, and Srinath Setty.     Trans-
+         Security 2020, pages 2075–2092. USENIX                             parency    dictionaries    with   succinct
+         Association, August 2020.                                          proofs of correct operation.    Cryptology
+[PCL+ 07]    Reid Priedhorsky, Jilin Chen, Shyong (Tony) K                  ePrint Archive, Report 2021/1263, 2021.
+             Lam, Katherine Panciera, Loren Terveen, and                    https://eprint.iacr.org/2021/1263.
+             John Riedl. Creating, destroying, and restoring
+                                                                [Wik]       URL: https://stats.wikimedia.org/#/
+             value in wikipedia. In Proceedings of the 2007
+                                                                            en.wikipedia.org.
+             ACM international conference on supporting
+             group work, pages 259–268, 2007.                   [Wil]       Dr. Zachary J. Williamson. The AZTEC
+[PSS]        Alexey Pertsev, Roman Semenov, and Roman                       protocol.   URL: https://github.com/
+             Storm. Tornado Cash Privacy Solution Version                   AztecProtocol/aztec-v1/blob/master/
+             1.4.                                                           AZTEC.pdf.
+
+[rai]        RAILGUN project whitepaper.      URL:              [XCZ+ 22]   Alex Luoyuan Xiong, Binyi Chen, Zhen-
+             https://assets.railgun.org/docs/                               fei Zhang, Benedikt Bünz, Ben Fisch,
+             whitepaper/Railgun%20Project%                                  Fernando Krell, and Philippe Camacho.
+             20Whitepaper%20-%20July%202021.pdf.                            VERI-ZEXE: Decentralized private com-
+                                                                            putation with universal setup. Cryptology
+[RMM22]      Michael Rosenberg, Mary Maller, and Ian                        ePrint Archive, Report 2022/802, 2022.
+             Miers. SNARKBlock: Federated anonymous                         https://eprint.iacr.org/2022/802.
+             blocklisting from hidden common input
+             aggregate proofs. In 2022 IEEE Symposium           [XF14]      Li Xi and Dengguo Feng. Farb: Fast anony-
+             on Security and Privacy, pages 948–965.                        mous reputation-based blacklisting without
+             IEEE Computer Society Press, May 2022.                         ttps.   Proceedings of the 13th Workshop
+             doi:10.1109/SP46214.2022.9833656.                              on Privacy in the Electronic Society, 2014.
+
+
+
+5010    34th USENIX Security Symposium                                                                 USENIX Association
+              URL: https://api.semanticscholar.org/                 ExecMethodAndCreateCallback was corrupted). Finally, we
+              CorpusID:11490543.                                    note that the signature check of σ′ in VerifyCall ensures that
+                                                                    the caller is in authorizedCallers.
+[ZCa19]       ZCash. What is jubjub?, 2019. URL: https://              For simulating IngestCall, we note that, in the real world,
+              web.archive.org/web/20221104080552/                   ScanOne makes progress in its list of outstanding callbacks
+              https://z.cash/technology/jubjub/.                    , and deletes it from the list. This is precisely what IngestCall
+                                                                    performs.
+A    Security definition and proof sketch                           Simulating                     ExecMethodAndCreateCallback.
+                                                                    In the real world, callbacks are created by
+We will now present a proof sketch that our construction            ExecMethodAndCreateCallback. In order to issue a
+realizes the ideal functionality Fzkpr in Figure 4 against          ticket, ExecMethodAndCreateCallback rerandomizes pkspid
+computationally bounded adversaries with static corruption          and stores it as tik along with the encryption key and method
+of parties. We do so by briefly describe the simulator Sim          ID in obj.cbList. The user then posts the new object to bbobj ,
+for our real protocol in the ideal world and arguing for its        and sends the service provider the transaction ID and the
+correctness assuming the underlying cryptographic primitives        opening to the commitment for (tik,k,meth). We consider the
+are correct. We assume all parties, in the real protocol, operate   call a success if VerifyCreate succeeds.
+over anonymous connections (e.g., Tor) We also assume all              The ideal-world user can only run ExecAndMakeCb when
+parties have access to the same view of the bulletin board.         all callbacks called before cutoffTime have been ingested.
+   The simulator Sim first runs Setup and gets the necessary        This directly corresponds with the lastFullScanTime variable
+trapdoors for the simulation and extraction of zero-knowledge       in the real world.
+proofs in Setup. Sim maintains a table mapping objects in its          Suppose the real-world server calls Call(tik, args)
+simulated real-world protocol to their ideal counterparts in        on method meth at time t. We argue that any future
+Fzkpr and, when necessary, updates the mapping when it needs        ExecMethodAndCreateCallback with lastFullScanTime >
+to create a real-world object for an ideal-world one (or vice       t must reflect the object post-callback.                  Note
+versa).                                                             ExecMethodAndCreateCallback with lastFullScanTime
+   Because all messages between parties are accompanied             threshold t ′ must show that
+by zero-knowledge proofs or ciphertexts, the simulator can          obj.lastFullScanTime ≥t ′ . This can only occur if a ScanOne
+extract on all adversarial generated messages, look up the          sequence that started at time at earliest t ′ has completed,
+corresponding ideal-world objects in its table, and proxy           which, in turn, only succeeds if the user has done one of the
+the requests to the ideal functionality. Similarly, for any         following: (1) executed meth(obj, args, x) and deleted the
+honest interactions in the ideal functionality, the simulator       associated tik from cbList, (2) ignored the call and deleted
+can model the adversary’s view of the real-world protocol by        tik from cbList, (3) or ignored the call and left tik in cbList.
+simulating the zero-knowledge proofs with respect to random         However, the latter two cases may only happen if tik ̸∈ bulcb ,
+commitments, serial numbers, and ciphertexts. In the case           which contradicts the fact that Call(tik, args) was called at
+of executed callbacks, we cannot directly extract arguments         time t. Thus, meth(obj, args, x) was called, and the current
+(as there is no zero-knowledge proof associated with a call).       object state reflects the called callback.
+However, callbacks to a simulated party are decryptable with
+the keys the simulator holds.
+Simulating Call and IngestCall. In the real world, Call is
+                                                                    B    Formal description of zk-promises
+performed by adding a ticket, the arguments, and the current
+                                                                    In this section we formally describe the entirety of zk-promises,
+time to bbcb , which is accessed later in ScanOne. This directly
+                                                                    once all the features in Section 4 are added. We write the zero-
+corresponds to our pendingCbs table, whose new entry is also
+                                                                    knowledge relations for ExecMethodAndCreateCallback and
+sent to the callback creator.
+                                                                    ScanOne in Figures 5 and 6, respectively. In these relations,
+    To simulate, we must also ensure that the real and ideal
+                                                                    when a new object obj′ is created from obj, a fresh serial
+functionalities behave equivalently with who can call
+                                                                    number is chosen. If this serial number has been revealed
+callbacks. Suppose party Pi applies a (tik, args) from bbcb
+                                                                    before, then the use will be unable to use this state as it will
+during ScanOne. Firstly, the tuple could only appear in bbcb
+                                                                    be treated as a stale state.
+if its signature is valid, i.e., the party who ran Call knows
+tik’s secret key. In addition, (tik,args) is only applied if tik    Setup(Φ) → pp. This performs Groth16 CRS generation
+appears in the user’s cbList, which, in turn, can only happen       for the relations in Figures 5 and 6. The output pp contains
+if tik was given to Pi during ExecMethodAndCreateCallback.          proving and verifying keys.
+Thus, the calling party must know the secret key of the tik         ExecMethodAndCreateCallback(pp,obj,pkspid ,meth′ ,x) →
+given at ExecMethodAndCreateCallback. This occurs only              (obj′ ,π,cbData,aux). Let obj be the user object, let pkspid
+if they are the same party (or, the party opposite Pi during        be the verifying key for service provider ID spid for an
+
+
+
+USENIX Association                                                                     34th USENIX Security Symposium          5011
+ Setup(serviceProviders)                                                                  IncrTime from A
+  1:   authorizedCallers := serviceProviders                                               1:   curTime += 1
+  2:   curTime := 0
+  3:   userObjs := {}      // Default value is app-specific                               Call(tik,args) from P j
+  4:   createdCbs := {} // Callbacks created but uncalled                                  1:   assert P j ∈ authorizedCallers
+  5:   pendingCbs := {}        // Callbacks called but pending ingestion and execution     2:   (Pi ,P ′ ,meth,aux) := createdCbs[tik]
+                                                                                         3:   assert P ′ = P j
+                           P j ,creationMeth,cbMeth,                                       4:   delete createdCbs[tik]
+ ExecAndMakeCb                                                          from Pi
+                           auxpub ,auxpriv ,cutoffTime
+                                                                                           5:   pendingCbs[tik] := (Pi ,meth,args,aux,curTime)
+  1:   assert ∄createdCbs[tik] and ∄pendingCbs[tik]
+                                                                                           6:   send (“Called”,tik,curTime) to A
+  2:   assert ∀(Pi ,callTime) ∈ pendingCbs :
+                                                                                           7:   send (“Called”,tik,args,curTime) to Pi
+  3:    callTime > cutoffTime           // All old calls have been processed
+  4:   tik ←$ {0,1}λ                                                                      IngestCall(tik) from P
+  5:   createdCbs[tik] := (Pi ,P j ,cbMeth,auxpub )                                        1:   (P ,meth,args,aux,callTime) := pendingCbs[tik]
+  6:   userObjs[Pi ].creationMeth(                                                         2:   userObjs[Pi ].meth(tik,args,curTime,callTime,aux
+  7:    tik,curTime,auxpub ,auxpriv ,cutoffTime)                                           3:   delete pendingCbs[tik]
+  8:   send (“CreatedCb”,auxpub ) to A                                                     4:   send “Ingested” to A
+  9:   send (“CreatedCb”,tik,cbMeth,auxpub ,cutoffTime) to P j
+
+
+Figure 4: A simple ideal functionality Fzkpr for zk-promises. A is the adversary, who determines the structure of tickets and passage
+of time. The functionality returns ⊥ if any table lookup fails.
+
+
+EUF-CMA-secure signature scheme Σ, and let s be the                                      6. The user sends (π,com′obj ,cbData) to bbobj
+commitment randomness used in that objects commitment
+in bbobj . Let meth′ be the method the user wishes to create                             7. The user sends (π, com′obj , cbData, aux) to the service
+a callback for. Let x = (t,curTime), where t is the minimum                                 provider
+value for lastFullScanTime that the service provider will                               The information that the user sends to the service provider
+accept and curTime be the current global time.                                       does not de-anonymize the user as it contains no multi-user
+   The ExecMethodAndCreateCallback algorithm proceeds                                or long term identifier. It contains a zero-knowledge proof,
+as follows:                                                                          π, the cryptographic commitment com′obj , and cbData, and
+ 1. Compute a new ticket as a rerandomized verifying key                             aux. cbData contains a cryptographic commitment of the
+    (tik,r) ← Σ.RerandPk(pkspid )                                                    (single-use) entry and a (single-use) fresh serial number. aux
+                                                                                     contains sentry , the (single-use) fresh randomness and the
+ 2. Pick expiry expiry and a fresh encryption key k and build                        callback list entry, entry.
+    the callback list entry entry := (tik,exp,k,meth′ ). Com-                        VerifyCreate(pp,skspid ,obj′ ,π,cbData,aux). Let skspid be the
+    mit to the entry comentry := Com(tik,exp,k,meth′ ;sentry )                       service provider’s signing key. The service provider performs
+    where sentry is fresh randomness.                                                the following:
+ 3. Clones the zk-object obj to a new one obj′ . Ap-
+                                                                                         1. Verify obj′ appears on bbobj , i.e., that the callback was
+    pend tik to their private callback list, compute
+                                                                                            created;
+    obj′ .hcb := H(obj.hcb , entry), obj′ .h(old)
+                                                cb    := obj′ .hcb ,
+       ′
+    obj .lastFullScanTime := curTime, and pick a fresh                                   2. Verify the proof π with respect to inputs cbData,
+    serial number obj′ .sn. Finally commit to the new object,                               curTime, and obj′ ; and
+    com′obj := Com(obj′ ;s′obj ) where s′obj is fresh randomness.
+                                                                                         3. Unpack aux and verify             cbData.comentry      =
+ 4. Let cbData          =          (comentry ,       obj.sn)      and let                   Com(tik,exp,k,meth′ ;sentry )
+    aux = (sentry ,entry)
+                                                                                         4. Verify that tik has never been used before in a callback
+ 5. The user computes a zero-knowledge proof π of RΦ create
+                                                   create .                                 initiated by this service provider
+
+
+
+5012   34th USENIX Security Symposium                                                                                            USENIX Association
+ScanOne(pp,obj,x) → (obj′ ,π,cbData). Let obj be the user
+object, let x be the current time curTime, and let sobj be the
+                                                                          com′obj ,comentry ,sn,t,curTime,bbobj ;
+                                                                                                                  
+commitment randomness to obj. The user does as follows:
+                                                                         comobj ,sobj ,s′obj ,                    :
+  1. Clones the obj to a new one obj′ and pick a
+                                                                          sentry ,tik,exp,k,meth′
+     fresh serial number obj′ .sn. If h(old)
+                                       cb    = hcb (i.e.,                comobj ∈ bbobj
+     the beginning of the scanning process), update                      comobj = Com(obj;sobj )
+     obj′ .loopStartTime := curTime.                                     com′obj = Com(obj′ ;s′obj )
+  2. Let entry = (tik, exp, k, meth) represent the cur-                  comentry = Com(tik∥exp∥k∥meth′ ;sentry )
+     rent entry in obj.cbList. If (tik, args, t) ∈ bbcb                  obj.lastFullScanTime ≥t
+     for some args and t < exp, absorb the callback:                     obj′ .lastCreated = curTime
+     obj′ := meth(obj,curTime,m,x), where m = Deck (args).               obj.sn = sn
+     If tik ̸∈ bbcb and exp is in the future, then leave entry           Φcreate (obj,obj′ ,meth′ ,curTime) = 1
+     in obj′ .cbList. In any other case, delete entry from               obj′ .hcb = H(obj.hcb ,(tik,exp,k,meth′ ))
+     obj′ .cbList. Finally, update h′ (new) = H(h(new)                   obj.h(old)
+                                                                                cb = obj.hcb
+                                       cb         cb ,entry) if
+                                 ′ (new)    (new)
+     the entry was left in, and h cb = hcb otherwise.
+
+  3. If h′ (old)
+           cb = hcb this is the last step of a scanning process.
+                                                                               Figure 5: The RΦ create
+                                                                                              create relation
+     Update obj′ .lastFullScanTime := obj.loopStartTime.
+
+  4. Compute a zero-knowledge proof π of Rsettle .
+
+  5. Let cbData = (comentry ,obj.sn)                                          comobj ,com′obj ,comentry ,nul,t,x,curTime,
+                                                                                                                              
+                                                                         bbobj ,bbcb ;
+  6. The user sends (π,com′obj ,cbData) to bbobj
+                                                                                                                               
+                                                                                                                               :
+                                                                         sobj ,s′obj ,sentry ,
+                                                                        
+                                                                                                                               
+                                                                              wasCalled,tik,exp,k,meth,timeCalled,args,m
+VerifyMethodExec(pp, obj′ , π, cbData).                        In
+                                                                     comobj ∈ bbobj
+VerifyMethodExeccreate , the maintainer of the bulletin board
+                                                                     comobj = Com(obj;sobj )
+bbobj receives (π,com′obj ,sn,cbData). It first checks sn has not
+                                                                     com′obj = Com(obj′ ;s′obj )
+appeared in its set of observed serial numbers. Next, it verifies
+                                                                     obj.sn = sn
+π with respect to cbData and its own curTime and bbobj
+                                                                     wasCalled = tik ∈ bbcb
+representative. On success, it adds (π,com′obj ,cbData) to bbobj .
+                                                                     (timeCalled,args) = if wasCalled : bbcb [tik] else (⊥,⊥)
+  In VerifyMethodExecsettle , the maintainer receives the
+                                                                     m = Deck (args)
+same payload. The behavior is identical to above, with the
+only change being that it also uses a bbcb representative as         scanning := obj.h(old)
+                                                                                          cb = obj.hcb
+                                                                                        ′ (old)
+public input for π verification.                                     scanning obj .hcb = obj′ .hcb
+                                                                                ′ :=
+
+                                                                     entry := (tik,exp,k,meth)
+VerifyCall(pp, tik, args, aux). The maintainer of the call-
+                                                                     deleteEntry := curTime < exp and tik ̸∈ bbcb
+back bulletin board bbcb receives (tik, args, aux = σ). It
+                                                                     absorbEntry := timeCalled < exp and tik ∈ bbcb
+interprets tik as a signature public key pk, and then checks
+                                                                     ¬absorbEntry∨Φingest (obj,obj′ ,meth,m,curTime)
+Σ.Verifypk (args,σ). On success, it posts (tik,args,curTime)
+to bbcb .                                                            obj′ .h(old)             (old)
+                                                                             cb = H(obj.hcb ,entry)
+                                                                     obj .hcb = if deleteEntry : obj.h(new)
+                                                                        ′ (new)
+                                                                                                               cb
+                                                                        else H(obj.h(new)
+                                                                                        cb ,entry)
+C    Membership and non-membership                                   obj′ .loopStartTime = if ¬scanning : curTime
+                                                                        else obj.loopStartTime
+zk-promises is phrased in terms of bulletin boards and data
+                                                                     obj′ .lastFullScanTime = if ¬scanning′ : obj.loopStartTime
+structures that admit efficiently checkable membership/non-
+                                                                        else obj.lastSwept
+membership arguments. We identify and implement two such
+variants.                                                            obj′ .h(old)
+                                                                             cb = if ¬scanning : 0
+                                                                                                    ′
+                                                                                                        / else obj.h(old)
+                                                                                                                     cb
+                                                                     obj .hcb = if ¬scanning : 0/ else obj.h(new)
+                                                                        ′ (new)                       ′
+                                                                                                                      cb
+Merkle trees. We may represent our object and used
+callback sets bbobj and bbcb as Merkle trees, where the leaves       obj′ .hcb = if ¬scanning′ : obj.h(new) cb    else obj.hcb
+are the elements of the set. To prove of x ∈ S, it suffices to
+prove knowledge of an authentication path from a leaf with                                     Φingest
+value x to the root of the tree. In these proofs, the root is                  Figure 6: The Ringest   relation
+public input. To keep a proof of membership up to date, it
+
+
+
+USENIX Association                                                                34th USENIX Security Symposium        5013
+                     Single                                                                Single
+        Circuit                          Distributed                      Batch Size                            Distributed
+                     Server                                                                Server
+   Epoch Capacity:  Unlimited     216        232     264               Epoch Capacity:   Unlimited     216          232       264
+                                                                                            Number of Constraints
+                   Number of Constraints
+                                                                               1           55,435     50,712      59,448     76,920
+  ShowAuthMakeCB     27,503     24,252 28,620 37,356                           2           96,448     91,319      104,423   130,631
+      ScanInc        55,435     50,712 59,448 76,920                           4          176,464    169,463      191,303   234,983
+                                                                               8          336,496    325,751      365,063   443,687
+Table 2: The number on constraints in ShowAuthMakeCB and                      16          656,560    638,327      712,583   861,095
+ScanInc circuits.                                                             32         1,296,688 1,263,479 1,407,623 1,695,911
+                                                                              64         2,576,944 2,513,783 2,797,703 3,365,543
+
+
+suffices to download a frontier of the append-only tree. This         Table 3: The number on constraints in batched scan circuits.
+permits a communication cost tradeoff of logarithmic to linear,
+depending on privacy requirements [RWGM23].
+                                                                         Table 3 lists the number on constraints in BatchedScan
+    To allow non-membership proofs for bbcb , we simply prove         circuits in the centralized and decentralized settings with
+membership in the complement of bbcb , i.e., C = {0,1}256 \           various batch sizes.
+{bbcb .tiki }i . Specifically, we partition C into semi-open ranges
+of integers [a,b) ⊆ {0,1}256 , and define a Merkle tree T whose
+leaves are those ranges. Then to prove non-membership in bbcb ,       E    Bulletin Board Benchmarks
+it suffices to show knowledge of a tik,a,b such that a ≤ tik < b
+and [a,b) is in T . We note that the structure of T is liable to      The bulletin board has two segments, one for credentials and
+change every time bbcb is modified, so proofs of membership           another for callbacks. Each credential entry (leaf) is 32 bytes,
+are not necessarily updatable using the frontier method.              and each callback entry is 32(i+1), where i is the number of
+                                                                      callback arguments (assuming each argument is field element).
+Signatures. In a centralized bulletin board setting, it is               After downloading both lists (and generating the comple-
+also possible to represent set membership using signatures.           ment callbacks if needed), users generate Merkle trees on
+The manager of the bulletin boards maintains two signature            them. The root can be used to verify all users have the same
+keypairs (pkobj ,skobj ) and (pkcb ,skcb ). Every time a value is     shared view. For our setup, the runtime to insert an entry (leaf)
+posted to a bulletin board, the manager signs the value and           into an incremental Merkle tree with a fixed max depth of 16
+returns the signature. To prove membership of x in a bulletin         and 32 were 0.77ms.
+board with public key pk, it suffices to prove knowledge of a            In the decentralized variant, users save the Merkle tree paths
+signature σ such that Verifypk (x) is true. Compared to Merkle        relevant to their zk-object for membership/non-membership
+trees, membership signatures have the benefit of not requiring        proofs and may discard the full tree. In the centralized version,
+updating—a valid σ will always be valid regardless of how             we utilize signatures for compact (non-)membership proofs,
+the corresponding set changes.                                        allowing us to skip more expensive hashing in the circuit. For
+   Signature non-membership proofs work similarly. As                 membership, this requires downloading a 64 byte signature
+above, we partition the complement set into ranges and prove          per credential or callback. For non-membership checks for
+membership in that signed set. Since the bbcb complement set          callbacks, each empty range in the complement set also has
+shrinks over time, a valid proof of non-membership at time            a 64 byte signature. To prove non-membership, a user proves
+t should not necessarily be valid at time t +1, since the value       that their callback is within one of the signed ranges. The size
+might have become a member of bbcb in the meantime. To                of this set is upper bounded by 1+|#callbacks|.
+handle this, we must invalidate every old non-membership                 Concretely, the credential segment of a decentralized variant
+signature. We can do this by adding an epoch to every value           of the bulletin board with 216 credential entries would be 2.09
+and making the verification equation Verifypk (x), or by              MB. The callback segment with the same number of entries
+picking a new signing key every epoch and publicizing it              (with three arguments) would be 8.39 MB. Adding signatures
+through the bulletin board. In either case, the bulletin board        would add a total of 12.58MB for credentials, callbacks, and
+manager must re-sign the entire complement every epoch.               the callback complement set.
+                                                                         We note that PIR can be implemented for a client to
+D      Number of Constraints                                          only receive relevant leaf entries and their proofs to reduce
+                                                                      communication cost. However, periodic regeneration/updates
+Table 2 lists the number on constraints in ShowAuthMakeCB             is needed as the bulletin board refreshes every epoch.
+and ScanInc circuits in the centralized and decentralized
+settings. In the ShowAuthMakeCB circuit, the user shows that
+the record is in good standing and creates a callback. The
+ScanInc circuit scans for a single callback.
+
+
+
+5014    34th USENIX Security Symposium                                                                          USENIX Association
+

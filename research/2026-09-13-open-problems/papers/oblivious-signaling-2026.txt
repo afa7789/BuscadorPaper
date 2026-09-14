@@ -1,0 +1,1403 @@
+                  Oblivious Signaling
+   Mirza Kamrul Bashar Shuhan, George Mason University;
+   Foteini Baldimtsi, George Mason University & Mysten Labs;
+         Giuseppe Ateniese, George Mason University
+https://www.usenix.org/conference/usenixsecurity26/presentation/shuhan
+
+
+
+
+This paper is included in the Proceedings of the
+       35th USENIX Security Symposium.
+            August 12–14, 2026 • Baltimore, MD, USA
+                       ISBN 978-1-939133-58-8
+
+
+                Open access to the Proceedings of the
+                  35th USENIX Security Symposium
+                          is sponsored by
+                                                             Oblivious Signaling
+
+                    Mirza Kamrul Bashar Shuhan                                            Foteini Baldimtsi
+                     George Mason University                                    George Mason University & Mysten Labs
+                                                               Giuseppe Ateniese
+                                                             George Mason University
+
+
+                               Abstract                                             asynchronous communication: recipients check frequently,
+An anonymous messaging service has to solve a basic routing                         whereas any individual user receives new messages only oc-
+problem: a server must deliver an encrypted message to its                          casionally. To support these frequent checks, a conventional
+recipient without learning who the recipient is. Broadcasting                       messaging service maintains a per-recipient inbox and routes
+all ciphertexts hides the destination but forces every recipient                    each incoming message into the appropriate inbox. But rout-
+to constantly scan for new messages. Oblivious Message                              ing is precisely what exposes communication patterns. Even if
+Retrieval (OMR; CRYPTO ’22) tackles this by using fully                             message contents are encrypted end-to-end, the server still ob-
+homomorphic encryption (FHE) to let an untrusted server                             serves which inbox each message is placed into, and can learn
+perform message retrieval on a recipient’s behalf without                           who is communicating with whom. This leads to the question
+learning which messages are pertinent.                                              we study: can a single untrusted server support asynchronous
+   We introduce Oblivious Signaling, which shifts this cost                         delivery without learning message destinations?
+from retrieval to sending. The server maintains a fixed-size                           A natural first attempt to hide message destinations is to
+encrypted inbox for each recipient. When a sender submits                           avoid routing altogether. Instead of placing messages into
+a message, the server applies the same homomorphic update                           per-recipient inboxes, senders can simply post ciphertexts to a
+to every inbox: the intended inbox absorbs the message, and                         public bulletin board, leaving it to recipients to identify their
+the rest remain unchanged at the plaintext level. The update                        own messages. This removes destination leakage at the server,
+is uniform, can be parallelized across inboxes, and ties the de-                    but it replaces routing with scanning. As the board grows,
+livery cost strictly to the size of the anonymity set rather than                   recipients must scan an ever-growing stream of ciphertexts,
+global traffic. Recipients retrieve by fetching and decrypting                      and in the simplest instantiations, trial-decrypt a large fraction
+their inbox, so checking for new messages is independent of                         of them just to determine whether anything new has arrived.
+the global traffic.                                                                    In a recent line of work, Oblivious Message Retrieval
+   We formalize receiver privacy against an untrusted server,                       (OMR) [31] was introduced as a primitive that lets recipients
+even when it colludes with other users, give a concrete con-                        outsource bulletin-board scans to an untrusted server using
+struction based on fully homomorphic encryption, and an-                            fully homomorphic encryption (FHE). The server processes
+alyze the resulting “digital postage” trade-off: delivery is                        a range of board items under a recipient-provided evaluation
+expensive, but checking is cheap. Our prototype identifies                          key and returns a compact encrypted digest, while remain-
+practical regimes in which this cost-model shift is preferable                      ing oblivious to which messages were pertinent. A series of
+to scan-based retrieval, even with highly optimized OMR                             follow-up works improve the efficiency of OMR through dif-
+implementations. This cost model is well-suited to settings                         ferent building blocks, parameter choices, and system-level
+where recipients check frequently, and messages arrive spo-                         optimizations [4, 26, 28, 33], while GOMR extends the OMR
+radically, and it naturally discourages high-volume spam.                           paradigm to a group setting [32].
+                                                                                       The OMR framework fundamentally treats the bulletin
+1     Introduction                                                                  board as a global log where message retrieval is the central
+                                                                                    operation. The expensive homomorphic work is paid each
+Most interactions with an asynchronous messaging service are                        time a recipient checks for new messages: to learn whether
+not actual message deliveries but recipients checking whether                       anything has arrived, the system must homomorphically pro-
+any message has arrived.1 This imbalance is inherent to                             cess the newly appended portion of the global log under that
+    1 As an example, Charzinski’s analysis of POP3/IMAP traffic traces re-          (depending on trace and protocol), and that the remaining connections were
+ports that only 2.5%–25% of retrieval connections carried at least one e-mail       used only to check for new mail [7].
+
+
+
+
+USENIX Association                                                                                        35th USENIX Security Symposium               4207
+                                                                     primitive. Our definition captures the structure of per-
+                                                                     recipient encrypted inboxes, the semantics of a uniform
+                                           Server                    inbox update, the role of pertinency tags, and the require-
+                                                                     ment that only the inbox pertinent to a delivered message
+                Alice                                                undergoes a semantic change.
+                                                                   • We define receiver privacy against a malicious server, allow-
+                                                                     ing collusion with corrupted senders and receivers, and we
+             Bob
+                                                                     characterize correctness failures arising from false positives
+                                                                     and collisions.
+                                                                   • We give a concrete construction (OSig) from fully homo-
+                                                                     morphic encryption that realizes a uniform inbox update in
+                                                                     which only the intended inbox changes semantically. Our
+   Figure 1: Alice messages Bob via Oblivious Signaling              construction supports batched message delivery.
+                                                                   • We implement a prototype using TFHE-rs [41] and eval-
+                                                                     uate it in Section 6 to demonstrate OSig’s fundamental
+recipient’s key. This design is reasonable when retrievals are
+                                                                     cost-model improvements over OMR. By decoupling com-
+periodic and predictable, but it is misaligned with the common
+                                                                     putational overhead from global system traffic, OSig estab-
+regime where recipients poll frequently and usually have noth-
+                                                                     lishes a proportional architecture where delivery costs scale
+ing new, causing the system to repeatedly incur the full cost
+                                                                     strictly with the anonymity set, effectively eliminating the
+of oblivious message retrieval even when no new messages
+                                                                     parasitic scanning overhead of pull-based retrieval.
+are present.
+Our Approach. Observing this misalignment, we adopt a
+different design philosophy that places the privacy-preserving     1.1    Related Work
+computation at the moment a message is sent, rather than at
+each moment a recipient checks for new messages. We intro-         Receiver privacy has been studied in several models with
+duce Oblivious Signaling, a push-based paradigm in which           different assumptions and goals. We briefly survey the most
+the server maintains an encrypted inbox for each recipient         relevant directions, position Oblivious Signaling relative to
+(Figure 1). When a sender submits a message, the server ap-        them, and refer to Appendix B for further discussion.
+plies the same homomorphic update to every inbox. Only             Oblivious Message Retrieval (OMR). The OMR line of
+the inbox pertinent to the intended recipient changes at the       work starting with [31] and extended/optimized in [4, 26, 28,
+plaintext level (it absorbs the message); all other inboxes re-    32, 33] develops a single-server retrieval primitive in which
+main unchanged except with negligible probability due to           recipients outsource message detection to an untrusted server.
+false positives. Rare false-positive collisions may corrupt the    OMR achieves strong receiver privacy and has seen several
+inserted plaintext for the targeted inbox (Section 4). Since the   efficiency improvements, including group messaging, more
+server performs an identical update for every inbox, it can-       optimized homomorphic circuits, and hardware acceleration.
+not determine which recipient was targeted. The server state       Because the original single-server OMR most closely matches
+consists only of encrypted inboxes and public parameters,          our privacy goals and system model, it serves as our primary
+with no correctness-critical hidden state across executions,       baseline. Like Oblivious Signaling, this setting uses no trusted
+simplifying replication and recovery.                              hardware, no non-colluding servers, and no live server-held
+Cost model and trade-off. The key trade-off is that Oblivi-        secrets. Streaming OMR [30, Sections 7.5 and 11] moves part
+ous Signaling moves the expensive privacy-preserving work          of retrieval to message-arrival time, but it requires the server
+from retrieval to delivery. Recipients check for messages by       to keep secret randomness that fixes the digest structure until
+fetching and decrypting a fixed-size inbox, so their cost is       finalization. Since correctness then depends on preserving
+independent of the unread global traffic. Delivery is more         this hidden state across executions, we exclude streaming
+expensive than in OMR because each delivered message in-           OMR as a baseline under our model. In Section 2.1 we pro-
+duces server work proportional to the recipient population.        vide a more detailed technical comparison, and in Section 6
+Thus, Oblivious Signaling increases sender-triggered server        an empirical comparison with InstantOMR [28] (the most
+work in exchange for cheap, frequent recipient checks. This is     latency-optimized design to date).
+particularly attractive in polling-heavy settings such as email,   Fuzzy Message Detection (FMD). Fuzzy Message Detection
+where checks are frequent and actual deliveries are sparse.        (FMD) [3] enables a server to return a probabilistic superset
+                                                                   of potentially relevant messages using fuzzy tags that induce
+Our Contributions. We summarize our main contributions             false positives. While highly efficient, FMD provides weaker
+towards building Oblivious Signaling as follows:                   privacy: recipients’ anonymity depends on the presence of
+                                                                   false matches and degrades under intersection and traffic-
+• We formalize Oblivious Signaling (ΠOS ) as a cryptographic       analysis attacks [37].
+
+
+
+4208    35th USENIX Security Symposium                                                                      USENIX Association
+Private Signaling (PS). Private Signaling (PS) [21, 34]                  based systems that repeatedly process an ever-growing mes-
+achieves strong recipient privacy with recipient-side work               sage stream, OSig performs the receiver-privacy work once at
+independent of system size. Proposed constructions include               delivery time and amortizes it across future reads. This yields
+(1) a two-server protocol based on garbled circuits and (2) a            a “digital postage” model: sending incurs the dominant cost,
+single-server design relying on a trusted execution environ-             while inbox checking remains constant and lightweight.
+ment (TEE). The two-server model requires non-colluding                     Oblivious Signaling supports payloads in two operational
+servers, a strong assumption in practice. TEE-based systems              modes. In direct-inbox mode, the object inserted into the re-
+offer good scalability but rely on hardware trust and are vul-           cipient’s encrypted inbox is the FHE-encrypted payload itself.
+nerable to side-channel leakage [6, 19]. Our work shares the             This is the mode evaluated in our prototype. Larger direct
+push-based philosophy of PS but operates in a single-server,             payloads can be handled by packing the data across multiple
+purely cryptographic setting; accordingly, we do not include             ciphertext chunks or by increasing the plaintext modulus, at
+PS in our direct performance comparisons due to its stronger             the corresponding cryptographic cost. In signal mode, the in-
+trust assumptions.                                                       box carries only an FHE-encrypted handle to a payload stored
+                                                                         outside the inbox, for example, on a public bulletin board
+                                                                         as in OMR. The privacy-preserving delivery mechanism is
+2    Technical Overview
+                                                                         unchanged: the server still updates all encrypted inboxes uni-
+Instead of organizing the system around a global message                 formly, but the signal now encodes a pointer rather than the
+log that recipients must repeatedly scan, Oblivious Signaling            full message. Thus, large-message support does not require
+maintains an encrypted inbox for each registered receiver at             the FHE plaintext space to contain the whole application mes-
+the server. We describe the overall framework of Oblivious               sage; it only needs to contain a fixed-size handle that lets the
+Signaling (OSig) in Figure 2.                                            recipient retrieve the externally stored payload.
+   Each receiver r runs KeyGen to obtain a keypair (pkr , skr )
+and registers pkr with the server. The server maintains a post-          2.1     Comparison with OMR
+box POSTBOX, which stores for every registered receiver r a
+fixed-capacity encrypted inbox INBOXr together with an en-               A core difference between OMR and our approach is that
+crypted inbox tag iTagr . The tag has length ℓ = Θ(log(1/ε p )),         OMR pays its cost when recipients scan the bulletin board
+chosen so that unintended tag matches occur with probability             rather than when messages are delivered. One additional com-
+at most ε p .                                                            plication arises during OMR retrieval: the recipient must
+   To send messages to distinct receivers r1 , . . . , rg , the sender   specify an upper bound k̄ on the number of pertinent mes-
+forms a batch request Breq whose ith entry is a ciphertext pair          sages in the current retrieval window. Let k denote the ac-
+(signali , pTagi ), where signali encrypts msgri under pkri and          tual number of pertinent messages for a recipient. Retrieval
+pTagi encrypts the fixed tag 1ℓ under the same key. Every                succeeds only if k ≤ k̄; otherwise the recipient obtains an
+entry in Breq is intended for a distinct recipient, so no batch          overflow result, learns the exact value of k, and must re-issue
+contains two messages for the same receiver.                             the request with a larger bound. This behavior increases cost,
+   When processing a batch, the server applies the same                  leaks information about message volumes to the server, and
+homomorphic update procedure to every inbox INBOX j ∈                    creates pressure to overestimate k̄, which in turn enlarges
+POSTBOX. Fix a receiver r and consider the update of                     OMR’s digest and client-side work since both scale with k̄.
+INBOXr . For each batch entry, the procedure computes (un-               Proposed mitigations rely on unlinkable detection keys or
+der encryption) whether the entry is intended for r by test-             two non-colluding servers [30], which introduce environmen-
+ing whether its encrypted tag matches the stored inbox tag               tal assumptions outside the single-server model. Streaming
+iTagr . Intuitively, this “match test” is keyed to the receiver:         OMR [30, Sections 7.5 and 11] moves some retrieval work to
+the one entry prepared for r matches iTagr , while any other             message-arrival time, but still requires later finalization and
+entry matches only with probability at most ε p . If a match             server-side state tied to the unread traffic window. Our Obliv-
+occurs, the server homomorphically right-shifts existing slots           ious Signaling framework avoids this mechanism entirely by
+of the fixed-size inbox and places the corresponding cipher-             not requiring any estimate of recipient traffic, and recipients
+text signal on top of the fixed-size inbox; if no match occurs,          always retrieve at a fixed cost.
+the inbox contents (plaintext level) are unchanged (except               Asymptotic comparison. Across OMR constructions [26,
+with negligible probability). Because the same update proce-             28, 31, 33], performance is governed by a few API-level pa-
+dure is evaluated for every inbox, the server cannot tell which          rameters: the number of bulletin-board messages scanned N,
+receivers were targeted by the batch.                                    the clue2 length ℓ = Θ(log(1/ε p )) determined by the target
+   Retrieval is local and non-interactive: receiver r periodi-           false-positive rate, and the recipient-chosen bound k̄ on perti-
+cally downloads INBOXr and decrypts using skr . The cost                 nent messages. The server scans N messages in the bulletin
+of checking for new messages is therefore independent of                    2 A short encrypted tag that allows the OMR server to test homomorphi-
+
+the global traffic volume or other users’ activity. Unlike scan-         cally whether a message is pertinent to a given recipient.
+
+
+
+
+USENIX Association                                                                              35th USENIX Security Symposium             4209
+                                Sender                                  Metric           OMR [26, 28, 31, 33]         Oblivious Signaling
+               (3) SignalGen(PK, M)                              𝑝𝑘$
+   [send]      PK = (… , 𝒑𝒌𝒓 , ...) M = (… , 𝒎𝒔𝒈𝒓 , ...)                Access Model     Scan-based                   Push-based
+                          [Encrypt]
+   𝐵!"#        𝐵$&" = (… , (Enc(𝒎𝒔𝒈𝒓 ), Enc(1ℓ )), ...)                 Cost Phase       Retrieval                    Delivery
+
+                                                                                         Number of bulletin           Number of
+                               Server                                   Scales With      board messages               recipients
+                                                     For all INBOX !
+                                                                                         scanned, N                   in the system, q
+       (4) AddSigToInbox(𝑝𝑘# , INBOX $ , 𝑖𝑇𝑎𝑔$ , 𝐵$&" )
+
+                Homomorphic Tag Match                 Enc(1)
+                                                                                         Scans N incoming             Delivers g messages
+       𝐵!"#
+                   IF Enc(1ℓ ) = 𝑖𝑇𝑎𝑔$                Enc(𝑚𝑠𝑔$ )        Server Work      messages to build digest     (inbox size of ν)
+                                                                                                                                  
+                                                                                         O(Nℓ)
+                                                                                         e                            O q(gℓ + ν)
+            INBOX $       [CMux Shift]        INBOX $ `
+
+                             [update]                                  Table 1: Conceptual comparison of asymptotic server-side
+                                                                       cost models. OMR incurs scan-based retrieval cost e     O(Nℓ),
+          INBOX!                                                       where N is the number of bulletin-board messages scanned in
+                                     (2) InboxGen(𝑝𝑘# )
+                                                                       a retrieval window and ℓ is the tag length. Oblivious Signaling
+                                          [Encrypt]
+                                                                       performs uniform
+                                                                                          push-based updates with per-batch cost
+                        [store]                                        O q(gℓ + ν) , where q is the number of recipients, g the batch
+                                           INBOX #
+        INBOX "                                                        size, and ν the inbox capacity.
+                                            𝑖𝑇𝑎𝑔$
+        POSTBOX
+                                                                       nomial in k̄.
+    [sync]                           [register]           [publish]
+                                            𝑝𝑘$                𝑝𝑘$        OMR exhibits a fixed structural trade-off: retrieval requires
+                                                                       scanning all N messages in the retrieval window, while the
+                             Recipient r
+                                                                       returned digest scales only with the number of pertinent mes-
+          (5) ReadInbox(INBOX $ , 𝑠𝑘# )        (1) KeyGen
+                                                                       sages. This cost model is inherently unfair to low-volume
+                [Decrypt]
+                                              𝑝𝑘#          𝑠𝑘#         recipients, since recipients with few or no messages still incur
+                   {… , 𝑚𝑠𝑔$ , …}                                      the full retrieval cost.
+                                                                          We now analyze asymptotics for Oblivious Signaling. Let
+                                                                       q be the number of registered recipients (number of INBOXs),
+Figure 2: Overview of Oblivious Signaling. Each receiver               let ν be the receiver-chosen inbox capacity (number of re-
+has an encrypted inbox stored at the server. Senders submit a          tained pertinent messages), and let ℓ = Θ(log(1/ε p )) be the
+batch of ciphertext pairs (signal, tag) under recipients’ pub-         tag length determined by the target false-positive rate ε p . A
+lic keys. The server applies the same homomorphic update               sender submission is a batch Breq of size g ≤ ḡ containing
+procedure to every inbox, inserting the encrypted message              ciphertext pairs (signali , pTagi ). Abstracting the underlying
+only into the matching recipient inbox and leaving all others          FHE costs and treating each homomorphic primitive as unit
+unchanged (except with negligible false positives). Receivers          cost, batch creation is O(g(ℓ + |m|)) work and communica-
+periodically download and decrypt their own inbox.                     tion, where |m| is the message bitlength.
+                                                                          For each batch, the server performs a uniform update over
+                                                                       all q recipients. For every inbox, it (i) checks each tag in
+board (i.e., the messages in the recipient’s retrieval window,         the batch against the stored tag at cost O(gℓ), (ii) accumu-
+for example the new messages posted since its previous scan)           lates the unique pertinent message using O(g) conditional
+and evaluates a clue-check predicate of cost O(ℓ), giving a            selects, and (iii) performs an oblivious inbox update via a
+baseline detection cost O(Nℓ); additional compression and ag-          ν-step shift costing
+                                                                                           O(ν). The per-batch server time is there-
+gregation contribute only polylogarithmic overhead, so server          fore O q(gℓ + ν) . Receiver-side reading requires O(ν) de-
+time is summarized as e O(Nℓ). Digest size is provisioned for          cryptions of the fixed-size inbox. Thus Oblivious Signaling
+the expected number of detected items (recipient-bounded               replaces OMR’s N-message scan with a push-based uniform
+true positives plus false positives), k̂ = e
+                                           O(k̄ + ε p N), yield-       update whose cost depends on (q, g, ℓ, ν): linear in the re-
+ing communication O(k̄ + ε p N). When explicit indices are
+                      e                                                cipient population and batch size, logarithmic in precision
+returned, each requires Θ(log N) bits; otherwise, this is ab-          via ℓ, and linear in the receiver-chosen capacity ν. This cost
+sorbed by compression. Receiver-side computation is at least           separation allows Oblivious Signaling to scale gracefully in
+linear in the recovered set and may involve operations poly-           heterogeneous systems, ensuring that recipients incur work in
+
+
+
+4210    35th USENIX Security Symposium                                                                              USENIX Association
+proportion to their inbox storage, while sender submissions              any PPT adversary A = (A1 , A2 ):
+induce server work in proportion to the recipient population
+                                                                                     ik−cpa                      1
+(the anonymity set), rather than the global traffic scanned at                   AdvΠFHE ,A (λ) = Pr[b′ = b] −     ≤ negl(λ).
+retrieval. A high-level comparison of how costs scale in OMR                                                     2
+versus Oblivious Signaling is summarized in Table 1.                     The experiment proceeds as follows:
+                                                                         1. Setup: The challenger generates key pairs (pk0 , sk0 ) ←
+3     Preliminaries                                                         ΠFHE .KGen(1λ ) and (pk1 , sk1 ) ← ΠFHE .KGen(1λ ).
+                                                                            It also computes encrypted secret keys csk,0 ←
+Notation. Let λ be the security parameter, poly(·) a poly-
+                                                                            ΠFHE .Enc(pk0 , sk0 ) and csk,1 ← ΠFHE .Enc(pk1 , sk1 ) and
+nomial, and negl(λ) a negligible function. Let K denote
+                                                                            gives (pk0 , csk,0 , pk1 , csk,1 ) to A1 .
+the secret-key space, M the plaintext space, and C the ci-
+                                                                         2. Challenge Query: A1 outputs two messages m0 , m1 ∈ M
+phertext space. PPT stands for probabilistic polynomial-time.
+                                                                            and state information st.
+For n ∈ N, let [n] ≜ {1, . . . , n} and let Cn be the set of all
+                                                                         3. Encryption: The challenger samples a random bit b ←
+polynomial-size circuits that take n inputs and produce one
+                                                                            {0, 1}. It encrypts message mb under key pkb to compute
+output. For ℓ ∈ N, 1ℓ denotes the all-ones bitstring of length
+                                                                            c∗ ← ΠFHE .Enc(pkb , mb ).
+ℓ. We write c = JmKsk for a ciphertext c ∈ C that decrypts to
+                                                                         4. Guess: A2 receives (st, c∗ ) and outputs a guess b′ .
+m ∈ M under secret key sk ∈ K . Throughout the paper, log
+denotes the base-2 logarithm unless otherwise specified.                   Given that in our protocol, public keys also include the
+                                                                         encryption of the corresponding secret keys, we additionally
+3.1    Fully Homomorphic Encryption                                      require that exposing these encryptions does not compro-
+                                                                         mise the confidentiality of ciphertexts produced by ΠFHE .Enc.
+A Fully Homomorphic Encryption (FHE) scheme allows the                   This is captured by Circular Security (Definition 3.3).
+evaluation of a circuit over encrypted data [20]. Formally:
+                                                                         Definition 3.3 (Circular Security). Let ΠFHE be an FHE
+Definition 3.1 (Fully Homomorphic Encryption). An FHE                    scheme such that K ⊆ M . The scheme is Circular Secure if
+scheme ΠFHE consists of the following PPT algorithms:                    for any PPT adversary A = (A1 , A2 ):
+
+• ΠFHE .ParamsGen(1λ ) → PP: Given a security parameter                                               ′          1
+                                                                                 Advcirc
+                                                                                    ΠFHE ,A (λ) = Pr[b = b] −      ≤ negl(λ).
+  λ ∈ N, outputs public parameters PP that specify the plain-                                                    2
+  text space M , ciphertext space C , and the family of sup-
+                                                                         The experiment proceeds as follows:
+  ported evaluation circuits (e.g., Cn for each n ∈ N).
+• ΠFHE .KGen(1λ ) → (pk, sk): Given a security parameter                 1. Setup: The challenger runs (pk, sk) ← ΠFHE .KGen(1λ )
+  λ ∈ N, outputs a public key pk and a secret key sk ∈ K .                  and computes an encryption of the secret key csk ←
+• ΠFHE .Enc(pk, m) → c: Given a public key pk and a plain-                  ΠFHE .Enc(pk, sk). It gives (pk, csk ) to A1 .
+  text message m ∈ M , outputs a ciphertext c ∈ C .                      2. Challenge Query: A1 outputs two messages m0 , m1 ∈ M
+• ΠFHE .Dec(sk, c) → m: Given a secret key sk ∈ K and a                     and state information st.
+  ciphertext c ∈ C , outputs the plaintext m ∈ M .                       3. Encryption: The challenger samples a random bit b ←
+• ΠFHE .Eval(pk, C, (c1 , . . . , cn )) → c: Given a public key pk,         {0, 1} and computes c∗ ← ΠFHE .Enc(pk, mb ).
+  a circuit C ∈ Cn , and ciphertexts (c1 , . . . , cn ) ∈ C n for some   4. Guess: A2 receives (st, c∗ ) and outputs a guess b′ .
+  n ∈ N, outputs a ciphertext c ∈ C .
+                                                                            Standard notions of correctness for FHE are typically guar-
+   An FHE scheme should satisfy the standard definition of               anteed only over the space of well-formed ciphertexts, de-
+correctness (decryption and evaluation correctness), which we            noted as C pk . This space consists of all ciphertexts gener-
+recall in Appendix A. For our setting, we define IK-IND-CPA              ated by valid encryption or homomorphic evaluation under
+security to guarantee not only standard IND-CPA security,                a specific public key pk (we recall the formal definition in
+but also that an adversary cannot distinguish whether the chal-          Appendix A). However, the full ciphertext space C is a super-
+                                                                         set (i.e., C ⊇ pk C pk for all pk : (pk, sk) ← ΠFHE .KGen(1λ ))
+                                                                                       S
+lenge ciphertext was produced under pk0 or pk1 , even in the
+presence of encrypted secret keys. This prevents an adversary            containing invalid ciphertexts or those encrypted under dif-
+from learning the intended recipient (i.e., the message desti-           ferent keys. While standard decryption ΠFHE .Dec(sk, ·) is
+nation) from the ciphertext alone. We use the IK-IND-CPA                 well-behaved on C pk , it is not necessarily well-defined over
+security notion of Chow et al. [13] adapted to our setting.              the entirety of K × C .
+                                                                            In our scheme, the server applies the homomorphic evalua-
+Definition 3.2 (IK-IND-CPA Security). Let ΠFHE be an FHE                 tion algorithm under a public key pkA to ciphertexts originally
+scheme such that K ⊆ M . The scheme offers IK-IND-CPA-                   encrypted under a different key pkB . Despite this key mis-
+security (Indistinguishability of Keys and Messages) if for              match, the evaluation must still output a syntactically valid
+
+
+
+USENIX Association                                                                            35th USENIX Security Symposium      4211
+ciphertext rather than failing or producing undefined errors.                say that ΠFHE satisfies wrong-key decryption if decrypting
+This requires a common FHE property called Strong Correct-                   a ciphertext under an independently generated, unrelated
+ness which we recall in Definition 3.4. Whereas standard cor-                secret key yields an (almost) uniformly random plaintext.
+rectness only concerns ciphertexts in C pk , Strong Correctness              Formally, for (pk, sk) ← ΠFHE .KGen(1λ ) and (pk′ , sk′ ) ←
+requires the decryption algorithm to be well defined over all of             ΠFHE .KGen(1λ ), any message m ∈ M , and ciphertext c ←
+K × C , returning some message in M even when decrypting                     ΠFHE .Enc(pk, m), we define:
+under the wrong key or decrypting an arbitrary bitstring.3 It
+further requires that evaluation correctness continue to hold                            c⋆ ← ΠFHE .Eval(pk′ , Dec(·, c), csk′ ),
+even when input ciphertexts lie outside C pk .
+                                                                             where csk′ ← ΠFHE .Enc(pk′ , sk′ ).
+Definition 3.4 (Strong Correctness). An FHE scheme is                        Let m⋆ ← ΠFHE .Dec(sk′ , c⋆ ). Then for all m̂ ∈ M :
+strongly correct if it satisfies the following properties:
+                                                                                                              1
+                                                                                             Pr[m⋆ = m̂] ≤          + negl(λ).
+1. Decryption      Correctness:       Standard                  correct-                                     |M |
+   ness holds for well-formed ciphertexts.                      For all
+   (pk, sk) ← ΠFHE .KGen(1λ ) and all m ∈ M :                                   While the requirement for Strong Correctness is stringent,
+                                                                             Chow et al. [13] demonstrate that any FHE scheme ΠFHE
+    Pr[ΠFHE .Dec(sk, ΠFHE .Enc(pk, m)) = m] ≥ 1 − negl(λ).                   that is (1) circular-secure and (2) has a well-defined decryp-
+                                                                             tion algorithm over K × C can be generically transformed
+2. Well-Defined Decryption: The decryption algorithm is                      into a strongly correct scheme Π′FHE . This is achieved by
+   well-defined over the entire space K × C . That is, for                   defining an augmented evaluation algorithm that performs a
+   any secret key sk ∈ K and any (possibly invalid) cipher-                  bootstrapping step prior to evaluating the circuit C. We recall
+   text c ∈ C , there exists a message m ∈ M such that:                      this design in Appendix A.
+   ΠFHE .Dec(sk, c) = m.
+3. Strong Evaluation Correctness: Evaluation correctness
+   holds for all ciphertexts in C , including those not in                   3.2    Controlled Multiplexer (CMux)
+   C pk . For any (pk, sk) ← ΠFHE .KGen(1λ ), any circuit                    The Controlled Multiplexer (CMux) gate is a fundamental
+   C ∈ Cn , and any ciphertext vector c = (c1 , . . . , cn ) ∈ C n ,         primitive in FHE-based schemes that implements homomor-
+   if we let mi = ΠFHE .Dec(sk, ci ) for all i ∈ [n], then:                  phic conditional selection [11]. It serves as the encrypted
+   Pr[ΠFHE .Dec(sk, c′ ) = C(m1 , . . . , mn )] ≥ 1 − negl(λ),               equivalent of an if-else statement.
+   where c′ ← ΠFHE .Eval(pk, C, c).
+                                                                             Definition 3.6 (CMux Gate). Let cs be a ciphertext encrypting
+   Formally, an FHE scheme ΠFHE is bootstrappable if it can                  a selector bit s ∈ {0, 1}, and let c0 , c1 ∈ C be ciphertexts en-
+homomorphically evaluate its own decryption circuit (aug-                    crypting messages m0 , m1 ∈ M , respectively. The algorithm
+mented by a standard logic gate) [20]. This capability enables               CMux(cs , c0 , c1 ) outputs a ciphertext c′ such that:
+a Recrypt mechanism that “refreshes” a ciphertext c by eval-                                                     (
+uating the decryption circuit Dec(·, c) on an encryption of the                                                     m0 if s = 0
+                                                                                                             ′
+secret key csk (often called the bootstrapping key):                                      ΠFHE .Dec(sk, c ) =
+                                                                                                                    m1 if s = 1
+                c′ ← ΠFHE .Eval(pk, Dec(·, c), csk )
+                                                                             Arithmetically, this        is    typically     evaluated as:
+   Strong Correctness ensures that decryption and evaluation                 CMux(cs , c0 , c1 ) := cs · c1 + (1 − cs ) · c0 where the ad-
+are well defined even when a ciphertext is not well formed                   dition and multiplication operations are performed
+under the evaluation key. In our construction, the server boot-              homomorphically.
+straps a ciphertext using receiver r’s bootstrapping key even
+when the ciphertext was generated under a different receiver’s               4     Model and Definitions
+key. To bound false positives in the tag-matching step, we
+require that such wrong-key bootstrapped decryption yields a                 4.1    Model
+plaintext that is (almost) uniformly distributed over M . We
+therefore assume the wrong-key decryption property used in                   We consider a single-server asynchronous messaging service
+OMR [31], formalized in Definition 3.5.                                      with senders S, receivers R, and a server Srv. Each receiver
+                                                                             r ∈ R generates a key pair (pkr , skr ) and registers pkr with
+Definition 3.5 (Wrong-Key Decryption). Let ΠFHE be a                         Srv. For each registered receiver, the server maintains an
+bootstrappable FHE scheme with plaintext space M . We                        encrypted inbox INBOX and an encrypted inbox tag iTag.
+   3 The output of a wrong-key decryption is formally a valid element of M   We write POSTBOX for the database of per-receiver tuples
+but has no semantic relation to the original plaintext.                      (INBOX, iTag, pk).
+
+
+
+4212     35th USENIX Security Symposium                                                                                 USENIX Association
+   Senders submit messages in batches. A batch request Breq         Communication channels. We assume sender-to-server com-
+is an ordered sequence of g ciphertext pairs                        munication is carried out over an anonymous channel so that
+                                                                    network identifiers do not trivially reveal the sender. Receiver-
+        Breq = ((signal1 , pTag1 ), . . . , (signalg , pTagg )),    to-server communication is end-to-end encrypted and authen-
+                                                                    ticated, enabling the server to maintain per-receiver state and
+where 1 ≤ g ≤ ḡ. We require that the g entries in a batch target   prevent trivial impersonation attacks.
+g distinct receivers. Formally, there exists an injective map-      Leakage. We allow the server to learn unavoidable system-
+ping f : [g] → R assigning each entry to its intended receiver.     level information needed to operate the service: the public
+Let Rg = { f (i)}i∈[g] denote the set of targeted receivers.        parameters (e.g., λ, ℓ, ḡ, ν), the set of registered receivers and
+   We model each signal as an encryption of an encoded mes-         their public keys, the batch size |Breq |, and the timing of batch
+sage msg ∈ M and each pTag as an encryption of a fixed              submissions and receiver reads. Beyond this explicit leakage,
+pertinency tag in {0, 1}ℓ ⊆ M (in our construction, the all-        Srv learns no additional information about which receivers
+ones string 1ℓ ). We assume messages are encoded injectively        are targeted by incoming batch entries.
+into M (for example, by including a random nonce), so colli-
+sions between distinct deliveries occur only with negligible
+                                                                    4.2    Definitions
+probability. The definitions can be generalized to handle du-
+plicates by including an explicit message identifier. We also       Definition 4.1 (Oblivious Signaling). An Oblivious Signaling
+reserve a distinguished dummy message value 1 used only for         (ΠOS ) scheme consists of the following PPT algorithms. The
+inbox initialization, distinct from the tag 1ℓ . We assume real     public parameters PP are an implicit input to all algorithms.
+messages are encoded to avoid this value.
+   The public parameters PP include the inbox capacity ν (the       • ParamsGen(1λ , ε p , εc , ν) → PP: Takes as input the security
+number of slots in each INBOX), the tag length ℓ, the maxi-           parameter λ, a target false positive rate ε p , a collision prob-
+mum batch size ḡ, and error parameters ε p and εc . We interpret     ability bound εc , and an inbox capacity ν. It outputs public
+ε p as an upper bound on the probability that a batch entry in-       parameters PP that include ℓ and ḡ derived from ε p and εc .
+tended for a different receiver is mistakenly deemed pertinent      • KeyGen() → (pk, sk): Run by a receiver. Outputs a public
+when processed against a receiver’s inbox tag. The param-             key pk and a secret key sk ∈ K . In our construction, pk
+eter εc bounds the probability of a collision for a targeted          includes an FHE public key and an encrypted secret key
+receiver: that at least one additional entry in the same batch is     used to enable homomorphic evaluation of decryption.
+also deemed pertinent, which can corrupt the inserted plain-        • InboxGen(pk) → (INBOX, iTag): Takes a public key pk as
+text. The algorithm ParamsGen(1λ , ε p , εc , ν) → PP chooses         input. Outputs an initialized inbox structure INBOX ∈ C ν
+ℓ and ḡ as functions of ε p and εc so that this collision prob-      and an associated inbox tag iTag ∈ C .
+ability is at most εc . In the asymptotic definitions below, we     • SignalGen(PK, M) → (Breq ): Takes as input a vector of
+treat ε p = ε p (λ) as negligible in λ (equivalently, we choose       recipient public keys PK = (pk1 , . . . , pkg ) and a vector of
+ℓ = ℓ(λ) so that false positives are negligible), and we restrict     plaintext messages M = (msg1 , . . . , msgg ), where 1 ≤ g ≤ ḡ
+attention to polynomially bounded executions.                         and pki ̸= pk j for all i ̸= j. It outputs a request batch
+   Since each inbox stores only ν ciphertext slots, our com-
+pleteness guarantee applies to messages that are among the                  Breq = ((signal1 , pTag1 ), . . . , (signalg , pTagg )),
+most recent ν deliveries to the receiver. Older messages may
+                                                                      where each signali ∈ C encrypts msgi under the recipient’s
+be evicted by the fixed-size inbox.
+                                                                      FHE public key component of pki , and each pTagi ∈ C en-
+                                                                      crypts the corresponding pertinency tag (in our construction,
+4.1.1    Threat Model                                                 the all-ones string 1ℓ ) under the same component.
+                                                                    • AddSigToInbox(pk, INBOX, iTag, Breq ) → INBOX′ : Run
+Adversarial server. The adversary is computationally                  by the server for a given receiver. Takes as input pk, the
+bounded and controls the server Srv. It observes public param-        associated INBOX, the inbox tag iTag, and a batch Breq . It
+eters, all registered public keys, all sender batch requests, and     outputs an updated inbox state INBOX′ . It homomorphi-
+the encrypted inbox state stored on Srv. The adversary also           cally tests pertinency of each batch entry against iTag and
+controls the delivery schedule, including the order in which          conditionally updates INBOX.
+batches are processed.                                              • ReadInbox(sk, INBOX) := ({msg1 , . . . , msgν }): Takes a se-
+Correctness vs. privacy. For completeness and soundness               cret key sk and an inbox INBOX as input. Outputs a length-
+(Definitions 4.2 and 4.3), we assume that Srv, senders, and           ν vector MV ∈ M ν of decrypted slot contents; dummy
+receivers follow the protocol specification. For receiver pri-        entries can be discarded by the receiver.
+vacy (Definition 4.4), we allow Srv to be malicious and to use
+arbitrary auxiliary information independent of the challenge          An ΠOS scheme must satisfy completeness, soundness, and
+linkage.                                                            receiver-message unlinkability, defined below. Appendix C
+
+
+
+USENIX Association                                                                      35th USENIX Security Symposium                 4213
+gives the correctness experiment used for completeness and                4. Guess: A outputs a bit b′ .
+soundness.
+                                                                             We say that ΠOS satisfies Receiver-Message Unlinkability
+Definition 4.2 (Completeness). Let ε p = ε p (λ) be negligi-
+                                                                          if for any PPT adversary A ,
+ble in λ, and let PP ← ParamsGen(1λ , ε p , εc , ν). Consider
+any honest sequence of sender-generated batch requests                                                     1
+Qrecv = (B1req , . . . , Bm                 m       j                                       Pr[b′ = b] −     ≤ negl(λ).
+                           req ) such that ∑ j=1 |Breq | ≤ poly(λ). As-                                    2
+                         j                j
+sume each batch Breq satisfies |Breq | ≤ ḡ and targets distinct
+receivers.                                                                Remark 4.1. We state the RML game for a single-entry batch,
+   Fix any receiver r ∈ R with key pair (pk, sk) and                      where the challenge message is explicitly fixed. This captures
+initial state (INBOXinit , iTag) ← InboxGen(pk). Let                      routing privacy (hiding the message destination) rather than
+INBOX f inal be the inbox state obtained by process-                      message privacy; message confidentiality follows indepen-
+ing every batch in Qrecv for receiver r by iterating                      dently from the IND-CPA security of the underlying FHE
+INBOX ← AddSigToInbox(pk, INBOX, iTag, Bjreq ) over                       scheme. By a hybrid argument over batch entries, indistin-
+ j = 1, . . . , m. Let MV ← ReadInbox(sk, INBOX f inal ).                 guishability for single-entry batches implies indistinguishabil-
+   Fix any index j0 ∈ {1, . . . , m} and any message msent ∈ M            ity for any batch of size g, with at most a factor-g loss in the
+sent to r in batch Bjreq   0 . Assume that m
+                                               sent is among the most     adversary’s advantage. Repeating the game for a polynomial
+recent ν deliveries to r within the sequence. The scheme is               number of single-entry challenges incurs only a polynomial
+complete if:                                                              loss, preserving negligible advantage.
+
+        Pr[msent appears in MV ] ≥ (1 − εc ) − negl(λ).
+                                                                          5   Construction
+Definition 4.3 (Soundness). Let PP and Qrecv be as in Def-
+inition 4.2, and fix any receiver r ∈ R with key pair (pk, sk)            In this section, we present OSig, an Oblivious Signaling con-
+and initial state (INBOX(0) , iTag) ← InboxGen(pk). For j =               struction based on a Fully Homomorphic Encryption (FHE)
+1, . . . , m, let INBOX( j) denote the inbox state after processing       scheme ΠFHE supporting Boolean circuit evaluation and sat-
+the first j batches in Qrecv , i.e.,                                      isfying the IK-IND-CPA Security, Strong Correctness, Cir-
+                                                                          cular Security, and Wrong-Key Decryption properties from
+ INBOX( j) ← AddSigToInbox pk, INBOX( j−1) , iTag, Bjreq .
+                                                                 
+                                                                          Section 3. The server maintains an encrypted inbox for each
+                                      j                                   recipient and homomorphically processes incoming batches
+  For each j ∈ {1, . . . , m}, let Rg ⊆ R denote the set of re-
+                                                                          to obliviously insert only the pertinent messages.
+ceivers targeted by batch Bjreq . Fix any index j ∈ {1, . . . , m}
+                 j
+                                                                             OSig consists of receiver setup and inbox initialization,
+such that r ∈ / Rg . Let MV ( j−1) ← ReadInbox(sk, INBOX( j−1) )          sender-side batch generation, server-side oblivious inbox up-
+and MV ← ReadInbox(sk, INBOX( j) ).
+         ( j)
+                                                                          dates, and receiver-side inbox decryption. Each receiver runs
+  The scheme is sound if                                                  KeyGen to obtain an FHE key pair and registers an encrypted
+                                                                          inbox INBOX together with an encrypted inbox tag iTag (Al-
+                Pr MV ( j) ̸= MV ( j−1) ≤ negl(λ).
+                                      
+                                                                          gorithms 1 and 2). To send messages, a sender runs SignalGen
+Definition 4.4 (Receiver-Message Unlinkability (RML)). The                to produce a batch request Breq consisting of ciphertext pairs
+RML game is played between a challenger C and a PPT ad-                   (signali , pTagi ) (Algorithm 3). Given Breq , the server invokes
+versary A controlling the server.                                         AddSigToInbox for each registered receiver to homomorphi-
+                                                                          cally test pertinency and obliviously update the correspond-
+1. Setup:       The       challenger samples             PP ←             ing inbox: if a signal is pertinent, it is inserted into INBOX;
+   ParamsGen(1λ , ε p , εc , ν). It generates key pairs                   otherwise, the plaintext inbox contents are unchanged (Algo-
+   (pk0 , sk0 ) ← KeyGen() and (pk1 , sk1 ) ← KeyGen(),                   rithm 4). Finally, each receiver periodically runs ReadInbox to
+   and inbox states (INBOX0 , iTag0 ) ← InboxGen(pk0 ) and                decrypt INBOX and recover received messages (Algorithm 5).
+   (INBOX1 , iTag1 ) ← InboxGen(pk1 ). It gives PP and
+   (pk0 , INBOX0 , iTag0 , pk1 , INBOX1 , iTag1 ) to A .                  Setup and Key Generation (Algorithm 1). The system pa-
+2. Challenge: A chooses a plaintext message msg ∈ M .                     rameters are established via ParamsGen, which derives the
+   The challenger samples b ← {0, 1} and forms a single-                  tag length ℓ and maximum size of batch ḡ as a function of the
+   entry batch by running: Breq ← SignalGen((pkb ), (msg)).               desired false positive rate ε p and collision bound εc .
+   It sends Breq to A .                                                      Each receiver then generates a key pair via KeyGen. Cru-
+3. Observation: A obtains the updated inboxes by running                  cially, the public key pk contains two components: (i) a stan-
+   the protocol-defined server update for each j ∈ {0, 1}:                dard FHE public key pkfhe , and (ii) an encryption of the cor-
+                                                                          responding secret key csk ← ΠFHE .Enc(pkfhe , skfhe ). This en-
+    INBOX′j ← AddSigToInbox pk j , INBOX j , iTag j , Breq .
+                                                            
+                                                                          crypted secret key enables the server to homomorphically
+
+
+
+4214    35th USENIX Security Symposium                                                                              USENIX Association
+Algorithm 1 OSig Setup and Key Generation                                Algorithm 3 OSig Message Generation
+ 1: procedure ParamsGen(1λ , ε p , εc , ν)                                1: procedure SignalGen(PK, M)
+ 2:    ℓ = ⌈log(ε−1
+                 p k)⌉
+                                                                          2:    g ← |PK|              ▷ number of recipients in the batch
+           j
+                εc                                                        3:    for i ← 1 to g do
+ 3:    ḡ = 1 + ε p                                                                    (i)      (i)
+                                                                          4:        (pk f he , csk ) ← PK[i]
+ 4:    PPFHE ← ΠFHE .ParamsGen(1λ )                                       5:        msgi ← M[i]
+ 5:    return PP = (1λ , ℓ, ḡ, ε p , εc , ν, PPFHE )                                                          (i)
+                                                                          6:        pTagi ← ΠFHE .Enc(pk f he , 1ℓ )
+ 6: end procedure
+                                                                                                                 (i)
+ 7: procedure KeyGen( )                                                   7:        signali ← ΠFHE .Enc(pk f he , msgi )
+ 8:    (pkfhe , skfhe ) ← ΠFHE .KGen(1λ )                                 8:        Breq [i] ← (signali , pTagi )
+ 9:    csk ← ΠFHE .Enc(pkfhe , skfhe )                                    9:    end for
+10:    return pk = (pkfhe , csk ), sk = skfhe                            10:    return Breq = ((signal1 , pTag1 ), . . . , (signalg , pTagg ))
+11: end procedure                                                        11: end procedure
+
+
+Algorithm 2 OSig Inbox Initialization
+                                                                         1. Rectification: Using the encrypted secret key csk in pk,
+ 1: procedure InboxGen(pk)
+                                                                            the server homomorphically evaluates the FHE decryption
+ 2:    (pkfhe , csk ) ← pk                                                  circuit on incoming signal and pTag values. This yields
+ 3:    for all i ∈ [ν] do                                                   “rectified” ciphertexts (signal′ , pTag′ ) under pkfhe , which
+ 4:        ci ← ΠFHE .Enc(pkfhe , 1)                    ▷ dummy slot        can be used as inputs to subsequent homomorphic logic.
+ 5:    end for                                                           2. Pertinency Check: The server evaluates an equality cir-
+ 6:    INBOX ← (c1 , . . . , cν )                                           cuit between the rectified tag pTag′ and the receiver’s
+ 7:    iTag ← ΠFHE .Enc(pkfhe , 1ℓ )                    ▷ all-ones tag      inbox tag iTag, producing a Pertinency Indicator PIi ∈ C ,
+ 8:    return INBOX, iTag                                                   that encrypts 1 iff the batch entry is intended for the target
+ 9: end procedure
+                                                                            recipient (and 0 otherwise).
+                                                                         3. Filtering: The server maintains an accumulator sigAcc
+                                                                            initialized to an encryption of 0. For each entry, it uses
+evaluate the decryption function (i.e., bootstrap) on cipher-               PIi as the selector bit in a CMux gate, overwriting sigAcc
+texts without learning any underlying plaintext. This requires              with signal′i iff PIi encrypts 1. Under the uniqueness con-
+circular security, since KeyGen publishes an encryption of the              straint that at most one batch entry is pertinent per recipient,
+FHE secret key under the corresponding public key.                          sigAcc becomes an encryption of the pertinent message if
+Inbox Initialization (Algorithm 2). A receiver initializes                  it exists, and otherwise remains an encryption of 0.
+its storage via InboxGen. An INBOX consists of ν encrypted               4. Inbox Update: Finally, the server updates the INBOX via
+slots, each initialized to an encryption of a fixed dummy value             a CMux-based shift register controlled by the cumulative
+(denoted by 1). The receiver also generates iTag, an encryp-                Pertinency Flag PF. If PF encrypts 1, sigAcc is inserted
+tion of the all-ones tag 1ℓ , later used by the server to homo-             at the head of the INBOX and existing slots are shifted;
+morphically test whether an incoming signal is pertinent.                   otherwise, the plaintext inbox contents are unchanged.
+
+Message Generation (Algorithm 3). To send messages, a                    Message Reading (Algorithm 5). To retrieve delivered mes-
+sender runs SignalGen to construct a batch request Breq . For            sages, a receiver periodically runs ReadInbox on its current
+each intended recipient i, the sender encrypts the message               INBOX using the secret key sk. This procedure locally de-
+msgi under the recipient’s FHE public key to obtain signali ,            crypts all ν encrypted slots in the INBOX and outputs the
+and attaches a pertinency tag pTagi (an encryption of the                corresponding plaintext message vector MV . Dummy entries
+all-ones string 1ℓ ) that will later be used by the server in the        (from initialization) decrypt to the fixed dummy value and
+homomorphic pertinency test (without revealing the intended              can be discarded by the receiver.
+recipient). The sender then sends the resulting ordered se-
+quence of ciphertext pairs Breq to the server. By definition of
+Breq , each batch targets distinct receivers, so there is at most        5.1    Security Analysis
+one ciphertext pair (signali , pTagi ) per receiver in Breq .
+                                                                         OSig achieves the privacy and correctness guarantees defined
+Server Processing (Algorithm 4). Upon receiving a batch                  in Section 4. Completeness and soundness rely on the Strong
+request Breq , the server processes it against all INBOX via             Correctness and Wrong-Key Decryption properties of ΠFHE
+AddSigToInbox, which evaluates a fixed homomorphic cir-                  (Section 3). Our privacy proof (receiver-message unlinka-
+cuit and performs a uniform update for every receiver inbox.             bility) additionally relies on the IK-IND-CPA and Circular
+Concretely, AddSigToInbox consists of four FHE steps:                    Security of ΠFHE (Section 3). We refer to Appendix D for the
+
+
+
+USENIX Association                                                                          35th USENIX Security Symposium             4215
+Algorithm 4 OSig Server Processing                                   experiments were repeated at least 5 times; error bars were
+ 1: procedure AddSigToInbox(pk, INBOX, iTag, Breq )                  negligible and are omitted for readability.
+ 2:     (pkfhe , csk ) ← pk                                          Remark 6.1. (Rationale for using TFHE.) TFHE satisfies
+ 3:     (c1 , . . . , cν ) ← INBOX                                   the IK-IND-CPA Security, Strong Correctness, Circular Se-
+ 4:     sigAcc ← ΠFHE .Enc(pkfhe , 0)                                curity, and Wrong-Key Decryption properties required by our
+ 5:     PF ← ΠFHE .Enc(pkfhe , 0)                                    construction (Section 5). Because our server must update en-
+ 6:     for i ← 1 to |Breq | do                                      crypted INBOXs over an unbounded sequence of executions,
+ 7:          (signali , pTagi ) ← Breq [i]                           leveled schemes like BFV [5, 18] are unsuitable due to their
+    ▷ Step 1: Rectification                                          fixed circuit depth limits. We instead employ TFHE, utilizing
+ 8:          signal′i ← ΠFHE .Eval(pkfhe , Dec(·, signali ), csk )   its programmable bootstrapping (PBS) to refresh ciphertexts
+ 9:          pTag′i ← ΠFHE .Eval(pkfhe , Dec(·, pTagi ), csk )       dynamically and enable the unbounded computation required
+    ▷ Step 2: Pertinency check                                       for persistent state. We prioritize TFHE over CKKS [10] be-
+10:          PIi ← ΠFHE .Eval(pkfhe , EQUAL, (iTag, pTag′i ))        cause our pipeline requires precise integer semantics; while
+    ▷ Step 3: Filter and accumulate                                  CKKS supports bootstrapping [2], adapting it for exact inte-
+11:          sigAcc ← CMux(PIi , sigAcc, signal′i )                  gers is an active research area [22].
+12:          PF ← ΠFHE .Eval(pkfhe , OR, (PF, PIi ))
+13:     end for                                                      Remark 6.2 (Anonymity Set and Scalability). Implement-
+    ▷ Step 4: Inbox update                                           ing a single global POSTBOX serving q recipients yields
+14:     c′1 ← CMux(PF, c1 , sigAcc)                                  an anonymity set of size q. However, the server computa-
+15:     for j ← 2 to ν do                                            tion cost to deliver a batch of messages from a sender scales
+16:          c′j ← CMux(PF, c j , c j−1 )                            linearly in q, as discussed in Section 2.1, which can be pro-
+17:     end for                                                      hibitive at web scale. A practical deployment can instead
+18:     return INBOX′ = (c′1 , . . . , c′ν )                         shard the POSTBOX into β disjoint instances, each serving
+19: end procedure                                                    qshard = q/β recipients. Cryptographically and functionally,
+                                                                     this sharding is equivalent to running independent instances
+                                                                     of the protocol. Senders then submit batches to the appropri-
+Algorithm 5 OSig Message Reading
+                                                                     ate shard, and the server processes each batch only within
+ 1: procedure ReadInbox(sk, INBOX)
+                                                                     that shard, reducing computation by roughly a factor of β.
+ 2:    skfhe ← sk
+                                                                     This optimization comes with a natural privacy trade-off: the
+ 3:    for i ← 1 to ν do
+                                                                     effective anonymity set is reduced from q to qshard .
+ 4:        MV [i] ← ΠFHE .Dec(skfhe , INBOX[i])
+ 5:    end for
+ 6:    return MV                                                     Application parameters. Our protocol exposes application-
+ 7: end procedure
+                                                                     level parameters that control the correctness/privacy trade-off:
+                                                                     the target system-wide collision rate εc , the false-positive rate
+                                                                     ε p , and the derived maximum batch size ḡ and tag size ℓ (plain-
+Theorem statements and corresponding security proofs.                text size of pTag and iTag). In our experiments, we target the
+                                                                     false positive rate ε p = 2−32 , which sets ℓ = 32 (Section 5).
+                                                                     We use ḡ = 25 (εc ≈ 2−27.42 ) for the OMR comparison (Sec-
+6     Implementation                                                 tion 6.3) and ḡ = 20 (εc ≈ 2−27.75 ) elsewhere to maintain
+                                                                     uniform batch sizes and avoid threading anomalies. Unless
+We instantiate our Oblivious Signaling construction as a re-         stated otherwise, the maximum inbox capacity is ν = 4.
+search prototype using the TFHE [11] fully homomorphic en-
+cryption framework (presented in Appendix A.2). Remark 6.1
+                                                                     Workload generation. For each experiment, we initialize q
+discusses our rationale behind this choice.
+                                                                     receivers, each maintaining an encrypted INBOX with ν slots.
+                                                                     We set a shard size qshard ≤ q and allocate the inboxes into dif-
+6.1     Methodology                                                  ferent shards. We then generate the same number of messages
+                                                                     per receiver and pack them into batches, where each batch
+We implement OSig in Rust [39] on top of TFHE-
+                                                                     request Breq contains g ≤ ḡ ciphertext pairs (signali , pTagi )
+rs (v1.4.3) [41], using the short-integer API. 4 Our prototype
+                                                                     targeting g distinct receivers. We dedicate one thread per
+follows the algorithms in Section 5 and evaluates the system
+                                                                     INBOX to process the incoming batches of requests. After
+across multiple parameter settings. All experiments were run
+                                                                     running the experiment, we test each receiver’s INBOX to see
+on a Google Cloud Compute Engine c2d-highcpu-112 in-
+                                                                     if they received all pertinent messages. In terms of recipient
+stance (112 vCPUs / 56 physical cores, 224 GB RAM). All
+                                                                     resources, inbox decryption is performed using a single CPU
+    4 https://doi.org/10.5281/zenodo.20437084                        thread to model client hardware.
+
+
+
+4216     35th USENIX Security Symposium                                                                         USENIX Association
+                        2.5                                                  recipients q increases from 20 to 100, with the max batch
+                                                                             size fixed at ḡ = 20. We evaluate delivery throughput as the
+
+
+
+
+ Throughput (msg/sec)
+                        2.0                                                  server workload is parallelized via sharding, where each shard
+                                                                             processes a disjoint subset of recipient inboxes. Increasing
+                        1.5                       No Sharding (q = qshard)   the number of shards amortizes the cost of the uniform inbox-
+                                                  Sharding (qshard = 20)     update circuit across parallel resources. With a single shard,
+                                                                             throughput drops from 1.03 to 0.37 messages/sec as the sys-
+                        1.0
+                                                                             tem scales from 20 to 100 recipients, reflecting the linear
+                                                                             dependence of delivery cost on the number of inboxes. Under
+                        0.5
+                                                                             sharding, throughput improves substantially: with 5 shards
+                              20   40            60            80      100   at 100 recipients, throughput reaches 2.41 messages/sec, a
+                                        Total Recipients (q)                 6.5× gain over the single-shard case. Across shards, we find
+                                                                             that the parallel efficiency5 remains high (0.98–0.99), indi-
+                                                                             cating that OSig’s delivery work, dominated by independent
+                                                                             homomorphic inbox updates, scales effectively with parallel
+Figure 3: Delivery throughput as the number of recipients                    compute resources.
+q grows (batch size ḡ = 20). Without sharding, throughput
+drops with q; sharding (20 inboxes per shard) restores near-                 Runtime breakdown (Delivery). We analyze the server-
+linear scaling.                                                              side runtime composition of the delivery pipeline. Across all
+                                                                             configurations, the homomorphic filter phase dominates pro-
+                                                                             cessing time, accounting for roughly 92–98% of total server
+Internal FHE parameters. Our prototype uses the short-
+                                                                             latency. The CMux-based inbox update contributes a much
+int API of the TFHE-rs library and instantiates all cipher-
+                                                                             smaller fraction, typically around 2–3%. Ciphertext expansion
+texts with the compact public-key variant using the KS→PBS
+                                                                             and preprocessing remain negligible in most settings (often
+evaluation pipeline. In this setting, ciphertexts are first key-
+                                                                             <1%), though they become slightly more visible (up to 5.8%)
+switched, and then programmable bootstrapping is performed,
+                                                                             in higher-shard configurations due to amortization effects.
+which improves evaluation performance at the cost of moder-
+ately larger ciphertexts [41]. In the default configuration, each
+slot in the INBOX and signal stores 2 shortint ciphertexts. Our              Recipient Cost Analysis (Retrieval). Retrieval cost is
+full version [38] details how these protocol-level objects are               small and stable across all configurations: local inbox de-
+realized in code.                                                            cryption takes on average only 97µs. Each check fetches a
+   We use parameters with LWE dimension n = 866,                             fixed-size encrypted inbox of ν = 4 slots, so recipient band-
+GLWE dimension kGLW E = 1, polynomial size                                   width and local decryption cost are constant regardless of
+N = 2048, and Gaussian noise standard deviations                             incoming traffic or workload on the server and the number of
+σLWE = 2.046151696979124 · 10−6 and σGLWE =                                  recipients q registered in the system. This confirms that OSig
+2.845267479601915 · 10−15 . Programmable bootstrap-                          makes frequent checking inexpensive relative to delivery.
+ping uses decomposition (base_log, level) = (23, 1) and key
+switching (3, 5). As a base case, we use TFHE parameters                     Impact of Inbox Capacity. To isolate the performance im-
+MessageModulus = 4 and CarryModulus = 4 for plaintext                        pact of the maximum inbox capacity (ν), we evaluated OSig
+encoding, supporting two message bits and two carry bits per                 under a fixed workload while scaling ν from 10 to 100. For
+ciphertext. The resulting bootstrapping failure probability is               this experiment, we maintained a constant recipient popula-
+approximately 2−128.6 , and the underlying LWE instances                     tion of q = 100 and processed N = 500 total messages dis-
+target at least 128-bit concrete security under the lattice                  tributed across 25 batches (ḡ = 20, so k = (N/q) = 5 pertinent
+estimator [1]. With parameters discussed above, a receiver                   messages per receiver). As illustrated in Figure 4, although
+public key occupies ∼32.9 KB, a receiver secret key ∼23.5                    the total processing latency scales linearly with the inbox ca-
+KB, and a sender-generated ciphertext (pTag, signal) ∼16.6                   pacity as asymptotically expected, it grows at a significantly
+KB, whereas the server evaluation key occupies ∼127.8                        slower rate than the capacity itself. This scaling behavior
+MB, reflecting the intentional asymmetry that pushes heavy                   follows from decomposing the server execution into two com-
+cryptographic state to the server.                                           ponents: the Filter phase (Steps 1–3 of Algorithm 4) and the
+                                                                             CMux phase (the oblivious inbox update in Step 4). Because
+                                                                             ν dictates the size of the state updated during delivery, the
+6.2                      Experimental Results
+                                                                                5 Parallel efficiency is the ratio of total computational effort across all
+Throughput analysis (Delivery). Figure 3 analyzes the                        shards to the system capacity consumed during the wall-clock execution time,
+throughput of two scaling regimes as the total number of                     measuring the impact of load imbalance and synchronization overhead.
+
+
+
+
+USENIX Association                                                                                  35th USENIX Security Symposium                  4217
+                               Total            Filter            CMux
+                                                                                                               Total Latency
+
+
+
+
+                                                                                 Latency (sec/msg)
+ Latency (sec/msg)
+                                                                                                     2
+                     2
+
+
+                     1                                                                               1
+
+
+                     0                                                                               0
+                               20       40       60         80       100                                        5              10      15          20
+                                       Inbox Capacity (ν)                                                           Message bits per signal
+
+
+
+Figure 4: Processing latency of OSig as a function of maxi-                     Figure 5: Processing latency per message as a function of
+mum inbox capacity (ν) under a fixed workload (q = 100, N =                     payload size (message bits per signal) for OSig. By packing
+500, ḡ = 20, k = 5).                                                           ciphertexts, the system achieves shallow, linear scaling as
+                                                                                message capacity increases.
+
+latency of the Filter phase remains independent of the inbox
+capacity and effectively flat across all configurations. Con-                   Trade-offs in Batch Size Selection. Batching in OSig bal-
+sequently, the linear increase in total computational latency                   ances amortized per-message server cost against the target
+is driven entirely by the CMux phase, which scales in direct                    collision rate, εc . The maximum batch size ḡ is application-
+proportion to ν and runs parallel to the overall latency curve.                 specific: it depends on the system’s tolerance for collisions
+Empirically, increasing ν tenfold (10 to 100) increases latency                 and the chosen false-positive rate ε p , governed by the bound
+by only 68% (from 1.62s to 2.71s per message), showing that                     ḡ ≤ ⌊1 + εc /ε p ⌋.
+larger inbox capacities incur relatively small computational                       To establish a balanced baseline for our OMR comparison
+overhead while mitigating message overflows.                                    in Section 6.3, we analyze the computational inflection point.
+                                                                                For q recipients, an inbox capacity ν, and a tag length ℓ, the
+                                                                                amortized per-message server cost scales proportionally to
+Impact of Message Size. To evaluate how OSig scales with                        q(C1 · ℓ +C2 · ν/ḡ), where C1 and C2 are constants represent-
+larger messages, we varied the number of plaintext bits per                     ing the cost of the Filter phase (Steps 1–3 of Algorithm 4) and
+signal under a fixed workload (q = 100, N = 200, ḡ = 20, k =                   the CMux phase (the oblivious inbox update in Step 4). While
+2). Rather than increasing the TFHE message and carry mod-                      accepting a higher εc permits larger batches to amortize the
+uli, which would enlarge the underlying look-up tables (LUT)                    shift cost, increasing ḡ yields strict diminishing returns. Em-
+and make programmable bootstrapping (PBS) prohibitively                         pirically, our runtime breakdown shows that the Filter phase
+expensive, we scale payload capacity by packing multiple                        heavily dominates the CMux phase (C1 ≫ C2 ), meaning the
+ciphertexts per signal. With the compact public-key instantia-                  C2 · ν/ḡ term shrinks rapidly in wall-clock time, causing the
+tion described above, this approach preserves sender-to-server                  total per-message cost to asymptote toward q ·C1 · ℓ. By ana-
+bandwidth: the sender-generated ciphertext grows by a mere                      lytically modeling this decay in a normalized unitless setting
+64 bytes (from 16,608 bytes for a 2-bit message to 16,672                       (q = ν = C1 = C2 = 1; Figure 6), we anchor our prototype near
+bytes for 20 bits). On the server side, Figure 5 illustrates that               the normalized "knee" of the curve using the integer batch
+while processing latency scales linearly with payload size, the                 size ḡ = 25 (with ε p = 2−32 and εc ≈ 2−27.42 ). This prevents
+computational overhead is shallow. Empirically, a 10× ex-                       arbitrary over-batching and ensures a principled baseline for
+pansion in message bits (from 2 to 20 bits) yields only a 75%                   our comparative evaluation.
+increase in per-message latency (from 1.40s to 2.45s). These
+results show that OSig can increase direct-inbox payload ca-
+pacity with moderate additional server latency and almost no                    6.3                      Comparison with OMR
+sender-to-server bandwidth growth in this parameter range.6                     We compare OSig against InstantOMR [28], the most latency-
+                                                                                optimized OMR design to date7 . For our experiments, we use
+   6 In signal-mode, the OSig payload functions as an encrypted pointer to
+
+an external bulletin board. Consequently, a payload of X bits can index a           7 Since InstantOMR uses Primus-FHE [36] while OSig uses TFHE-
+
+bulletin board of up to 2X entries. For example, the 20-bit payload evaluated   rs [41], the concrete performance gap should not be interpreted as a direct
+here can support a bulletin board containing 220 (over 1 million) messages.     microbenchmark comparison between FHE libraries.
+
+
+
+
+4218                     35th USENIX Security Symposium                                                                             USENIX Association
+ Amortized Server Cost (Unitless)
+                                                                                              construct the digest without overflow or retries. If the PV
+                                    32.20
+                                                                                     Knee     indicates k = 0, the second query is skipped.
+                                                                              εp = 2−32          For all experiments, we allocate one server CPU thread
+                                    32.15                                                     per recipient for a population of q = 100 recipients and vary
+                                                                              εc ≈ 2−27.39
+                                                                              g ≈ 25.40       the workload of N messages. To normalize the workload, we
+                                    32.10                                                     fix the frequency of pertinent messages to k = N/q for each
+                                                                                              recipient, with their positions distributed uniformly at random.
+                                    32.05                                                     For OSig, messages arrive in batches of size at most ḡ = 25
+                                                                                              with inbox capacity ν = 10. For omr-baseline, the retrieval
+                                    32.00
+                                                                                              window spans the full workload (D = N) with exact bound
+                                            0.0   0.5   1.0    1.5     2.0     2.5      3.0   k̄ = k. For omr-sporadic, the retrieval window is fixed to
+                                                        Collision Rate (εc)            1e−8   D = 100, requiring N/D queries per recipient. We retain the
+                                                                                              default cryptographic parameters from [28].
+
+                                                                                              Overflow Semantics. The overflow behaviors of OMR and
+Figure 6: Normalized amortized server cost versus collision                                   OSig are fundamentally different and are therefore excluded
+rate εc in the unitless setting q = ν = C1 = C2 = 1, under                                    from this benchmark comparison. In OMR, overflow occurs
+the model C1 ℓ +C2 ν/ḡ with ε p = 2−32 . The curve illustrates                               at query time when the recipient underestimates k̄, causing
+diminishing returns from larger batches; its knee near ḡ ≈                                   retrieval failure and requiring an adaptive retry, which may
+25.40 motivates our choice ḡ = 25 for comparison.                                            leak information about recipient traffic patterns (Section 2.1).
+                                                                                              In contrast, OSig implements a deterministic FIFO retention
+                                                                                              policy: once the inbox reaches capacity ν, older messages are
+the authors’ public implementation [27].                                                      evicted without requiring retries or additional interaction.
+   OSig and OMR have fundamentally different cost models,
+differing in when computation occurs and who bears the cost.
+                                                                                              Cost Model Comparison. The final cost metric is the mean
+OMR minimizes sender-side delivery cost by shifting substan-
+                                                                                              server processing time per recovered pertinent message. For
+tial computation to recipient retrieval, whereas OSig performs
+                                                                                              OSig, we divide the average batch processing time by the
+the privacy-preserving computation during message delivery
+                                                                                              number of delivered messages in the batch. For OMR, while
+while keeping recipient retrieval constant-cost. Consequently,
+                                                                                              the server works over scanned bulletin-board entries, we di-
+the meaningful comparison between the two paradigms is
+                                                                                              vide the total retrieval time for a window of N messages by the
+their dominant server-side operation. We therefore measure
+                                                                                              number of pertinent messages recovered from that window.
+oblivious message delivery for OSig and message retrieval
+                                                                                              Fixing the pertinent message frequency keeps this normalized
+for OMR over N appended bulletin-board messages.
+                                                                                              cost comparable across both paradigms.
+                                                                                                 Figure 7 reports the mean server processing time per suc-
+Experimental Setup. InstantOMR, like prior OMR sys-                                           cessful delivery or recovered pertinent message. OSig stays
+tems, assumes that the recipient provides an upper bound                                      between 1.58 and 1.61 seconds per successful delivery across
+k̄ on the number of pertinent messages in the retrieval win-                                  all tested workloads, because its delivery cost scales with
+dow. In their evaluation, the authors follow the common op-                                   the anonymity set rather than with global traffic. Thus, the
+timistic setting k = k̄, ensuring no overflow and thus avoid-                                 sender-side charge is tied to the chosen anonymity set, not to
+ing re-queries. To give InstantOMR the same advantage, we                                     system-wide noise. As shown in our inbox-capacity evalua-
+adopt this assumption to construct a baseline configuration,                                  tion, even substantial increases in ν add only modest overhead
+omr-baseline.                                                                                 relative to the retrieval costs incurred by OMR.
+   We also construct a second configuration, omr-sporadic,                                       In contrast, the computation for pull-based OMR architec-
+using a driver script built on their codebase to model the                                    tures scales directly with global traffic. The omr-baseline
+sporadic-receipt regime where recipients do not know k. To                                    system incurs an average cost of 52 to 54 seconds per re-
+mitigate the leakage caused by adaptive retries after over-                                   covered pertinent message, while omr-sporadic requires be-
+flow, prior OMR work proposes unlinkable detection keys                                       tween 87 and 111 seconds. Notably, while omr-baseline
+together with a two-server architecture [30]. We incorporate                                  scans individual bulletin board entries efficiently (taking
+these mitigations in omr-sporadic. In this setting, each re-                                  roughly 0.5 seconds per message), this computation is over-
+cipient holds two unlinkable detection keys and interacts with                                whelmingly wasteful: because 99 out of every 100 scanned
+two non-colluding logical servers. The first server performs                                  messages do not belong to the recipient, the server’s cost
+lightweight detection and returns the encrypted pertinency                                    is heavily penalized by global noise. The OMR cost curves
+vector (PV), revealing the exact value of k; the second server                                appear flat across varying loads in this experiment solely be-
+is then queried with an over-provisioned bound k̄′ > k to                                     cause we fixed the frequency of pertinent messages. Because
+
+
+
+USENIX Association                                                                                               35th USENIX Security Symposium         4219
+                            2
+                                                                          channels as in OMR. Accordingly, our evaluation focuses on
+                       10                                                 the core cryptographic and architectural costs of this design
+
+
+
+
+ Cost per Msg. (sec)
+                                                                          point, rather than deployment mechanisms such as authen-
+                                                                          ticated channels, PKI, network-level DoS defenses, timing
+                                                           omr-baseline
+                                                                          side channels, storage systems, or fault tolerance. The threat
+                            1
+                                                           omr-sporadic
+                       10                                                 model also excludes stronger environmental assumptions, in-
+                                                           OSig
+                                                                          cluding TEEs and two-server non-collusion. Privacy is de-
+                                                                          fined against a malicious server that may collude with users,
+                                                                          but correctness assumes protocol-following updates, so ro-
+                                                                          bustness against malicious server state corruption is outside
+                                100   300    500     700       900 1000   our claims. Since recipients decrypt their inboxes locally and
+                                      Number of Messages (N)              do not return decryption feedback to the server, post-read
+                                                                          leakage and decryption-oracle behavior are also outside the
+                                                                          protocol model.
+                                                                             The main operational trade-off is bounded storage. Each
+Figure 7: Average computational cost (in seconds) per success-            recipient has a fixed-capacity FIFO inbox that retains only the
+ful message delivery (OSig) or recovered pertinent message                most recent ν pertinent messages, so if more than ν messages
+(OMR) as a function of total workload N. The frequency of                 arrive before the recipient checks, older messages are evicted.
+pertinent messages is fixed at k = N/q across q = 100 recipi-             This differs from OMR overflow, where underestimating k̄
+ents.                                                                     causes a failed retrieval and may force a retry that leaks in-
+                                                                          formation; in OSig, retrieval still succeeds, but it returns only
+                                                                          the messages retained in the inbox. Deployments can address
+OMR requires scanning the entire bulletin board, its cost per
+                                                                          heavier users by assigning larger inboxes or by temporarily
+recovered pertinent message increases when pertinent mes-
+                                                                          pausing delivery updates until the next retrieval. Our proto-
+sages are sparse and decreases when they are frequent.
+                                                                          type evaluates direct-inbox mode with short messages, while
+                                                                          larger messages can be represented by multiple ciphertext
+Cost-Model Takeaway. Figure 7 shows that the dominant                     chunks or by signal mode, where the delivered object is an
+server-side costs occur at different phases in the two archi-             encrypted pointer to externally stored data. Finally, sharding
+tectures. In OMR, message append is cheap, but retrieval                  improves throughput (Remark 6.2) but reduces the effective
+requires scanning the unread global board segment. In OSig,               anonymity set from q to q/β.
+the server performs the privacy-preserving work at delivery by
+uniformly updating the anonymity set; subsequent recipient
+checks are fixed-size inbox reads.                                        Acknowledgments
+
+7                      Discussion and Trade-Offs                          We thank our shepherd and the anonymous USENIX Secu-
+                                                                          rity reviewers for their insightful comments and constructive
+Denial-of-Service Considerations. In Oblivious Signaling,                 feedback, which significantly improved the final version of
+heavy server-side computation occurs at message delivery, nat-            this paper. This research was supported by NSF #2143287.
+urally aligning with a digital-postage model in which senders
+bear or are charged for the cost, and large-scale spam be-
+comes expensive. In OMR, by contrast, appending messages                  Ethical Considerations
+is essentially free, while recipients incur the retrieval cost of
+repeatedly scanning the bulletin board, even when no mes-                 We study metadata-private message delivery. Our research
+sages are intended for them. This asymmetry makes OMR                     did not involve human subjects, real users, or the collection of
+vulnerable to sender-driven denial-of-service attacks.                    real-world communication data. All experiments use synthetic
+   OMR also considers the snake-eye attack, where a single                workloads, randomly generated ciphertexts, and controlled
+message appears pertinent to many recipients, forcing overpro-            benchmarking infrastructure. We structure our ethical analysis
+visioning of k̄ and amplifying server and recipient costs [31].           around stakeholders, risks, mitigations, and justification.
+OSig can adopt the mitigation techniques from [29] by using               Stakeholders. Relevant stakeholders include users of
+snake-eye-resistant PKEs for pertinency tags. We describe a               asynchronous messaging systems, messaging providers, re-
+PKE-transciphering variant of OSig in the full version [38].              searchers and implementers of privacy-preserving systems,
+Scope and Limitations. Oblivious Signaling is designed to                 operators responsible for abuse prevention, and society more
+provide receiver privacy in a single-server asynchronous ser-             broadly. Malicious actors are also relevant because privacy-
+vice, while leaving sender anonymity to external anonymous                enhancing technologies may be misused.
+
+
+
+4220                     35th USENIX Security Symposium                                                             USENIX Association
+Benefits and risks. The primary benefit of OSig is defen-           [4] Grant Bosworth, Keewoo Lee, and Sunwoong Kim.
+sive: it hides the message–recipient linkage by ensuring that           Leveraging fpgas for homomorphic matrix-vector multi-
+the server performs a uniform homomorphic update across                 plication in oblivious message retrieval, 2025. URL:
+recipient inboxes. This protects sensitive communication rela-          https://doi.org/10.48550/arXiv.2512.11690,
+tionships even when message contents are already encrypted.             arXiv:2512.11690,       doi:10.48550/ARXIV.2512.
+However, metadata privacy may also hinder spam or abuse                 11690.
+detection. OSig has explicit limitations: sender anonymity
+is outside scope, bounded inboxes implement fixed-size re-          [5] Zvika Brakerski. Fully homomorphic encryption with-
+tention, sharding reduces the effective anonymity set, and              out modulus switching from classical gapsvp. In Rei-
+network-level metadata leakage remains possible.                        haneh Safavi-Naini and Ran Canetti, editors, Advances
+Mitigations. We do not claim that OSig is deployment-ready              in Cryptology - CRYPTO 2012 - 32nd Annual Cryptol-
+or prevents abuse. Practical deployments would require opera-           ogy Conference, Santa Barbara, CA, USA, August 19-
+tional safeguards such as reporting mechanisms, account con-            23, 2012. Proceedings, volume 7417 of Lecture Notes
+trols, and abuse-triggered throttling. The protocol’s delivery-         in Computer Science, pages 868–886. Springer, 2012.
+time computation also creates a “digital postage” effect that           doi:10.1007/978-3-642-32009-5_50.
+increases the cost of spam or flooding attacks.                     [6] David Cerdeira, Nuno Santos, Pedro Fonseca, and San-
+Justification. We believe publication is justified because OSig         dro Pinto. SoK: Understanding the prevailing security
+advances defensive privacy technologies while explicitly doc-           vulnerabilities in TrustZone-assisted TEE systems. In
+umenting its limitations and trade-offs to support responsible          2020 IEEE Symposium on Security and Privacy, pages
+evaluation and future deployment.                                       1416–1432, San Francisco, CA, USA, May 18–21, 2020.
+                                                                        IEEE Computer Society Press. doi:10.1109/SP40000.
+Open Science                                                            2020.00061.
+                                                                    [7] Joachim Charzinski. Observations in e-mail per-
+Our code for the implementation and experiments                         formance. In Proc. ITC Specialist Seminar, pages
+is available at the following public repository                         133–142, Würzburg, Germany, July 2002. Accessed
+https://doi.org/10.5281/zenodo.20437084. The reposi-                    2026-01-23.   URL: https://jcho.de/jc/Pubs/
+tory contains build instructions, the code, and the bash scripts        itc2002-col.pdf.
+for running the experiments for OSig, omr-baseline, and
+omr-sporadic.                                                       [8] David Chaum. The dining cryptographers problem: Un-
+                                                                        conditional sender and recipient untraceability. J. Cryp-
+                                                                        tol., 1(1):65–75, 1988. doi:10.1007/BF00206326.
+References
+                                                                    [9] David Chaum, Debajyoti Das, Farid Javani, Aniket Kate,
+ [1] Martin R. Albrecht, Rachel Player, and Sam Scott. On               Anna Krasnova, Joeri de Ruiter, and Alan T. Sher-
+     the concrete hardness of learning with errors. Cryp-               man. cMix: Mixing with minimal real-time asymmet-
+     tology ePrint Archive, Paper 2015/046, 2015. URL:                  ric cryptographic operations. In Dieter Gollmann, At-
+     https://eprint.iacr.org/2015/046.                                  suko Miyaji, and Hiroaki Kikuchi, editors, ACNS 2017:
+                                                                        15th International Conference on Applied Cryptogra-
+ [2] Andreea Alexandru, Andrey Kim, and Yuriy Polyakov.
+                                                                        phy and Network Security, volume 10355 of Lecture
+     General functional bootstrapping using CKKS. In
+                                                                        Notes in Computer Science, pages 557–578, Kanazawa,
+     Yael Tauman Kalai and Seny F. Kamara, editors, Ad-
+                                                                        Japan, July 10–12, 2017. Springer, Cham, Switzerland.
+     vances in Cryptology - CRYPTO 2025 - 45th An-
+                                                                        doi:10.1007/978-3-319-61204-1_28.
+     nual International Cryptology Conference, Santa Bar-
+     bara, CA, USA, August 17-21, 2025, Proceedings, Part          [10] Jung Hee Cheon, Andrey Kim, Miran Kim, and
+     III, volume 16002 of Lecture Notes in Computer Sci-                Yong Soo Song. Homomorphic encryption for arith-
+     ence, pages 304–337. Springer, 2025. doi:10.1007/                  metic of approximate numbers. In Tsuyoshi Tak-
+     978-3-032-01881-6_10.                                              agi and Thomas Peyrin, editors, Advances in Cryp-
+                                                                        tology – ASIACRYPT 2017, Part I, volume 10624 of
+ [3] Gabrielle Beck, Julia Len, Ian Miers, and Matthew                  Lecture Notes in Computer Science, pages 409–437,
+     Green. Fuzzy message detection. In Giovanni Vigna                  Hong Kong, China, December 2017. Springer, Cham.
+     and Elaine Shi, editors, ACM CCS 2021: 28th Confer-                doi:10.1007/978-3-319-70694-8_15.
+     ence on Computer and Communications Security, pages
+     1507–1528, Virtual Event, Republic of Korea, Novem-           [11] Ilaria Chillotti, Nicolas Gama, Mariya Georgieva, and
+     ber 15–19, 2021. ACM Press. doi:10.1145/3460120.                   Malika Izabachène. TFHE: Fast fully homomor-
+     3484545.                                                           phic encryption over the torus. Journal of Cryp-
+
+
+
+USENIX Association                                                                   35th USENIX Security Symposium        4221
+       tology, 33(1):34–91, January 2020.   doi:10.1007/            ePrint Archive, Report 2012/144, 2012. URL: https:
+       s00145-019-09319-x.                                          //eprint.iacr.org/2012/144.
+
+[12] Benny Chor, Oded Goldreich, Eyal Kushilevitz, and         [19] Shufan Fei, Zheng Yan, Wenxiu Ding, and Haomeng Xie.
+     Madhu Sudan. Private information retrieval. In 36th An-        Security vulnerabilities of SGX and countermeasures: A
+     nual Symposium on Foundations of Computer Science,             survey. ACM Comput. Surv., 54(6):126:1–126:36, 2022.
+     pages 41–50, Milwaukee, Wisconsin, October 23–25,              doi:10.1145/3456631.
+     1995. IEEE Computer Society Press. doi:10.1109/
+     SFCS.1995.492461.                                         [20] Craig Gentry. Fully homomorphic encryption using
+                                                                    ideal lattices. In Michael Mitzenmacher, editor, 41st
+[13] Sherman S. M. Chow, Katharina Fech, Russell W. F.              Annual ACM Symposium on Theory of Computing, pages
+     Lai, and Giulio Malavolta. Multi-client oblivious RAM          169–178, Bethesda, MD, USA, May 31 – June 2, 2009.
+     with poly-logarithmic communication. In Shiho Moriai           ACM Press. doi:10.1145/1536414.1536440.
+     and Huaxiong Wang, editors, Advances in Cryptology
+     – ASIACRYPT 2020, Part II, volume 12492 of Lecture        [21] Sashidhar Jakkamsetti, Zeyu Liu, and Varun Madathil.
+     Notes in Computer Science, pages 160–190, Daejeon,             Scalable private signaling. In CSF 2025: IEEE 38th
+     South Korea, December 7–11, 2020. Springer, Cham,              Computer Security Foundations Symposium, pages 143–
+     Switzerland. doi:10.1007/978-3-030-64834-3_6.                  158, Santa Cruz, CA, USA, June 16–20, 2025. IEEE
+                                                                    Computer Society Press. doi:10.1109/CSF64896.
+[14] Henry Corrigan-Gibbs, Dan Boneh, and David Maz-
+                                                                    2025.00035.
+     ières. Riposte: An anonymous messaging system han-
+     dling millions of users. In 2015 IEEE Symposium on
+                                                               [22] Jaehyung Kim. Efficient homomorphic integer computer
+     Security and Privacy, pages 321–338, San Jose, CA,
+                                                                    from ckks. Cryptology ePrint Archive, Paper 2025/066,
+     USA, May 17–21, 2015. IEEE Computer Society Press.
+                                                                    2025. URL: https://eprint.iacr.org/2025/066.
+     doi:10.1109/SP.2015.27.
+                                                               [23] Albert Kwon, Henry Corrigan-Gibbs, Srinivas Devadas,
+[15] Henry Corrigan-Gibbs and Bryan Ford. Dissent: ac-
+                                                                    and Bryan Ford. Atom: Horizontally scaling strong
+     countable anonymous group messaging. In Ehab Al-
+                                                                    anonymity. In Proceedings of the 26th Symposium on
+     Shaer, Angelos D. Keromytis, and Vitaly Shmatikov,
+                                                                    Operating Systems Principles, Shanghai, China, Octo-
+     editors, ACM CCS 2010: 17th Conference on Com-
+                                                                    ber 28-31, 2017, pages 406–422. ACM, 2017. doi:
+     puter and Communications Security, pages 340–350,
+                                                                    10.1145/3132747.3132755.
+     Chicago, Illinois, USA, October 4–8, 2010. ACM Press.
+     doi:10.1145/1866307.1866346.
+                                                               [24] Albert Kwon, David Lazar, Srinivas Devadas, and Bryan
+[16] Henry Corrigan-Gibbs, David Isaac Wolinsky, and                Ford. Riffle: An efficient communication system with
+     Bryan Ford. Proactively accountable anonymous                  strong anonymity. Proceedings on Privacy Enhancing
+     messaging in verdict. In Samuel T. King, editor,               Technologies, 2016(2):115–134, April 2016. doi:10.
+     USENIX Security 2013: 22nd USENIX Security                     1515/popets-2016-0008.
+     Symposium, pages     147–162, Washington, DC,
+     USA, August 14–16, 2013. USENIX Association.              [25] Simon Langowski, Sacha Servan-Schreiber, and Srinivas
+     URL:      https://www.usenix.org/conference/                   Devadas. Trellis: Robust and scalable metadata-private
+     usenixsecurity13/technical-sessions/                           anonymous broadcast. In ISOC Network and Distributed
+     presentation/corrigan-gibbs.                                   System Security Symposium – NDSS 2023, San Diego,
+                                                                    CA, USA, February 27– March 3, 2023. The Internet
+[17] Saba Eskandarian, Henry Corrigan-Gibbs, Matei                  Society. doi:10.14722/ndss.2023.23088.
+     Zaharia, and Dan Boneh.        Express: Lowering
+     the cost of metadata-hiding communication with            [26] Keewoo Lee and Yongdong Yeo. SophOMR: Improved
+     cryptographic privacy.     In Michael Bailey and               oblivious message retrieval from SIMD-aware homo-
+     Rachel Greenstadt, editors, USENIX Security 2021:              morphic compression. Cryptology ePrint Archive, Re-
+     30th USENIX Security Symposium, pages 1775–                    port 2024/1814, 2024. URL: https://eprint.iacr.
+     1792. USENIX Association, August 11–13, 2021.                  org/2024/1814.
+     URL:       https://www.usenix.org/conference/
+     usenixsecurity21/presentation/eskandarian.                [27] Haofei Liang, Zeyu Liu, Eran Tromer, Xiang
+                                                                    Xie, and Yu Yu. Implementation of InstantOMR.
+[18] Junfeng Fan and Frederik Vercauteren. Somewhat                 https://github.com/xiangxiecrypto/tfhe-omr,
+     practical fully homomorphic encryption. Cryptology             2025. GitHub repository, accessed 2026-05-21.
+
+
+
+4222    35th USENIX Security Symposium                                                               USENIX Association
+[28] Haofei Liang, Zeyu Liu, Eran Tromer, Xiang Xie, and            1199–1216, Vancouver, BC, Canada, August 16–18,
+     Yu Yu. InstantOMR: Oblivious message retrieval with            2017. USENIX Association. URL: https://www.
+     low latency and optimal parallelizability. Cryptology          usenix.org/conference/usenixsecurity17/
+     ePrint Archive, Paper 2025/2317, 2025. Published else-         technical-sessions/presentation/piotrowska.
+     where. Minor revision. USENIX Security 2026. URL:
+                                                              [36] Primus Labs. Primus-fhe: A fully homomorphic en-
+     https://eprint.iacr.org/2025/2317.
+                                                                   cryption library. GitHub repository. URL: https:
+[29] Zeyu Liu, Katerina Sotiraki, Eran Tromer, and Yunhao          //github.com/primus-labs/primus-fhe.
+     Wang. Snake-eye resistant PKE from LWE for oblivious
+                                                              [37] István András Seres, Balázs Pejó, and Péter Burcsi.
+     message retrieval and robust encryption. In Serge Fehr
+                                                                   The effect of false positives: Why fuzzy message de-
+     and Pierre-Alain Fouque, editors, Advances in Cryp-
+                                                                   tection leads to fuzzy privacy guarantees? In It-
+     tology – EUROCRYPT 2025, Part III, volume 15603
+                                                                   tay Eyal and Juan A. Garay, editors, FC 2022: 26th
+     of Lecture Notes in Computer Science, pages 126–156,
+                                                                   International Conference on Financial Cryptography
+     Madrid, Spain, May 4–8, 2025. Springer, Cham, Switzer-
+                                                                   and Data Security, volume 13411 of Lecture Notes in
+     land. doi:10.1007/978-3-031-91131-6_5.
+                                                                   Computer Science, pages 123–148, Grenada, May 2–
+[30] Zeyu Liu and Eran Tromer. Oblivious message retrieval.        6, 2022. Springer, Cham, Switzerland. doi:10.1007/
+     Cryptology ePrint Archive, Report 2021/1256, 2021.            978-3-031-18283-9_7.
+     URL: https://eprint.iacr.org/2021/1256.                  [38] Mirza Kamrul Bashar Shuhan, Foteini Baldimtsi, and
+[31] Zeyu Liu and Eran Tromer. Oblivious message re-               Giuseppe Ateniese. Oblivious signaling. Cryptology
+     trieval. In Yevgeniy Dodis and Thomas Shrimpton,              ePrint Archive, 2026.
+     editors, Advances in Cryptology – CRYPTO 2022, Part I,   [39] The Rust Team. The Rust programming language, 2024.
+     volume 13507 of Lecture Notes in Computer Science,            https://www.rust-lang.org/.
+     pages 753–783, Santa Barbara, CA, USA, August 15–
+     18, 2022. Springer, Cham, Switzerland. doi:10.1007/      [40] Adithya Vadapalli, Kyle Storrier, and Ryan Henry.
+     978-3-031-15802-5_26.                                         Sabre: Sender-anonymous messaging with fast audits. In
+                                                                   2022 IEEE Symposium on Security and Privacy, pages
+[32] Zeyu Liu, Eran Tromer, and Yunhao Wang. Group obliv-          1953–1970, San Francisco, CA, USA, May 22–26, 2022.
+     ious message retrieval. In 2024 IEEE Symposium on             IEEE Computer Society Press. doi:10.1109/SP46214.
+     Security and Privacy, pages 4367–4385, San Francisco,         2022.9833601.
+     CA, USA, May 19–23, 2024. IEEE Computer Society
+     Press. doi:10.1109/SP54263.2024.00115.                   [41] Zama. TFHE-rs: A Pure Rust Implementation of the
+                                                                   TFHE Scheme for Boolean and Integer Arithmetics
+[33] Zeyu Liu, Eran Tromer, and Yunhao Wang. Per-                  Over Encrypted Data, 2022. https://github.com/
+     fOMR: Oblivious message retrieval with reduced                zama-ai/tfhe-rs.
+     communication and computation.          In Davide
+     Balzarotti and Wenyuan Xu, editors, USENIX Secu-
+     rity 2024: 33rd USENIX Security Symposium, Philadel-
+                                                              A     Additional Preliminaries
+     phia, PA, USA, August 14–16, 2024. USENIX Associa-
+     tion. URL: https://www.usenix.org/conference/
+                                                              A.1     FHE Preliminaries
+     usenixsecurity24/presentation/liu-zeyu.                  Definition A.1 (FHE Correctness). An FHE scheme ΠFHE
+                                                              is correct if it satisfies the following properties for any
+[34] Varun Madathil, Alessandra Scafuro, István András
+                                                              security parameter λ ∈ N and any key pair (pk, sk) ←
+     Seres, Omer Shlomovits, and Denis Varlakov. Pri-
+                                                              ΠFHE .KGen(1λ ):
+     vate signaling.    In Kevin R. B. Butler and
+     Kurt Thomas, editors, USENIX Security 2022: 31st         1. Decryption Correctness: For any message m ∈ M ,
+     USENIX Security Symposium, pages 3309–3326, Boston,
+                                                                  Pr[ΠFHE .Dec(sk, ΠFHE .Enc(pk, m)) = m] ≥ 1 − negl(λ).
+     MA, USA, August 10–12, 2022. USENIX Associa-
+     tion. URL: https://www.usenix.org/conference/            2. Evaluation Correctness: For any circuit C ∈ Cn and any
+     usenixsecurity22/presentation/madathil.                     message vector m = (m1 , . . . , mn ) ∈ M n ,
+[35] Ania M. Piotrowska, Jamie Hayes, Tariq Elahi,                     Pr[ΠFHE .Dec(sk, c′ ) = C(m)] ≥ 1 − negl(λ),
+     Sebastian Meiser, and George Danezis.     The
+                                                                  where,
+     loopix anonymity system.   In Engin Kirda and
+     Thomas Ristenpart, editors, USENIX Security                     c′ ← ΠFHE .Eval(pk, C, c) , and
+     2017: 26th USENIX Security Symposium, pages                     c = (ΠFHE .Enc(pk, m1 ), . . . , ΠFHE .Enc(pk, mn ))
+
+
+
+USENIX Association                                                              35th USENIX Security Symposium         4223
+The probability is taken over the randomness of KGen, Enc,             is satisfied by most existing LWE-based constructions. In such
+and Eval.                                                              schemes, decryption is typically computed as an inner prod-
+                                                                       uct of vectors in Zlq followed by rounding, a mathematical
+Well-formed Ciphertexts. For FHE schemes, the set of                   operation that is inherently well-defined for any pair of vec-
+well-formed ciphertexts is formally defined recursively as:            tors. Thus, by formally setting C = K = Zlq , the decryption
+                                                                       function is naturally well-defined over the full domain.
+                                                             
+                    c ← ΠFHE .Enc(pk, m) for any m ∈ M 
+                                                                       A.2      TFHE
+       
+                                                             
+                                                             
+                    ∨
+       
+                                                             
+                                                              
+       
+                                                             
+                                                              
+C pk := c ∈ C       c ← ΠFHE .Eval(pk, C, (c1 , . . . , cn ))   .      We briefly recall the TFHE [11] scheme.
+                                                                     Notation. Let n denote the LWE dimension and N the ring
+                    for any n ∈ N, C ∈ Cn ,
+       
+                                                             
+                                                              
+       
+                                                             
+                                                                      dimension for RLWE ciphertexts. We write T = R/Z for
+                                                n
+                                                             
+                     and (c1 , . . . , cn ) ∈ C pk
+                                                             
+                                                                       the real torus and B = {0, 1} for the binary set. Vectors are
+                                                                       denoted in bold (e.g., a), and R = Z[X]/(X N + 1) denotes the
+Strong Correctness Transformation Chow et al. [13]                     ring of integer polynomials.
+demonstrate that any FHE scheme ΠFHE that is (1) circular-             TLWE Ciphertexts. A TFHE ciphertext is an LWE ciphertext
+secure and (2) has a well-defined decryption algorithm over            over the torus, referred to as TLWE. Given a secret key s ∈
+K × C can be generically transformed into a strongly correct           {0, 1}n , a TLWE encryption of a message m ∈ T is a vector
+scheme Π′FHE . This is achieved by defining an augmented
+                                                                                          (a, b = ⟨a, s⟩ + m + e) ∈ Tn+1 ,
+evaluation algorithm that performs a bootstrapping step prior
+to evaluating the circuit C. The transformed scheme Π′FHE                 where a ← Tn is uniform and e is sampled from a Gaus-
+retains the identical Enc and Dec algorithms of ΠFHE , but             sian error distribution. Decryption computes b − ⟨a, s⟩, which
+modifies the key generation and evaluation procedures as:              recovers m up to the small error term.
+                                                                       TRLWE Ciphertexts. TFHE uses Ring-LWE ciphertexts,
+• Π′FHE .KGen(1λ ): Execute the underlying key generation              denoted TRLWE, over the torus polynomial ring TN [X] =
+  (pk, sk) ← ΠFHE .KGen(1λ ). Compute an encryption of the             R[X]/(X N + 1) modulo 1. In the canonical TFHE setting, the
+  secret key csk ← ΠFHE .Enc(pk, sk). The new public key is            secret key satisfies s(X) ∈ BN [X].8 A TRLWE encryption of
+  pk′ = (pk, csk ) and the secret key remains sk′ = sk.                a message µ(X) ∈ TN [X] is a pair
+• Π′FHE .Eval(pk′ , C, (c1 , . . . , cn )): The evaluation algorithm
+  introduces a bootstrapping/rectification step:                            (a(X), b(X) = a(X) · s(X) + µ(X) + e(X)) ∈ TN [X]2 ,
+  1. Rectification: For each input ciphertext ci , homomor-            where a(X) is uniform and e(X) is a small Gaussian error
+     phically decrypt it using the encrypted secret key csk .          polynomial.
+     This effectively computes:                                        Programmable Bootstrapping. The core primitive in TFHE
+                                                                       is programmable bootstrapping (also known as gate boot-
+                c′i ← ΠFHE .Eval(pk, Dec(·, ci ), csk ).               strapping), which allows for the evaluation of lookup tables
+     Here, Dec(·, ci ) is a circuit being evaluated, with csk          (LUTs) while refreshing ciphertext noise. The bootstrapping
+     serving as the input.                                             key consists of TGSW ciphertexts, vectors of TRLWE sam-
+  2. Evaluation: Evaluate the target circuit C on the resulting        ples that encrypt the secret key bits. To evaluate a function f ,
+     “refreshed” ciphertexts:                                          the scheme uses the Blind Rotate algorithm. This computes
+                                                                       the external product between the TGSW bootstrapping keys
+                c′ ← ΠFHE .Eval(pk, C, (c′1 , . . . , c′n )).          and a TRLWE accumulator initialized with a “test vector”
+                                                                       polynomial v(X) encoding f . The rotation shifts v(X) by the
+  3. Output the final ciphertext c′ .                                  encrypted phase of the input, moving the coefficient corre-
+                                                                       sponding to f (m) to the constant term, which is then extracted
+Justification. This construction ensures strong evaluation
+                                                                       as a fresh TLWE ciphertext.
+correctness because ΠFHE .Dec(·, ci ) is well-defined over the
+entire space K × C . Consequently, the rectification step (1)
+always yields a well-formed ciphertext c′i ∈ C pk that encrypts        B     Additional Related Work
+some message mi ∈ M , regardless of the validity of the origi-
+nal input ci . The subsequent evaluation in step (2) therefore         Beyond the main-body discussion of OMR, FMD, and Private
+operates exclusively on valid ciphertexts, for which the stan-         Signaling, we briefly discuss other metadata-private commu-
+dard correctness of ΠFHE guarantees the correct output.                nication systems that rely on different assumptions or protect
+   Note that reliance on circular security is a standard assump-       different parties.
+tion already required for FHE bootstrapping [20]. Further-                 8 More generally, TFHE allows a vector secret in B [X]k ; we describe the
+                                                                                                                             N
+more, the requirement for a well-defined decryption algorithm          k = 1 case for simplicity.
+
+
+
+
+4224    35th USENIX Security Symposium                                                                                   USENIX Association
+   DC-nets [8, 15, 16] provide strong metadata privacy by hav-                      Correctness and Wrong-Key Decryption of the underlying
+ing participants jointly generate ciphertexts such that only one                    FHE scheme ΠFHE and that the batch size satisfies |Breq | ≤ ḡ.
+message is revealed per round without exposing the sender.
+However, they require costly all-to-all synchronous commu-                          Proof. Fix any execution sequence Qrecv = (B1req , . . . , Bm  req ),
+nication. Mixnets anonymize senders by routing messages                             any receiver r ∈ R, any index j0 , and any message msent ∈ M
+through chains of servers that shuffle and re-encrypt traffic,                      sent to r in batch Bjreq
+                                                                                                          0 , as quantified in Definition 4.2. Assume
+breaking input-output linkage. While early systems such as                          moreover that msent is among the most recent ν deliveries to
+Riffle [24] and cMix [9] faced scalability challenges, newer                        r within Qrecv . Let T ⊆ { j0 + 1, . . . , m} denote the indices of
+designs including Atom [23], Loopix [35], and Trellis [25]                          batches in which r is not targeted, and let g0 ≜ |Bjreq 0 |.
+achieve horizontal scalability. However, mixnets primarily                             Let Succ denote the event that, after processing Qrecv , the
+address sender anonymity and do not directly support private                        message msent appears in r’s final decrypted inbox output MV .
+asynchronous message retrieval without additional trust or                          If msent is correctly inserted into r’s INBOX during processing
+system assumptions.                                                                 of Bjreq
+                                                                                          0 and no subsequent batch in T triggers an inbox update
+   Private information retrieval (PIR) [12] is another direction                    for r, then msent appears in MV . Indeed, the assumption that
+for anonymous messaging that hides which indices are fetched                        msent is among the most recent ν deliveries to r implies that
+but presumes the recipient already knows which indices to ask                       there are at most ν − 1 later deliveries to r, so these later
+for. PIR-based approaches enable asynchronous communica-                            deliveries cannot evict msent from the ν-slot inbox. We upper
+tion but typically assume multiple non-colluding servers. Sys-                      bound Pr[¬Succ] by considering the following bad events.
+tems such as Riposte [14] allow anonymous writes to a shared
+database using distributed point functions (DPFs), while au-                          1. FHE evaluation error. The homomorphic evaluation
+dit mechanisms prevent disruption. Later systems, including                              (including evaluation of the decryption circuit) may pro-
+Express [17] and Sabre [40], improve efficiency through opti-                            duce an incorrect ciphertext. By the strong correctness of
+mized DPF constructions and lightweight auditing. Despite                                ΠFHE , this event occurs with probability at most negl(λ).
+their scalability, these DPF-based systems also rely on mul-
+tiple non-colluding servers, a stronger trust assumption than                         2. Pertinency collision: During processing of the targeted
+the single-server cryptographic model we consider.                                       batch Bjreq
+                                                                                                  0 against receiver r, more than one batch entry
+
+                                                                                         is deemed pertinent, i.e., at least one entry not intended
+C      Correctness Execution                                                             for r yields PIi = J1Ksk in the equality check between
+                                                                                         pTag and iTag.
+Definitions 4.2 and 4.3 are evaluated over the following                                 In this case, the accumulator sigAcc may be overwritten
+experiment. Let PP ← ParamsGen(1λ , ε p , εc , ν). For every                             by an entry not intended for r, causing insertion of an
+registered receiver r ∈ R, generate (pkr , skr ) ← KeyGen()                              incorrect plaintext.
+                  (0)
+and (INBOXr , iTagr ) ← InboxGen(pkr ). An honest deliv-
+ery sequence is a sequence D = (D1 , . . . , Dm ), where D j =                        3. Post-delivery false update: For some j ∈ T , the batch
+((r j,1 , msg j,1 ), . . . , (r j,g j , msg j,g j )), g j ≤ ḡ, and each D j con-        Bjreq (which does not target r) triggers an inbox update
+tains no receiver twice. For each j = 1, . . . , m, the sender                           for r (i.e., the pertinency flag PF decrypts to 1), which
+computes                                                                                 may evict msent from the fixed-size inbox.
+           Breq j ← SignalGen (pkr j,1 , . . . , pkr j,g j ),
+                                                                                       We check pertinency via an equality circuit EQUAL evalu-
+                                                                                    ated on pTag′i and iTag. The resulting ciphertext PIi decrypts
+                                                                     
+                                       (msg j,1 , . . . , msg j,g j ) .
+                                                                                    to 1 iff the two underlying plaintext tags are equal, and to
+This delivery sequence induces the request-batch sequence
+                                                                                    0 otherwise. Now consider any entry (signali , pTagi ) in a
+Qrecv = (Breq 1 , . . . , Breq m ). For each j = 1, . . . , m and every
+                                                                                    batch processed against receiver r that is not intended for r.
+registered receiver r, the server updates the receiver state as:
+                                                                                    Since this pTag was encrypted under a different receiver’s
+        ( j)                                     ( j−1)                   
+                                                                                    key, Definition 3.5 implies that after the server’s rectification
+INBOXr ← AddSigToInbox pkr , INBOXr                      , iTagr , Breq j
+                                                                                    step, the decrypted tag equals 1ℓ with probability at most
+Receiver r            reads    by     computing         MVr ←                       1/|M | + negl(λ). Since we treat tags as ℓ-bit strings, we have
+                           (m)
+ReadInbox(skr , INBOXr ). A delivery (r, msg) is live                               |M | ≥ 2ℓ , and therefore 1/|M | ≤ 2−ℓ . By parameter selec-
+after Qrecv if it is among the latest ν deliveries to r in D.                       tion, 2−ℓ ≤ ε p , so each entry not intended for r yields a false
+                                                                                    positive with probability at most ε p + negl(λ).
+D      Security Proofs                                                                 By a union bound over the g0 − 1 entries in the targeted
+                                                                                    batch Bjreq
+                                                                                              0 that are not intended for r, the probability of a
+
+Theorem D.1 (Completeness). The OSig protocol satisfies                             pertinency collision is at most (g0 − 1) ε p + negl(λ). Since
+Completeness according to Definition 4.2, assuming Strong                           ParamsGen sets ḡ = ⌊1 + εc /ε p ⌋ and we enforce |Bjreq 0 | ≤ ḡ,
+
+
+
+
+USENIX Association                                                                                      35th USENIX Security Symposium            4225
+we have (g0 − 1)ε p ≤ εc , and therefore the collision probabil-        Theorem D.3 (Receiver-Message Unlinkability). The OSig
+ity is at most εc + negl(λ).                                            protocol satisfies Receiver-Message Unlinkability (RML) ac-
+   For any j ∈ T , the receiver r is not targeted by Bjreq , so every   cording to Definition 4.4, assuming the Circular Security and
+entry in the batch is not intended for r. By a union bound over         IK-IND-CPA Security of ΠFHE .
+the |Bjreq | entries, the probability that PF decrypts to 1 and
+                                                                        Proof. Fix any PPT adversary A in the RML game of Defini-
+triggers an update is at most |Bjreq | ε p + negl(λ). Applying
+                                                                        tion 4.4. We compare the two experiments corresponding to
+a union bound over j ∈ T bounds the probability of a post-
+                                                                        b = 0 and b = 1.
+delivery false update by ∑ j∈T |Bjreq | ε p + negl(λ).
+                                                                           In the setup phase, the challenger samples PP, gener-
+   Combining the bad events, we obtain
+                                                                        ates (pk0 , sk0 ) and (pk1 , sk1 ), and initializes inbox states
+        Pr[Succ] ≥ (1 − εc ) − ∑ |Bjreq | ε p − negl(λ),                (INBOX0 , iTag0 ) and (INBOX1 , iTag1 ). These values are in-
+                                  j∈T                                   dependent of b and are identically distributed in the two exper-
+                                                                        iments. The only value that depends on b is the single-entry
+where the sum term bounds the probability of a post-delivery            challenge batch Breq = ((signal⋆ , pTag⋆ )).
+false update over the non-targeted batches in T . Since the ex-                    (0) (0)                    (1) (1)
+                                                                           Let (pkfhe , csk ) ← pk0 and (pkfhe , csk ) ← pk1 . Note that
+ecution is polynomially bounded in λ and ε p (λ) is negligible
+                                                                        the public keys in our protocol include the encrypted secret
+(as required by Definition 4.2), the quantity ∑ j∈T |Bjreq | ε p is                          (0)     (1)
+negligible in λ and can be absorbed into negl(λ). Therefore,            key components csk and csk used for bootstrapping. Accord-
+Pr[Succ] ≥ (1 − εc ) − negl(λ), proving completeness.                   ingly, the indistinguishability claim below relies on IK-IND-
+                                                                        CPA security (Definition 3.2), stated in the presence of these
+                                                                        encrypted secret keys, and on Circular Security. The chal-
+Theorem D.2 (Soundness). The OSig protocol satisfies                    lenger forms
+Soundness according to Definition 4.3, assuming Strong Cor-
+rectness and Wrong-Key Decryption of ΠFHE .                                                                          (b)
+                                                                                (signal⋆ , pTag⋆ ) = ΠFHE .Enc(pkfhe , msg),
+                                                                                                                 (b)
+                                                                                                     ΠFHE .Enc(pkfhe , 1ℓ ) ,
+                                                                                                                           
+Proof. Fix any setup as in Definition 4.3, and fix any index j
+such that the receiver r under consideration is not targeted by
+the batch Bjreq . Let g ≜ |Bjreq |.                                     for the message msg chosen by A . We claim that the distri-
+   In Algorithm 4, the inbox update is controlled by the per-           bution of Breq is computationally indistinguishable for b = 0
+tinency flag PF. If PF decrypts to 0, then each CMux gate               and b = 1.
+decrypts to the prior slot value, and therefore the inbox state           Consider the following hybrids for the challenge batch:
+is unchanged and MV ( j) = MV ( j−1) , except with negligible                               (0)                     (0)
+                                                                           H0 ≜ ΠFHE .Enc(pkfhe , msg), ΠFHE .Enc(pkfhe , 1ℓ ) ,
+                                                                                                                              
+probability due to FHE evaluation error under Strong Correct-
+ness. Thus, the event MV ( j) ̸= MV ( j−1) can occur only if PF                             (1)                     (0)
+                                                                           H1 ≜ ΠFHE .Enc(pkfhe , msg), ΠFHE .Enc(pkfhe , 1ℓ ) ,
+                                                                                                                              
+decrypts to 1, up to negligible probability.
+                                                                                            (1)                     (1)
+                                                                           H2 ≜ ΠFHE .Enc(pkfhe , msg), ΠFHE .Enc(pkfhe , 1ℓ ) .
+                                                                                                                              
+   Since receiver r is not targeted by Bjreq , every batch en-
+try is not intended for r. For each entry, the pertinency in-
+dicator PIi is computed by an equality check between iTag               By IK-IND-CPA security (Definition 3.2), H0 and H1 are
+(which encrypts 1ℓ ) and a rectified tag pTag′i obtained by             computationally indistinguishable (set both challenge mes-
+bootstrapped decryption using the encrypted secret key csk .            sages to msg so that the only hidden bit is which key is used).
+By Definition 3.5, the wrong-key decryption output equals               Similarly, H1 and H2 are computationally indistinguishable
+1ℓ with probability at most 1/|M | + negl(λ). Since tags are            (set both challenge messages to 1ℓ ). Therefore H0 and H2 are
+treated as ℓ-bit strings, |M | ≥ 2ℓ , and therefore this probabil-      computationally indistinguishable, and hence the challenge
+ity is at most 2−ℓ + negl(λ) ≤ ε p + negl(λ). By a union bound          batch distribution is indistinguishable for b = 0 versus b = 1.
+over the g entries, Pr[PF decrypts to 1] ≤ g ε p + negl(λ).                In the observation phase, A computes the updated inboxes
+   Combining the above observations (and accounting for the             by running AddSigToInbox on (pk0 , INBOX0 , iTag0 , Breq )
+negligible probability of FHE evaluation error under Strong             and (pk1 , INBOX1 , iTag1 , Breq ). This is a fixed PPT computa-
+Correctness), we obtain                                                 tion on public inputs, so computational indistinguishability of
+                                                                        Breq is preserved. Thus A ’s entire view in the two experiments
+           Pr MV ( j) ̸= MV ( j−1) ≤ g ε p + negl(λ),                   is computationally indistinguishable, and A has negligible
+                                   
+                                                                        advantage, i.e., Pr[b′ = b] − 21 ≤ negl(λ).
+where g = |Bjreq |. Since Definition 4.3 (via Definition 4.2)
+assumes ε p (λ) is negligible and that each batch is polyno-
+mially bounded in λ, the product g ε p is negligible and can
+be absorbed into negl(λ). Therefore, Pr[MV ( j) ̸= MV ( j−1) ] ≤
+negl(λ), as required.
+
+
+
+4226    35th USENIX Security Symposium                                                                           USENIX Association
+

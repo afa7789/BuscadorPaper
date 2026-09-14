@@ -1,0 +1,289 @@
+{
+  "search_date": "2026-09-13",
+  "scope": "Candidatos de mestrado em criptografia/ZK/Web3, busca dirigida não exaustiva",
+  "novelty_status": "Não estabelecida para nenhum candidato",
+  "benchmark_status": "Nenhum protótipo foi compilado ou medido nesta rodada",
+  "sources": [
+    {
+      "id": "zkpoex_paper",
+      "title": "A Framework for Zero-Knowledge Proofs of Exploits in Solidity Smart Contracts",
+      "authors": [
+        "Alessandro Cavaliere",
+        "Santiago Galiñanes Arienti",
+        "Christian Esposito",
+        "Naghmeh Ivaki",
+        "Nuno Laranjeiro"
+      ],
+      "url": "https://doi.org/10.1145/3748522.3779811",
+      "code_url": "https://github.com/ziemen4/zkpoex",
+      "reading": "README dos autores e material da dissertação; texto final do artigo não obtido",
+      "note": "Download da ACM retornou HTTP 403. README cita 2025; catálogos consultados registram SAC 2026. Não usar o ano do README sem validar a edição final."
+    },
+    {
+      "id": "zkpoex_thesis",
+      "title": "Dissertação de mestrado de Alessandro Cavaliere sobre zkpoex",
+      "url": "https://github.com/Alessandro-Cavaliere/MSc-Thesis",
+      "pdf_url": "https://raw.githubusercontent.com/Alessandro-Cavaliere/MSc-Thesis/17a2bbd9f43caf0326a53f3393a5a7163d9899a2/Alessandro_Cavaliere_MSc_Thesis.pdf",
+      "file": "papers/zkpoex-author-thesis.pdf",
+      "reading": "Trechos de construção e conclusão; página 96 do PDF",
+      "note": "Dissertação, não o artigo SAC; URL fixa o commit 17a2bbd9f43caf0326a53f3393a5a7163d9899a2.",
+      "sha256": "f9dbdb2a2ce86b68e6a1f701252daf1d710ff727e014bdebd39b42b2fdd16f41",
+      "bytes": 6498254,
+      "pages": 105
+    },
+    {
+      "id": "zkpoex_other",
+      "title": "zkoranges/zkPoEX",
+      "url": "https://github.com/zkoranges/zkPoEX",
+      "reading": "README, especialmente limitações",
+      "note": "Projeto distinto do repositório associado ao artigo. Arquivado; não atribuir suas limitações automaticamente ao paper."
+    },
+    {
+      "id": "risc0_composition",
+      "title": "RISC Zero Proof Composition",
+      "url": "https://dev.risczero.com/api/zkvm/composition",
+      "reading": "Documentação oficial, versão exibida 3.0"
+    },
+    {
+      "id": "risc0_recursion",
+      "title": "RISC Zero Recursive Proving",
+      "url": "https://dev.risczero.com/api/recursion",
+      "reading": "Documentação oficial, versão exibida 3.0"
+    },
+    {
+      "id": "prc",
+      "title": "Do You Need a Receipt? Anonymous Credential Revocation at Continental Scale via Private Record Certification",
+      "authors": [
+        "Kasra EdalatNejad",
+        "Sebastian Faust",
+        "Jonas Hofmann",
+        "Philipp-Florens Lehwalder",
+        "Thomas Schneider"
+      ],
+      "publication": "USENIX Security 2026",
+      "url": "https://www.usenix.org/conference/usenixsecurity26/presentation/edalatnejad",
+      "pdf_url": "https://www.usenix.org/system/files/usenixsecurity26-edalatnejad.pdf",
+      "file": "papers/prc-revocation-2026.pdf",
+      "code_url": "https://zenodo.org/records/20433788",
+      "reading": "Modelo de adversário, §4.1 (página 8 PDF), construção, §5.3 e avaliação",
+      "sha256": "b35de93b4f83527d83e077a78fd3fb1554b57d6926521e075de19c6513b41556",
+      "bytes": 712399,
+      "pages": 21
+    },
+    {
+      "id": "tapir",
+      "title": "TAPIR: A Two-Server Authenticated PIR Scheme with Preprocessing",
+      "authors": [
+        "Francesca Falzon",
+        "Laura Hetz",
+        "Annamira O'Toole"
+      ],
+      "publication": "ePrint 2025/2177; metadados consultados registram ACNS 2026",
+      "url": "https://eprint.iacr.org/2025/2177",
+      "pdf_url": "https://eprint.iacr.org/2025/2177.pdf",
+      "file": "papers/tapir-2025.pdf",
+      "code_url": "https://github.com/laurahetz/TAPIR",
+      "reading": "Resumo, modelo contra servidor malicioso, estrutura e limitações; README",
+      "note": "O README menciona ACNS'25, divergindo do ePrint. Código Go/C++; não compilado nesta rodada.",
+      "sha256": "2bf9869006a0fb470166e4259f7727ab34b89478295a44654fd08c0ac9579af7",
+      "bytes": 1227685,
+      "pages": 20
+    },
+    {
+      "id": "osig",
+      "title": "Oblivious Signaling",
+      "authors": [
+        "Mirza Kamrul Bashar Shuhan",
+        "Foteini Baldimtsi",
+        "Giuseppe Ateniese"
+      ],
+      "publication": "USENIX Security 2026",
+      "url": "https://www.usenix.org/conference/usenixsecurity26/presentation/shuhan",
+      "pdf_url": "https://www.usenix.org/system/files/usenixsecurity26-shuhan.pdf",
+      "file": "papers/oblivious-signaling-2026.pdf",
+      "code_url": "https://doi.org/10.5281/zenodo.20437084",
+      "reading": "Construção, modelo, comparação OMR e §7 (página 15 do PDF)",
+      "sha256": "651ea68308f847fd250e25a86edf3d95b875304cddc235ee4a611ab1a7183cac",
+      "bytes": 977295,
+      "pages": 21
+    },
+    {
+      "id": "instant_omr",
+      "title": "InstantOMR: Oblivious Message Retrieval with Low Latency and Optimal Parallelizability",
+      "authors": [
+        "Haofei Liang",
+        "Zeyu Liu",
+        "Eran Tromer",
+        "Xiang Xie",
+        "Yu Yu"
+      ],
+      "publication": "USENIX Security 2026",
+      "url": "https://www.usenix.org/conference/usenixsecurity26/presentation/liang",
+      "pdf_url": "https://www.usenix.org/system/files/usenixsecurity26-liang.pdf",
+      "file": "papers/instant-omr-2026.pdf",
+      "code_url": "https://github.com/xiangxiecrypto/tfhe-omr",
+      "reading": "Resumo, construção, parametrização e trechos da avaliação",
+      "sha256": "368a18f16654e5a357b1fb16603102f4405dd5f1427eda5e1ecfd24e806804f4",
+      "bytes": 3773216,
+      "pages": 21
+    },
+    {
+      "id": "unif_omr",
+      "title": "UnifOMR: Oblivious Message Retrieval with Near-optimal Concrete Efficiency",
+      "authors": [
+        "Ben Fisch",
+        "Zeyu Liu",
+        "Eran Tromer",
+        "Yunhao Wang"
+      ],
+      "publication": "ePrint 2026/910; metadados consultados registram ACM CCS 2026",
+      "url": "https://eprint.iacr.org/2026/910",
+      "pdf_url": "https://eprint.iacr.org/2026/910.pdf",
+      "file": "papers/unif-omr-2026.pdf",
+      "reading": "Resumo e metadados; PDF obtido para leitura posterior",
+      "note": "Não usar afirmação de estado da arte de InstantOMR sem incluir esta comparação.",
+      "sha256": "59612f4139a54b563e45aed94b4744395a1531dedd2bcd189a33df5a84f552b1",
+      "bytes": 11787443,
+      "pages": 56
+    },
+    {
+      "id": "zswap",
+      "title": "Zswap: zk-SNARK Based Non-Interactive Multi-Asset Swaps",
+      "authors": [
+        "Felix Engelmann",
+        "Thomas Kerber",
+        "Markulf Kohlweiss",
+        "Mikhail Volkhov"
+      ],
+      "publication": "PoPETs 2022(4):507–527",
+      "url": "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+      "pdf_url": "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+      "file": "papers/zswap-2022.pdf",
+      "code_url": "https://github.com/felix-engelmann/zswap-code",
+      "reading": "Introdução, visão técnica e §1.3 (página 4 do PDF)",
+      "sha256": "1d7dbd6ab5904a33ecda313cf6fad5905582bb1a2ab755b2eac17c741eb5aa5e",
+      "bytes": 685157,
+      "pages": 21
+    },
+    {
+      "id": "idp",
+      "title": "Indifferential Privacy: A New Paradigm and Its Applications to Optimal Matching in Dark Pool Auctions",
+      "authors": [
+        "Antigoni Polychroniadou",
+        "T.-H. Hubert Chan",
+        "Adya Agrawal"
+      ],
+      "publication": "AAMAS 2025",
+      "url": "https://arxiv.org/abs/2502.13415",
+      "pdf_url": "https://www.ifaamas.org/Proceedings/aamas2025/pdfs/p1670.pdf",
+      "file": "papers/idp-darkpools-2025.pdf",
+      "code_url": "https://github.com/adya-agrawal/idp-darkpool",
+      "reading": "Problema, §2 (página 3 PDF), privacidade, construção e avaliação",
+      "note": "Operador semi-honesto; privacidade de volumes mais fraca que ocultação integral de ordens.",
+      "sha256": "c2b29a7420b34ce4932d5606768ff006be7ebb07c12bce22c84f107d48c84fcc",
+      "bytes": 1529559,
+      "pages": 9
+    },
+    {
+      "id": "renegade",
+      "title": "Renegade Whitepaper / implementação oficial",
+      "url": "https://whitepaper.renegade.fi/",
+      "code_url": "https://github.com/renegade-fi/renegade",
+      "reading": "Arquitetura de matching MPC e liquidação ZK; README",
+      "note": "Usado como trabalho próximo, sem afirmar desempenho medido localmente ou situação de implantação."
+    },
+    {
+      "id": "circuzz",
+      "title": "Fuzzing Processing Pipelines for Zero-Knowledge Circuits",
+      "authors": [
+        "Christoph Hochrainer",
+        "Anastasia Isychev",
+        "Valentin Wüstholz",
+        "Maria Christakis"
+      ],
+      "publication": "CCS 2025; cópia consultada arXiv:2411.02077",
+      "url": "https://arxiv.org/abs/2411.02077",
+      "pdf_url": "https://arxiv.org/pdf/2411.02077",
+      "file": "papers/circuzz-2025.pdf",
+      "code_url": "https://github.com/Rigorous-Software-Engineering/circuzz",
+      "reading": "Método e §3.6 (página 8 PDF), ameaças à validade e README",
+      "note": "Passagem de trabalho futuro atribuída à versão arXiv obtida, não presumida igual em toda revisão.",
+      "sha256": "fca019b3ae82110ae226bfb610ba796c77c19e000cf599d17584dbdd42354882",
+      "bytes": 733353,
+      "pages": 20
+    },
+    {
+      "id": "snark_sok",
+      "title": "SoK: What Don't We Know? Understanding Security Vulnerabilities in SNARKs",
+      "publication": "USENIX Security 2024",
+      "url": "https://www.usenix.org/system/files/usenixsecurity24-chaliasos.pdf",
+      "pdf_url": "https://www.usenix.org/system/files/usenixsecurity24-chaliasos.pdf",
+      "file": "papers/snark-security-sok-2024.pdf",
+      "reading": "Taxonomia e desafios; conjunto de falhas não reproduzido",
+      "sha256": "35617cc88a03bf8935edea299b94b136cef576a104124fc9873c06377407e392",
+      "bytes": 630004,
+      "pages": 19
+    },
+    {
+      "id": "zk_promises",
+      "title": "zk-promises: Anonymous Moderation, Reputation, and Blocking from Anonymous Credentials with Callbacks",
+      "authors": [
+        "Maurice Shih",
+        "Michael Rosenberg",
+        "Hari Kailad",
+        "Ian Miers"
+      ],
+      "publication": "USENIX Security 2025",
+      "url": "https://www.usenix.org/conference/usenixsecurity25/presentation/shih",
+      "pdf_url": "https://www.usenix.org/system/files/usenixsecurity25-shih.pdf",
+      "file": "papers/zk-promises-2025.pdf",
+      "code_url": "https://github.com/moshih/zk-promises",
+      "reading": "Modelo, construção, limitações, batching e apêndices relevantes",
+      "note": "Leitura complementar; evita apresentar reputação anônima com callbacks como nova.",
+      "sha256": "08587920a27d277f36ac128b638fac5da9aa02b22805f08ea68974c019539af7",
+      "bytes": 516824,
+      "pages": 21
+    },
+    {
+      "id": "treepir",
+      "title": "TreePIR",
+      "url": "https://github.com/PIR-PIXR/TreePIR",
+      "reading": "Resumo e README"
+    },
+    {
+      "id": "semaphore_pir",
+      "title": "Scaling Semaphore – PIR Merkle-Path Retrieval",
+      "url": "https://pse.dev/projects/scaling-semaphore-pir",
+      "reading": "Página oficial do projeto"
+    },
+    {
+      "id": "zcash_pir",
+      "title": "valargroup/enhance-pir, anteriormente spendability-pir",
+      "url": "https://github.com/valargroup/enhance-pir",
+      "reading": "README; URL antiga redireciona para enhance-pir"
+    },
+    {
+      "id": "private_updates",
+      "title": "Private Delegation of (Non-)Membership Proof Updates in Cryptographic Accumulators",
+      "publication": "Preprint ePrint 2026/832; revisão de 17/08/2026",
+      "url": "https://eprint.iacr.org/2026/832",
+      "reading": "Resumo e metadados da revisão; não leitura integral do PDF"
+    },
+    {
+      "id": "zk_creds",
+      "title": "zk-creds: Flexible Anonymous Credentials from zkSNARKs and Existing Identity Infrastructure",
+      "publication": "IEEE S&P 2023",
+      "url": "https://eprint.iacr.org/2022/878",
+      "code_url": "https://github.com/rozbb/zkcreds-rs",
+      "reading": "Resumo, trechos sobre revogação e README",
+      "note": "Código arquivado; revogação genérica não foi selecionada como novidade."
+    },
+    {
+      "id": "context_binding",
+      "title": "Context-Binding Gaps in Stateful Zero-Knowledge Proximity Proofs: Taxonomy, Separation, and Mitigation",
+      "publication": "Preprint arXiv:2604.03900",
+      "url": "https://arxiv.org/abs/2604.03900",
+      "reading": "Resumo; serve como alerta de trabalho próximo, exige leitura completa antes de selecionar R5"
+    }
+  ]
+}

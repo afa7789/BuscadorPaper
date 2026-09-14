@@ -1,0 +1,42 @@
+{
+  "accessed": "2026-09-14",
+  "program": "PPGCC / DCC / UFMG",
+  "assumption": "Programa usado como referência; perfil individual e disponibilidade de orientadores não fornecidos.",
+  "sources": [
+    {
+      "id": "edital",
+      "url": "https://ppgcc.dcc.ufmg.br/wp-content/uploads/2025/10/Edital-Regular_Ciencia-da-Computacao_MD_2026.pdf",
+      "file": "edital-ppgcc-2026.pdf",
+      "pages": 16,
+      "sha256": "7b511a739f55641dffc56d75620c5ecb98022407734ef8b240dc54c605c190ac",
+      "reading": "Itens 7.1.2.2 e 7.1.4, página 7; Anexo V e Tabela 8, página 15. Texto extraído e tabela conferida visualmente.",
+      "evidence": "NPP mínima 70/100, peso de 20% na nota final; rubrica do projeto 35/35/30. A NPP oficial avalia a submissão completa, não o resumo de uma ideia."
+    },
+    {
+      "id": "editais",
+      "url": "https://ppgcc.dcc.ufmg.br/editais/",
+      "reading": "Seleção de mestrado 2026 e links oficiais.",
+      "evidence": "Página consultada apresenta edital 2026; não foi localizado nela um edital 2027."
+    },
+    {
+      "id": "docentes",
+      "url": "https://ppgcc.dcc.ufmg.br/docentes/",
+      "reading": "Entradas de Jeroen van de Graaf e Leonardo Barbosa e Oliveira.",
+      "evidence": "Criptografia teórica/aplicada e segurança em sistemas distribuídos/criptografia aplicada são áreas declaradas. Não foram verificadas vagas ou disponibilidade de orientação."
+    },
+    {
+      "id": "linhas",
+      "url": "https://ppgcc.dcc.ufmg.br/linhas-de-pesquisa/",
+      "reading": "Linhas Sistemas Computacionais e Teoria.",
+      "evidence": "Há temas de cibersegurança, desempenho, sistemas distribuídos, métodos formais e docentes de criptografia/privacidade. Aderência de cada proposta é inferência do painel."
+    },
+    {
+      "id": "allosaur",
+      "url": "https://eprint.iacr.org/2022/1362",
+      "reading": "Resumo primário; a construção formal integral não foi revisada nesta etapa.",
+      "evidence": "Trabalho relacionado relevante à ideia 5; considera comportamento malicioso em seu modelo de múltiplos gestores. A extensão proposta deve explicitar o que acrescenta."
+    }
+  ],
+  "research_sources": "Papers e manifestos do diretório pai e fontes citadas individualmente nos pareceres.",
+  "verification_limits": "Nenhum artefato criptográfico foi compilado ou medido pelo painel; busca de novidade dirigida, sem certificação de ineditismo."
+}

@@ -1,0 +1,1645 @@
+    Zyga: Optimized Zero-Knowledge Proofs with Dynamic Public
+                             Inputs
+                         Tiago A. O. Alves                              Vitor Py Braga
+                 State University of Rio de Janeiro                        Darklake
+                             Darklake                                 vitor@darklake.fi
+                        tiago@darklake.fi
+
+
+                                                   Abstract
+         We present Zyga, a pairing-based zero-knowledge proof system optimized for privacy-preserving DeFi
+     applications. Our main contribution is an enhancement of existing zkSNARK constructions that enables
+     dynamic public input substitution during verification while maintaining privacy of witness components
+     through one-sided encoding. The one-sided encoding aspect favors practical deployment constraints on
+     Solana and Ethereum where G2 scalar multiplications are computationally expensive. Zyga separates
+     private values (blinded through trusted setup) from public values (instantiated on-chain), enabling ap-
+     plications like private trading against current market rates without reproofing. We further introduce
+     two-sided encoding, an extension that removes circuit structure restrictions by adding a private B com-
+     mitment and a rebase mechanism, enabling arbitrary R1CS circuits with proof reuse across changing
+     base values. We provide rigorous security analysis under discrete logarithm and q-Strong Diffie-Hellman
+     assumptions, demonstrating computational soundness, zero-knowledge, and completeness. Performance
+     analysis shows verification requires only 3–4 pairings with constant proof size, making it practical for
+     blockchain deployment where transaction costs are critical.
+
+
+1    Introduction
+Zero-knowledge proofs (ZKPs) enable verifiable computations without revealing underlying data, proving
+crucial for privacy-preserving applications across domains from secure voting [Adi08] and identity verifica-
+tion [CL01] to decentralized finance (DeFi) [But14]. A fundamental challenge in practical ZKP deployment is
+proof reusability: most existing systems fix all inputs at proof generation time, requiring complete reproofing
+when any parameter changes. This limitation becomes particularly problematic in dynamic environments
+where public data fluctuates frequently while private parameters remain constant.
+    In decentralized finance, this proof reusability problem manifests across numerous scenarios. Market-
+making strategies require constant repricing as oracle feeds update [ZGBJ21]. Lending protocols must adapt
+to changing interest rates while preserving borrower privacy [GPMPG20]. Cross-chain bridges need fresh
+proofs for each price update when validating private transfer amounts against current exchange rates [ZAZ+ 21].
+Auction mechanisms become impractical when bid validation requires reproofing for each price discovery
+round [GY18]. These applications share a common pattern: private user inputs that should remain hidden
+while public market data changes continuously.
+    The transparency inherent in blockchain systems exacerbates these privacy challenges. Transaction de-
+tails visible in the mempool enable maximal extractable value (MEV) attacks [DGK+ 19], where automated
+agents exploit advance knowledge of pending transactions. In trading scenarios, MEV bots observe pending
+transactions and frontrun them by inserting higher-fee transactions that profit from anticipated price im-
+pacts, leading to user losses through slippage [QZG+ 22]. Current mitigations include splitting trades across
+multiple transactions to obscure intent or routing through private relays like Flashbots on Ethereum [Fla21].
+However, these approaches increase transaction fees, introduce latency, elevate failure risks, and often lack
+full decentralization or availability across different blockchain networks like Solana and Ethereum.
+    Existing privacy protocols such as Tornado Cash [Tor19] provide anonymity for transfers but exemplify
+the proof reusability limitation: all inputs must be fixed at proof time, making them unsuitable for dynamic
+
+
+                                                        1
+interactions that depend on fluctuating public data. Commit-and-prove schemes [CFQ19] support some
+dynamic behavior but require additional interaction rounds or complex setup procedures that are impractical
+for high-frequency trading applications.
+     Our Contribution: We present Zyga, an optimization of existing pairing-based SNARKs that addresses
+this fundamental limitation through dynamic public input substitution during verification. Our approach
+cleanly separates private and public witness components, specifically targeting Solana’s computational con-
+straints where G2 scalar multiplications are expensive. Private values (such as trade amounts, slippage
+thresholds, or bidding strategies) are blinded via a trusted setup, ensuring computational indistinguishabil-
+ity, while public values (such as oracle-fed market rates, interest rates, or exchange prices) remain as symbolic
+placeholders that the verifier instantiates on-chain with current data. By enabling proof reusability with
+dynamic public inputs, Zyga unlocks numerous DeFi applications while providing inherent MEV protection
+through intent blinding. The system supports atomic execution in single transactions with succinct proofs
+and fast verification, optimized for Solana’s environment using BN254 curves and one-sided pairings for effi-
+cient on-chain verification under asymmetric group operation constraints. Conceptually, Zyga can be viewed
+as a concrete generalization of Groth16 in which the prover still commits to the same QAP relation, but the
+verifier is allowed to instantiate a designated subset of inputs at verification time rather than fixing all inputs
+at proving time. Operationally, we assume that each application naturally decomposes its input into a long-
+lived, user-specific component wpriv (e.g., keys, limits, or positions) and a short-lived, environment-specific
+component wpub (e.g., oracle prices or governance parameters). The Zyga Proofing system and security
+definitions are phrased in terms of this partition: wpriv is fixed at proof generation and never leaves the
+prover, while wpub is reconstructed from on-chain state at verification time. Section 3.2 formalizes this as a
+public–private split of the R1CS witness and underpins all of our definitions of dynamic statements.
+
+
+2    Related Work
+The landscape of succinct and zero-knowledge proofs has evolved rapidly over the past decade. Pairing-
+based zk-SNARKs began with systems like Pinocchio [PHGR13] and matured into the highly efficient
+Groth16 [Gro16], which achieves constant-size proofs and fast verification at the cost of a circuit-specific
+trusted setup. The QAP (Quadratic Arithmetic Program) abstraction introduced by Gennaro et al. [GGPR13]
+provides the mathematical foundation for these constructions. For completeness, Section 4 recalls the R1CS
+and QAP abstractions and explains how they are used in Groth16-style zkSNARKs before introducing our
+compensation mechanism.
+    Universal constructions like Sonic [MBKM19] and Marlin [CHM+ 20] generalized this line by enabling
+universal and updatable SRS (Structured Reference String), easing deployment concerns around circuit-
+specific setups. PLONK [GWC19] further simplified constraint systems via permutation arguments and also
+uses a universal updatable SRS. More recent works like PlonKish [GWC22] and Hyperplonk [CS22] continue
+this line of research with improved efficiency.
+    Transparent proof systems like Bulletproofs [BBB+ 18] avoid trusted setup entirely and are practical
+for range proofs, though verification scales linearly in the statement size. STARKs [BSBHR18] provide
+post-quantum security under hash assumptions and transparent setup with quasi-linear prover time, trading
+larger proof sizes for these benefits. More recently, Halo [BGH19] and Halo2 [OH+ 20] explore aggregation
+and recursion without trusted setup, building on polynomial commitment schemes like Bulletproofs.
+    Several works have explored adaptability in zero-knowledge systems, though none directly enable non-
+interactive substitution of public inputs during verification.
+    Commit-and-prove schemes [GKM22] allow proving statements about previously committed values with-
+out revealing them, supporting a limited form of dynamic behavior. In such schemes, the prover first publishes
+a commitment C = g v and later proves that the committed value v satisfies a predicate P (v). Because the
+proof is cryptographically tied to a fixed commitment, any change to v requires either a new proof or an
+additional opening of the commitment. Thus, these systems achieve composability under fixed commitments
+but not proof reusability under evolving public data. A closely related direction is “updatable” or “dynamic”
+SNARKs such as NOTUS [XHTP24], which focus on updating proofs or statements via non-recursive state
+transitions, rather than on late substitution of public inputs within a single non-recursive proof. In contrast,
+Zyga keeps the Groth16-style structure and instead exploits the algebraic separation between private and
+
+
+                                                        2
+public QAP contributions to enable dynamic substitution at verification time. At a high level, NOTUS
+introduces an incremental SNARK that supports updating proofs as the underlying computation evolves, by
+proving append-only updates (e.g., via accumulator swaps) from a prior state digest. This is well-suited for
+long-lived, append-only computations such as blockchains or logs. Zyga, by contrast, keeps the underlying
+relation fixed and instead allows the concrete values of a designated public slice to be chosen at verifica-
+tion time without any state chaining. As a result, our trade-offs are closer to those of Groth16—one-shot,
+non-recursive proofs with constant size, while still enabling the verifier to plug in arbitrarily many different
+public-input vectors against the same proof.
+    Zyga mainly differs from previous systems in two essential ways:
+  1. Non-interactive dynamic substitution. Public inputs in Zyga appear as symbolic placeholders
+     within the QAP polynomials and are instantiated only at verification. The verifier substitutes these
+     values directly into the pairing equation, requiring no interaction or cryptographic openings.
+  2. Algebraic compensation mechanism. Rather than recomputing commitments for changed public
+     inputs, Zyga applies the Compensation Lemma (Lemma 4.1), folding cross-terms ∆ = (apriv + apub )bpriv
+     into the private component Cpriv  ′
+                                         . This algebraic routing preserves QAP satisfiability while allowing
+     the verifier to treat all bpub terms as current on-chain data.
+    This design yields a property absent from previous frameworks: the ability to reuse a single proof across
+arbitrary updates of public data, so long as private inputs remain unchanged. Unlike commit-and-prove
+or modular SNARKs such as LegoSNARK [CGGN19], Zyga achieves this within a standard Groth16-style,
+one-message argument.
+    Updatable and universal SNARKs such as Sonic [MBKM19] and Marlin [CHM+ 20] address a different
+notion of adaptability, updating the structured reference string (SRS) rather than the statement itself. These
+constructions allow flexible circuit reuse but do not permit late substitution of inputs.
+    Detailed comparison with updatable/dynamic SNARKs. Table 1 provides a systematic compar-
+ison of Zyga against prior systems that support some form of adaptability:
+   • NOTUS [XHTP24]: Targets proofs of liabilities where proofs evolve as new entries are appended
+     (e.g., exchange balances). Uses RSA accumulators and supports incremental updates via state digests.
+     However, NOTUS proves statements about evolving data structures, whereas Zyga proves fixed relations
+     with substitutable input values. NOTUS requires O(log n) proof updates per epoch; Zyga requires no
+     update—the same proof works for any public input substitution.
+   • Sonic [MBKM19]: Universal SRS supporting any circuit up to a size bound. Sonic enables circuit flexi-
+     bility (different computations, same SRS) but all inputs must still be fixed at proving time. Verification
+     requires polynomial evaluation proofs, increasing verifier work.
+   • Marlin [CHM+ 20]: Improves on Sonic with better prover efficiency while maintaining universal SRS.
+     Like Sonic, provides circuit reuse but not dynamic input substitution.
+   • PLONK [GWC19]: Universal SRS with efficient custom gates via permutation arguments. The
+     universal setup eliminates per-circuit trusted ceremonies, but inputs remain static. Verification involves
+     polynomial commitment openings, increasing on-chain cost relative to Groth16.
+   • Commit-and-Prove [GKM22]: Enables proving about previously committed values. Supports com-
+     posability (commit once, prove multiple properties) but not substitution—the committed value is fixed.
+     Changing the value requires a new commitment and proof.
+Zyga is unique in enabling non-interactive substitution of public inputs during verification without requiring
+proof updates, commitment openings, or multi-round protocols. This makes it particularly suited to DeFi
+applications where public parameters (prices, rates) change frequently while private positions remain stable.
+   In summary, Zyga introduces a distinct algebraic technique: dynamic public input substitution through
+one-sided QAP compensation. It remains compatible with pairing-based zkSNARKs while providing the first
+non-interactive mechanism for dynamic statement evaluation in practical blockchain settings.
+   Several projects have focused on optimizing zero-knowledge proofs for specific blockchain environments.
+Aztec [Azt21] implements privacy-preserving transactions on Ethereum using Groth16 proofs optimized for
+
+
+                                                       3
+      System                      Setup          Dynamic Input          Proof Update    Verification
+      Groth16 [Gro16]         Circuit-specific          No                  N/A          3 pairings
+      Sonic [MBKM19]             Universal              No                  N/A        Poly. openings
+      Marlin [CHM+ 20]           Universal              No                  N/A        Poly. openings
+      PLONK [GWC19]              Universal              No                  N/A        Poly. openings
+      NOTUS [XHTP24]          Circuit-specific    State evolution         Per-epoch    RSA + pairings
+      Commit-and-Prove            Varies         Committed value          New proof        Varies
+      Zyga                    Circuit-specific    Yes (public)             None          3 pairings
+
+Table 1: Comparison with updatable and adaptive zkSNARK systems. “Dynamic Input” indicates whether
+inputs can change post-proving. “Proof Update” indicates what work is needed when inputs change.
+
+
+the EVM’s gas model. ZCash [BSCG+ 14] pioneered the use of SNARKs for cryptocurrency privacy, evolving
+from PGHR13 [PHGR13] to Groth16 and eventually to Halo2.
+    For Solana specifically, several challenges arise from the platform’s computational model. The Solana
+runtime provides precompiles for specific elliptic curve operations [Sol23b] but has limitations on complex
+G2 scalar multiplications that affect SNARK verification efficiency. Prior work has explored these con-
+straints [Sol23a] without explicitly addressing the dynamic input problem.
+    The maximal extractable value (MEV) problem has received significant attention in recent literature.
+Daian et al. [DGK+ 19] first formalized frontrunning and transaction reordering attacks in decentralized
+exchanges. Subsequent work has quantified the scale of MEV extraction [QZG+ 22, WTNRS22] and proposed
+various mitigation strategies.
+    Privacy-preserving trading solutions include mixers like Tornado Cash [Tor19], private mempools like
+Flashbots [Fla21], and commit-reveal schemes [ZDGJ21]. However, these approaches either require multiple
+transactions, introduce latency, or don’t support the dynamic price updates necessary for efficient market-
+making.
+
+
+3     System Model and Definitions
+3.1    Blockchain Execution Model
+We model blockchain execution as a sequence of atomic transactions, each potentially reading current on-
+chain state (including oracle prices, interest rates, and other market data) and updating the contract state.
+Unlike traditional cryptographic settings where all inputs are known at proof generation time, blockchain
+applications require proofs that can incorporate real-time data during verification.
+Definition 3.1 (Dynamic Statement). A dynamic statement consists of the following:
+    • Static components xstatic fixed at proof generation
+    • Dynamic components xdynamic instantiated at verification time
+    • Relation R such that (xstatic , xdynamic , w) ∈ R for witness w
+
+Compensation. Define ∆ := (apriv + apub ) bpriv . Set Cpriv
+                                                         ′
+                                                             ← Cpriv − ∆ and Cpub′
+                                                                                     ← Cpub . This eliminates
+the need for the structural assumption bpriv while preserving one-sided verification.
+
+3.2    Constraint System with Public-Private Partition
+Definition 3.2 (R1CS with Public-Private Partition). A Rank-1 Constraint System over field Fr consists
+of matrices A, B, C ∈ Fm×n
+                       r   with witness vector w ∈ Fnr partitioned as:
+    • Index sets: Ipriv ∪ Ipub = [n], Ipriv ∩ Ipub = ∅
+    • Private witness: wpriv = (wi )i∈Ipriv (known only to the prover)
+
+
+                                                         4
+    • Public witness: wpub = (wi )i∈Ipub (obtained by verifier on-chain)
+    • Constraint: Aw ◦ Bw = Cw where ◦ denotes the element-wise product
+    This partition enables our main contribution: private components are cryptographically blinded during
+proof generation, while public components remain symbolic and are instantiated with current values dur-
+ing verification. Throughout Sections 3.2–4 we reserve A, B, C for such matrix -valued objects and denote
+the corresponding QAP polynomials by Ai (x), Bi (x), Ci (x) (or, equivalently, vk (x), wk (x), yk (x)) obtained
+from these rows. Likewise, w always denotes a vector of field elements; when we later refer to families of
+polynomials indexed by k we write {wk (x)} to avoid overloading the same symbol. In particular, whenever
+A, B, C appear in algebraic lemmas, they should be read as the original R1CS matrices, and the QAP side
+is always written with explicit polynomial notation. In the applications we target (trading, lending, bridges,
+auctions) there is a natural semantic split of the witness: long-lived, user-specific quantities such as secret
+keys, position sizes, or risk limits are modeled as wpriv , whereas short-lived, globally observable parameters
+such as oracle prices, governance thresholds, or interest rates are modeled as wpub . Our adversarial model
+(Definition 3.4) allows the adversary to choose both parts, but the implementation discipline is that only
+wpub is reconstructed from on-chain state at verification time, while wpriv never leaves the prover.
+
+3.3    Elliptic Curve Groups
+The system operates over the BN254 curve with Type III pairing, chosen for compatibility with Solana’s
+precompiles:
+
+    • G1 : Points on the curve E(Fq ) : y 2 = x3 + 3
+    • G2 : Points on the twisted curve E ′ (Fq2 ) : y 2 = x3 + 3/(9 + u)
+
+    • GT : Multiplicative group of the 12th cyclotomic extension F∗q12
+
+Definition 3.3 (Optimal Pairing). The optimal pairing e : G1 × G2 → GT satisfies:
+    • Bilinearity: e(aP, bQ) = e(P, Q)ab for all a, b ∈ Fr , P ∈ G1 , Q ∈ G2
+
+    • Non-degeneracy: If e(P, Q) = 1 for all P ∈ G1 , then Q = O
+    • Computability: The pairing is efficiently computable
+
+3.4    Security Model
+Definition 3.4 (Adversarial Model). The adversary A is probabilistic polynomial-time (PPT) and may
+adaptively choose statements x and public inputs for which it attempts to produce accepting proofs. We assume
+an honestly-generated SRS where the toxic waste is destroyed; otherwise, security falls back to knowledge-
+soundness under structured reference strings. Here, the toxic waste consists of the trapdoor values (α, β, τ )
+embedded in the SRS; “destroyed” means that no party retains these values after the setup ceremony, even
+with unbounded computation.
+   Our security model accounts for the dynamic nature of public inputs by allowing the adversary to choose
+both the statement and the public inputs used during verification, subject only to the constraint that public
+inputs must be well-formed field elements.
+
+
+4     Mathematical Foundations
+This section provides a self-contained introduction to Rank-1 Constraint Systems (R1CS) and Quadratic
+Arithmetic Programs (QAP), the mathematical foundations underlying Groth16-style zkSNARKs and, by
+extension, our Zyga construction. Readers already familiar with these concepts may skip to Section 4.2.
+
+
+
+
+                                                        5
+4.1     Preliminaries: From Computation to Constraints
+Modern zkSNARKs prove that a computation was performed correctly without revealing the inputs. The
+standard approach proceeds in three steps: (1) express the computation as an arithmetic circuit, (2) convert
+the circuit into a constraint system (R1CS), and (3) encode the constraints as polynomial identities (QAP)
+that can be verified via pairings.
+
+4.1.1   Rank-1 Constraint Systems (R1CS)
+A Rank-1 Constraint System is a way of representing computations as a system of bilinear equations over a
+finite field Fr .
+Definition 4.1 (R1CS—Expanded). An R1CS instance over field Fr consists of:
+   • Three matrices A, B, C ∈ Fm×n
+                                r    , where m is the number of constraints and n is the number of variables
+     (including a constant “1” variable).
+   • A witness vector w = (1, w1 , . . . , wn−1 ) ∈ Fnr , where the first entry is always 1.
+   • The constraint system is satisfied if and only if (Aw) ◦ (Bw) = Cw, where ◦ denotes element-wise
+     (Hadamard) multiplication.
+Equivalently, for each constraint j ∈ [m]:
+                                  n−1
+                                                    !       n−1
+                                                                              !       n−1
+                                  X                         X                         X
+                                        Aj,i · wi       ·         Bj,i · wi       =         Cj,i · wi .
+                                  i=0                       i=0                       i=0
+
+Each constraint represents exactly one multiplication gate from the original circuit, with the left and right
+inputs encoded in A and B, and the output encoded in C. Addition gates require no constraints—they are
+“free” and encoded directly in the matrix coefficients.
+   Example. Consider proving knowledge of x such that x3 + x + 5 = 35. We introduce intermediate
+variables: let w1 = x, w2 = x2 , w3 = x3 , w4 = x3 + x + 5. The constraints are:
+
+                                            w1 · w1 = w2              (first multiplication)
+                                            w2 · w1 = w3              (second multiplication)
+                                (w3 + w1 + 5) · 1 = w4                (collecting the result)
+
+The final public constraint w4 = 35 is checked directly. This gives m = 3 constraints over n = 5 variables
+(including the constant 1).
+
+4.1.2   Quadratic Arithmetic Programs (QAP)
+The key insight of QAP [GGPR13] is that checking m constraints individually can be replaced by checking
+a single polynomial identity, which can then be verified efficiently using pairings.
+Definition 4.2 (QAP—Expanded). Given an R1CS instance (A, B, C) with m constraints over n variables,
+the corresponding QAP is constructed as follows:
+  1. Choose m distinct evaluation points ω1 , . . . , ωm ∈ Fr (typically roots of unity).
+  2. For each variable index i ∈ {0, . . . , n − 1}, define polynomials Ai (x), Bi (x), Ci (x) ∈ Fr [x] of degree at
+     most m − 1 such that:
+                                Ai (ωj ) = Aj,i , Bi (ωj ) = Bj,i , Ci (ωj ) = Cj,i
+     for all j ∈ [m]. These polynomials are constructed via Lagrange interpolation.
+                                             Qm
+  3. Define the vanishing polynomial t(x) = j=1 (x−ωj ), which has degree m and vanishes at all evaluation
+     points.
+
+
+                                                                  6
+Given a witness w = (w0 , w1 , . . . , wn−1 ), define the aggregate polynomials:
+                            n−1
+                            X                               n−1
+                                                            X                               n−1
+                                                                                            X
+                   A(x) =         wi · Ai (x),   B(x) =            wi · Bi (x),   C(x) =            wi · Ci (x).
+                            i=0                             i=0                               i=0
+
+The R1CS constraints are satisfied if and only if:
+                                        A(x) · B(x) − C(x) ≡ 0            (mod t(x)),
+i.e., there exists a quotient polynomial H(x) such that A(x) · B(x) − C(x) = H(x) · t(x).
+    Why this works. At each evaluation point ωj , the polynomial identity A(ωj )·B(ωj ) = C(ωj ) holds if and
+only if the j-th R1CS constraint is satisfied. If all constraints are satisfied, the polynomial A(x) · B(x) − C(x)
+vanishes at all ωj , so it must be divisible by t(x).
+    From polynomials to pairings. The Groth16 protocol [Gro16] uses the QAP representation to con-
+struct succinct proofs. The prover commits to evaluations of A(τ ), B(τ ), C(τ ), H(τ ) at a secret challenge
+point τ (embedded in the SRS), and the verifier checks the polynomial identity via a single pairing equation:
+                            e([A(τ )]1 , [B(τ )]2 ) = e([C(τ )]1 , [1]2 ) · e([H(τ )]1 , [t(τ )]2 ),
+where [·]1 and [·]2 denote group elements in G1 and G2 respectively. Soundness follows from the Schwartz–
+Zippel lemma: a false polynomial identity would require finding τ (breaking discrete log) or producing a
+non-trivial factor (breaking q-SDH).
+
+4.1.3    How Zyga Extends Groth16
+Zyga builds on the QAP/Groth16 framework with one key modification: we partition the witness into private
+and public components, and defer the public contributions until verification time. The Compensation Lemma
+(Section 4.2) shows how to algebraically reroute cross-terms so that:
+   1. Private contributions are committed in G1 during proving (blinded under α).
+   2. Public contributions remain as symbolic coefficients that the verifier instantiates on-chain.
+   3. The pairing equation remains sound and complete for the original R1CS relation.
+This separation enables dynamic public input substitution while preserving the Groth16 security guarantees.
+
+Notation Summary. Throughout the remainder of this section, A, B, C denote the R1CS matrices from
+Section 3.2. The QAP polynomials derived from their rows are written Ai (x), Bi (x), Ci (x). We use w only
+for the witness vector, while polynomial families use braces (e.g., {vk (x)}). The vanishing polynomial is
+t(x), the quotient is H(x), and HZ(x) denotes their raw product used in the Compensation Lemma.
+
+4.2     Algebraic Compensation Analysis
+Compensation preserves QAP satisfiability.
+Lemma 4.1 (Compensation Lemma). Let (A, B, C) be an R1CS instance with QAP polynomials ({vk }, {wk }, {yk }, t)
+over field Fr , and let the witness be partitioned as w = wpriv ∪ wpub . Write the QAP evaluations at the hidden
+challenge x as
+                               a = apriv + apub , b = bpriv + bpub , c = cpriv + cpub .
+Define the compensation term ∆ := (apriv + apub ) bpriv and set
+                                    c′priv := cpriv − ∆           and       c′pub := cpub .
+Then the following are equivalent:
+      (i) a b − c ≡ 0   (mod t(x))          ⇐⇒          (ii) (apriv + apub ) bpub − (c′priv + c′pub ) ≡ 0          (mod t(x)).
+In particular, QAP satisfiability of (A, B, C) at x holds iff QAP satisfiability holds for the compensated triple
+(A, B, C ′ ) with C ′ := C − ∆ and the verifier using only bpub .
+
+
+                                                               7
+Proof. Expand
+
+   a b − c = (apriv + apub )(bpriv + bpub ) − (cpriv + cpub ) = (apriv + apub )bpriv +(apriv + apub )bpub − (cpriv + cpub ).
+                                                                |       {z         }
+                                                                              ∆
+
+Rearranging,
+                                  (apriv + apub )bpub − (cpriv − ∆ + cpub ) = (a b − c).
+Thus (a b − c) ≡ 0 (mod t(x)) iff (apriv + apub )bpub − (c′priv + c′pub ) ≡ 0 (mod t(x)), with c′priv := cpriv − ∆ and
+c′pub := cpub . This algebraic identity holds pointwise at x and therefore modulo t(x) as well.
+Theorem 4.1 (One-sided verification with algebraic compensation). Under the setup of the lemma, if the
+                                αa   ′              αc′
+prover commits to Apriv ∝ g1 priv , Cpriv ∝ g1 priv , and HZpriv (τ ) in G1 , and the verifier instantiates the public
+parts to form
+                                            a                          b                        ′        c′
+                       Atotal := Apriv · g1 pub ,          Bpub := g2 pub ,          Ctotal := Cpriv · g1pub ,
+then the pairing check
+                                                                                  HZ(τ )         ?
+                                 e(Atotal , Bpub ) · e(−Ctotal , g2 ) · e(−g1              , g2 ) = 1
+is sound and complete for the original QAP relation a b − c = H(τ ) t(τ ).
+Proof linking to Groth16. By the Compensation Lemma, (a b − c) ≡ 0 (mod t(τ )) iff (apriv + apub )bpub −
+(c′priv + c′pub ) ≡ 0 (mod t(τ )). The pairing equation above encodes exactly this compensated identity at τ .
+Soundness and completeness of checking a single evaluation at a hidden point via pairings follow by the
+standard Groth16 argument that (i) binds polynomial evaluations through SRS powers and (ii) reduces false
+identities to nontrivial polynomial disagreements caught with overwhelming probability (Schwartz–Zippel),
+combined with the Groth16 pairing equation that enforces a(τ ) b(τ ) − c(τ ) = H(τ ) t(τ ) (cf. Groth16 [Gro16]
+, Theorem 2 / main verification equation). Hence, the one-sided check is algebraically equivalent to the
+classical verification of the original (uncompensated) QAP relation.
+Remark 1 (Commitment routing and zero-knowledge). The cross-terms absorbed by c′priv are blinded under
+the α trapdoor in G1 , so the compensation does not leak structure beyond what standard Groth16 commitments
+reveal. This matches the blinding behavior of Groth16 commitments and preserves zero-knowledge under DL
+assumptions.
+Remark 2 (Cryptographic Protection and Special Case). The compensation mechanism preserves security
+through blinding with the α trapdoor. The missing cross-terms ∆ are routed into HZpriv , which also appears
+in the verification equation as α · HZpriv . This ensures compensation terms remain cryptographically hidden
+under the Discrete Logarithm assumption.
+
+4.3     HZ Polynomial Construction
+Definition 4.3P(HZ Polynomial). P   Let (A, B, C) be the QAP Ppolynomials corresponding to an R1CS instance
+and let a(x) = i ai Ai (x), b(x) = i bi Bi (x), and c(x) = i ci Ci (x) be the standard QAP evaluations at a
+secret challenge τ . Partition the witness into private and public parts, and write the evaluations as
+
+                      a(x) = a1 (x) + a2 (x),         b(x) = b1 (x) + b2 (x),         c(x) = c1 (x) + c2 (x),
+
+where the index 1 collects private contributions and 2 collects public ones. The HZ polynomial is defined as
+                                                     def
+                                          HZ(x) = P (x) = a(x) b(x) − c(x).
+
+Relation to the vanishing polynomial. In the classical QAP view, one computes the HZ H(x) so that
+P (x) = t(x) H(x) where t(x) is the vanishing polynomial of the evaluation domain. In our formulation,
+the commitment used in verification binds directly to HZ(x); operationally, this plays the same role as
+committing to H(x) times t(τ ) at the challenge point, while avoiding division artifacts and keeping the
+commitment entirely in G1 on the prover side. This makes the scheme easier to execution environments with
+tight G2 constraints.
+
+
+                                                                  8
+4.3.1   Polynomial Factorization and Routing
+Theorem 4.2 (HZ Decomposition). With the above notation,
+
+              P (x) = (a1 + a2 )(b1 + b2 ) − (c1 + c2 ) = a1 b1 − c1 + a1 b2 + a2 b1 + a2 b2 − c2 .
+                                                          | {z }       |     {z    }   | {z }
+                                                                   Ppure_priv        Pmixed    Ppure_pub
+
+
+Proof. Immediate from expanding the product and grouping terms by whether they involve only private
+variables, a mixture of private and public variables, or only public variables.
+
+Routing strategy. We route commitments to the appropriate groups as follows: Ppure_priv and Pmixed are
+committed in G1 via the private generator h1 , while Ppure_pub uses the public generator g1 . The verifier
+forms Bpub ∈ G2 from public data only, requiring no G2 scalar multiplications with private values.
+
+4.3.2   One-Sided Verification Equation
+Let Acurve ∈ G1 and Ccurve
+                     ′
+                           ∈ G1 denote the prover’s commitments that depend only on private data, and let
+g1 and g1 be the public updates computed at verification time. Define
+ a2       c2
+
+
+           Atotal ← Acurve · g1a2 ,               ′
+                                        Ctotal ← Ccurve · g1c2 ,      g1HZ1 ← commitment in G1 to HZ(x).
+
+If Bpub = g2b2 is the public-side G2 element, the verifier checks
+                                                                                       ?
+                                  e(Atotal , Bpub ) · e(−Ctotal , g2 ) · e(−gHZ1 , g2 ) = 1.
+
+This is algebraically equivalent to checking P (τ ) = 0 and corresponds to the “one-sided” pairing described
+in Def. 5.1.
+
+4.4     Polynomial Identity Testing
+Our construction relies on the Schwartz-Zippel lemma [DL78, Sch80, Zip79], which states that a nonzero
+polynomial of degree d evaluated at a random point from set S equals zero with probability at most d/|S|.
+This allows verifying polynomial identities like P (x) = H(x)Z(x) by checking equality at a single hidden
+random point τ , with negligible soundness error when |S| ≫ d. This technique is standard in zkSNARKs
+including Groth16 [Gro16].
+
+4.5     Polynomial Representations
+We build on standard QAP (Quadratic Arithmetic Program) constructions [GGPR13] that encode R1CS
+constraints as polynomial identities. Following [GGPR13], witness values are encoded via Lagrange inter-
+polation over evaluation points, yielding witness polynomials wA (x), wB (x), wC (x) such that the constraint
+satisfaction condition Aw ◦ Bw = Cw translates to wA (x) · wB (x) − wC (x) = H(x) · t(x), where t(x) is the
+vanishing polynomial over the constraint domain and H(x) is the quotient polynomial. The key insight for
+our construction is that this polynomial formulation naturally supports partitioning witness contributions
+into private and public components, enabling our dynamic substitution mechanism. Throughout the rest of
+the paper we adhere to the following naming convention. The vanishing polynomial of the evaluation domain
+is always denoted by t(x). The quotient H(x) is defined implicitly via wA (x) · wB (x) − wC (x) = H(x) · t(x).
+The “raw” product wA (x) · wB (x) − wC (x) is denoted by HZ(x) in Definition 4.3. Whenever t(x), H(x), or
+HZ(x) appear in lemmas or theorems (including Theorem 4.2 and the security proofs), they refer back to
+these fixed meanings. In particular, the symbols t, H, and HZ are never reused for unrelated polynomials,
+which avoids the ambiguity pointed out in the reviews.
+    The translation from R1CS to QAP follows standard techniques, with the key insight that our public-
+private partition naturally corresponds to different treatment of QAP variables during proof generation.
+
+
+
+
+                                                              9
+5     Zyga Protocol
+5.1    High-Level Approach
+Zyga optimizes standard zkSNARK verification by encoding private witness components only in G1 (one-
+sided encoding) while handling public components symbolically. This addresses Solana’s constraint that G2
+scalar multiplications are computationally expensive, limiting practical circuit sizes.
+    The key insight is that many privacy-preserving applications naturally satisfy the constraint required
+for one-sided encoding: private inputs (amounts, thresholds, flags) typically appear additively or in the
+"multiplicand" position of constraints, rather than as multiplicative factors that would require G2 encoding.
+
+Definition 5.1 (One-Sided Constraint System). A constraint system supports one-sided encoding if it can
+be written such that:
+    • Private variables appear only in positions that map to G1 encodings
+    • Public variables can appear in any position
+
+    • The resulting verification equation requires only g2 operations (no G2 scalar multiplications)
+
+5.2    Trusted Setup
+Definition 5.2 (Trusted Setup Parameters). Generate random secrets α, β ← Fr and evaluation point
+τ ← Fr . Compute:
+    • Private generators: h1 = g1α ∈ G1 , h2 = g2β ∈ G2
+    • QAP evaluations: {vk (τ ), wk (τ ), yk (τ )} for constraint polynomials
+                   j    j
+    • Powers: {g1τ , g2τ } for polynomial evaluation
+    • Target evaluation: t(τ ) for the vanishing polynomial
+
+Critical: Destroy α, β, τ after setup generation.
+Assumption 5.1 (Trusted Setup). The discrete logarithms α, β, τ are information-theoretically destroyed
+after setup generation.
+   The trusted setup follows standard techniques from Groth16 but with additional structure to support
+dynamic public input substitution. The key difference is that public input positions are treated specially in
+the SRS generation.
+
+5.3    Polynomial Encoding and Evaluation
+Following the QAP construction, we evaluate witness polynomials at the hidden point τ :
+Definition 5.3 (Witness Polynomial Decomposition). At evaluation point τ :
+
+                                              wA (τ ) = apriv + apub                                          (1)
+                                              wB (τ ) = bpriv + bpub                                          (2)
+                                              wC (τ ) = cpriv + cpub                                          (3)
+
+where private contributions (apriv , bpriv , cpriv ) depend only on private witness components, and public contri-
+butions (apub , bpub , cpub ) depend only on public witness components.
+   This decomposition is the foundation of our approach: private contributions are cryptographically blinded
+during proof generation, while public contributions remain symbolic and are computed during verification
+using current public inputs.
+
+
+
+                                                        10
+5.4    One-Sided Encoding
+Standard pairing-based verification requires encoding witness contributions in both G1 and G2 :
+                                       a         a     b        b             c         c
+                                   e(h1 priv · g1 pub , h2priv · g2pub ) = e(h1priv · g2pub )
+
+    This expands to include cross-terms e(h1 , h2 )apriv bpriv that are cryptographically sound but computation-
+ally expensive on Solana due to G2 scalar multiplication requirements.
+    One-sided verification (no structural restriction). The prover applies a compensation step that
+folds ∆ = (apriv + apub ) bpriv into Cpriv
+                                       ′
+                                           (and the private HZ commitment), so the verifier can keep the G2
+input purely public while the pairing equation still enforces P (τ ) = 0.
+    This eliminates expensive G2 operations while maintaining security, as the verification equation reduces
+to:
+                                  (apriv + apub ) · bpub = cpriv + cpub + H · t(τ )
+Corollary 5.1 (Degenerate one-sided verification without compensation). Let the constraint system satisfy
+the structural restriction that bpriv = 0, i.e., no private witness components appear in the B matrix of the
+R1CS instance. Let the QAP polynomials be evaluated as
+
+                  a(x) = apriv (x) + apub (x),        b(x) = bpub (x),            c(x) = cpriv (x) + cpub (x).
+
+Then the verifier’s one-sided pairing check
+                                                                                 
+                                                                          H (x)     ?
+                               e(Atotal , Bpub ) · e(−Ctotal , g2 ) · e −g1 Z , g2 = 1
+
+with
+                                             a                      b                             c
+                         Atotal = Apriv · g1 pub ,      Bpub = g2pub ,        Ctotal = Cpriv · g1pub ,
+is algebraically equivalent to verifying
+
+                                    (apriv + apub ) bpub = cpriv + cpub + HZ (x) t(x)
+
+and thus enforces P (x) = 0 at x = τ .
+Proof. This case follows directly from the Compensation Lemma (Lemma 4.1), setting bpriv = 0. The
+compensation term ∆ = (apriv + apub )bpriv vanishes, so the compensated polynomial C ′ coincides with C.
+Hence the verifier’s pairing equation reduces to the standard Groth16-style verification equation with public
+B input only, ensuring soundness and completeness by the same argument as in Groth [Gro16].
+   The constraint bpriv is natural for many applications: private inputs like amounts, flags, or thresholds
+typically appear as additive terms or multiplicands rather than multipliers in constraint systems.
+
+Example. A concrete R1CS construction satisfying the one-sided verification constraint (bpriv = 0) is
+provided in Appendix A, illustrating how standard relations such as a−b ≥ 0 can be encoded while supporting
+dynamic public input substitution.
+
+5.5    Two-Sided Encoding
+While the one-sided encoding (Corollary 5.1) is optimal when circuits satisfy bpriv = 0, many practical
+applications require private witness components in all matrix positions. We now present two-sided encoding,
+an extension that removes this structural restriction while preserving dynamic public input substitution.
+
+
+
+
+                                                              11
+5.5.1    Motivation
+Consider a constraint of the form:
+
+                             private_amount × private_multiplier = private_result
+
+Such constraints arise naturally in:
+   • Portfolio calculations with private allocations and private prices
+   • Risk computations involving multiple private parameters
+   • Complex trading strategies with hidden quantities on both sides
+The one-sided restriction (bpriv = 0) prohibits these patterns. Two-sided encoding lifts this restriction by
+introducing an explicit private B commitment and a natural cross-term cancellation mechanism.
+
+5.5.2    Extended Witness Decomposition
+In two-sided encoding, we partition all three QAP evaluations into private and public components without
+restriction:
+
+                                                         A = a1 α + a2                                     (4)
+                                                         B = b1 β + b2                                     (5)
+                                                         C = c1 α + c 2                                    (6)
+
+where:
+   • (a1 , b1 , c1 ): Private witness polynomial evaluations, blinded by trapdoors α, β
+   • (a2 , b2 , c2 ): Public witness values, substituted at verification time
+Definition 5.4 (Two-Sided Proof Structure). A two-sided Zyga proof π consists of:
+  1. Private A commitment: a_curve = ha1 1 ∈ G1
+                                                                       c
+  2. Private C commitment (adjusted): c_curve = h11,adj ∈ G1
+  3. Private B commitment: g2b1 ∈ G2                                                             (new element)
+                                               b
+  4. Base public B commitment: g22,base ∈ G2
+                                                   b
+  5. Current public B commitment: g22,curr ∈ G2
+  6. Public A binding: [a2,base ]G1 ∈ G1
+  7. Public C binding: [c2,base ]G1 ∈ G1
+                                          HZ
+  8. Private HZ commitment: h1 priv ∈ G1
+Total proof size: 5 G1 elements (320 bytes) + 3 G2 elements (384 bytes) = 704 bytes.
+
+5.5.3    Cross-Term Analysis
+Expanding the QAP constraint A · B − C = 0:
+
+                                                       (a1 + a2 )(b1 + b2 ) − (c1 + c2 ) = 0
+                                  a1 b1        + a1 b2 + a2 b1 +      a2 b2       −c1 − c2 = 0             (7)
+                                  |{z}           |     {z    }        |{z}
+                               pure private            mixed        pure public
+
+   The challenge is handling the mixed terms a1 b2 + a2 b1 without requiring additional verification pairs.
+
+
+                                                               12
+5.5.4      Natural Cancellation Mechanism
+Two-sided encoding achieves cross-term elimination through algebraic routing:
+Lemma 5.1 (Natural Cross-Term Cancellation). Define the private adjustment:
+                                                ∆priv = (a1 + a2 ) · b1
+and set:
+                                       c1,adj = c1 − ∆priv = c1 − a1 b1 − a2 b1
+Then the HZ polynomial contains exactly a1 b1 + a2 b1 , and the verification equation achieves natural cancel-
+lation:
+                                        −Cadj contributes + (a1 b1 + a2 b1 )
+                                         −HZ contributes − (a1 b1 + a2 b1 )
+                                         Net:    0
+                                   α(c −a b −a b )
+Proof. By construction, Cadj = h1 1 1 1 2 1 . In the verification equation, we compute −Cadj , which
+                                                                              HZ
+contributes the negation of this exponent in the pairing. The HZ commitment h1 priv contains all private-side
+quotient terms, including (a1 +a2 )b1 from the product expansion. When combined as e(−Cadj , g2 )·e(−HZ, g2 ),
+the cross-terms cancel algebraically.
+
+5.5.5      Two-Sided Verification Equation
+The verification proceeds in three stages:
+
+Stage 1: B-Sanity Checks.        Verify that the G2 commitments for b2 match the public scalar inputs:
+                                                          ?
+                                             e(G1 , g2b2 ) = e([b2 ]G1 , G2 )
+
+Stage 2: Base Bindings.       Verify that the proof is bound to the correct base public values:
+                                                              ?
+                                             proof.g1_a2 = [a2,base ]G1
+                                                              ?
+                                             proof.g1_c2 = [c2,base ]G1
+These bindings prevent an adversary from forging a proof for one set of base inputs and reusing it for an
+invalid set.
+
+Stage 3: Main Verification.       The aggregated pairing equation:
+                                                                   b
+                                  e(a_curve + [a2,curr ]G1 , g22,curr )                                    (8)
+                                   · e(−c_curve, G2 ) · e(−HZpriv , G2 )                                   (9)
+                                                          b                 b
+                                   ·   e(−a_curve, g22,curr ) · e(a_curve, g22,base )                    (10)
+                                   ·   e(−[∆a2 ]G1 , g2b1 )                                              (11)
+                                   ·   e([a2,curr ]G1 , g2b1 )                                           (12)
+                                   ?
+                                   =1
+   Where:
+   • (8): Main product Atotal · Bpub,curr
+   • (9): Subtracts C and HZ components
+   • (10): Adjusts for change in b2 between base and current
+   • (11): Corrects the a2 b1 term using the private B commitment, where ∆a2 = a2,curr − a2,base
+   • (12): Cancels the residual a2,curr b1 term
+
+
+                                                           13
+5.6      Rebase Mechanism
+A key feature of two-sided encoding is the rebase mechanism, which allows public inputs to change from
+their base values (fixed at proof generation) to current values (substituted at verification) while maintaining
+proof validity.
+Definition 5.5 (Rebase Identity). For the public channel, given base values (a2,base , b2,base , c2,base ) and cur-
+rent values (a2,curr , b2,curr ), the rebased C2 is:
+
+                                      C2,rebase = c2,base + (a2,curr · b2,curr − a2,base · b2,base )
+
+Theorem 5.1 (Rebase Soundness). The rebase mechanism preserves QAP satisfiability. That is, if the
+original constraint a · b − c = 0 holds for base values, then after rebasing:
+
+                                        acurr · bcurr − C2,rebase = abase · bbase − c2,base = 0
+
+Proof. Substituting the rebase definition:
+
+                     acurr · bcurr − C2,rebase = acurr · bcurr − c2,base − (a2,curr · b2,curr − a2,base · b2,base )
+                                                = a2,base · b2,base − c2,base
+                                                =0     (by original constraint satisfaction)
+
+
+
+    The rebase mechanism adds three verification terms to the public channel:
+
+    1. e(−[C2,rebase ]G1 , G2 )
+                            b
+    2. e(−[a2,base ]G1 , g22,base )
+    3. e([c2,base ]G1 , G2 )
+These ensure that the public polynomial Spub cancels to zero algebraically for any valid public input transi-
+tion.
+
+5.7      Dynamic Public Input Substitution
+The key innovation enabling dynamic public inputs is the separation of symbolic and concrete evaluation.
+    Symbolic Public   P Evaluation. During proof generation, public contributions are computed symboli-
+cally as asymbolic
+          pub      =   i∈Ipub Ai (τ ) · symboli , where symboli are placeholder variables for public inputs.
+    Concrete Public Evaluation.             During verification, these symbolic placeholders are substituted with
+current values: aconcrete                           current
+                                                            , where wpub,i
+                                                                     current
+                                                                             are the public input values at verification
+                            P
+                   pub    =    i∈Ipub   A i (τ ) · wpub,i
+time.
+    This separation enables proof reusability: a single proof remains valid as long as private inputs are
+unchanged, regardless of how public inputs evolve between proof generation and verification.
+
+
+6      Security Analysis
+Binding via HZ. Soundness reduces to the binding of the commitment gHZ1 together with the linear
+independence of the SRS elements. Any adversary that forges a proof for x ∈
+                                                                          / LR would implicitly produce
+two distinct evaluations of HZ(τ ) that verify under the same SRS, which we leverage via a forking-style
+argument to extract secret setup values, contradicting Assumption 5.1.
+
+
+
+
+                                                                   14
+Algorithm 1 Zyga Protocol (General Compensated; no verifier use of bpriv )
+Setup(1λ , R1CS(A, B, C)):
+  1. Sample α, β, τ ← Fr .
+  2. Set h1 ← g1α , h2 ← g2β .
+
+  3. Compute QAP polynomials {vk (x), wk (x), yk (x)} and evaluation at τ .
+  4. (Optional) If circuits cannot enforce Bi = 0 for i ∈ Ipriv , skip; compensation will be used.
+  5. Destroy α, β, τ and output srs.
+                     sym
+Prove(srs, wpriv , {wpub }):
+  1. Evaluate at τ :
+                           X                                                X                                            X
+                apriv =             Ai (τ )wpriv,i ,       bpriv =                     Bi (τ )wpriv,i ,       cpriv =             Ci (τ )wpriv,i .
+                          i∈Ipriv                                          i∈Ipriv                                      i∈Ipriv
+
+
+                                                        α(cpriv −apriv bpriv )
+  2. Fold private cross-terms: Cpriv
+                                ′
+                                     ← g1                                          .
+  3. Prepare compensation bases for public part of ∆: for each i ∈ Ipub ,
+
+                                                               b ∆,i ← g α·Ai (τ )·bpriv .
+                                                               K        1
+
+     Include {K
+              b ∆,i } in the proof.
+                             αa                          HZpriv (τ )
+  4. Commit: Apriv ← g1 priv , gHZ,1 ← g1                              .
+
+  5. Output proof π ← (Apriv , Cpriv
+                                ′
+                                     , gHZ,1 , {K
+                                                b ∆,i }).
+                   curr
+Verify(srs, x, π, wpub  ):
+
+  1. Parse π = (Apriv , Cpriv
+                         ′
+                              , gHZ,1 , {K
+                                         b ∆,i }).
+
+  2. Compute public evaluations with current inputs:
+                      X                           X                                                                      X
+             apub =        Ai (τ )wpub,i , bpub =    Bi (τ )wpub,i ,                                      cpub =                 Ci (τ )wpub,i .
+                          i∈Ipub                                           i∈Ipub                                       i∈Ipub
+
+
+  3. Form combined elements:
+                                                                               a                          b
+                                              Atotal ← Apriv · g1 pub , Bpub ← g2pub ,
+                                                                                    −1
+                                                                 
+                                                            c                 w
+                                                                        Y
+                                                      ′
+                                          Ctotal ← Cpriv · g1pub ·         Kb pub,i  .
+                                                                              ∆,i
+                                                                                           i∈Ipub
+
+                                       HZpub (τ )
+     Update gHZ,1 ← gHZ,1 · g1                      .
+
+  4. Check pairing equation:
+                                                                                                                   ?
+                                        e(Atotal , Bpub ) · e(−Ctotal , g2 ) · e(−gHZ,1 , g2 ) = 1.
+
+
+
+
+                                                                            15
+Algorithm 2 Zyga Protocol (Two-Sided Encoding with Rebase)
+Setup(1λ , R1CS(A, B, C)):
+  1. Sample α, β, τ ← Fr .
+  2. Set h1 ← g1α , h2 ← g2β .
+  3. Compute QAP polynomials {vk (x), wk (x), yk (x)} and evaluations at τ .
+
+  4. Compute public coefficient maps for on-chain reconstruction.
+  5. Destroy α, β, τ and output srs.
+                    base
+Prove(srs, wpriv , wpub  ):
+
+  1. Evaluate private contributions at τ :
+                              X                                     X                                X
+                       a1 =        Ai (τ )wi ,             b1 =              Bi (τ )wi ,     c1 =             Ci (τ )wi .
+                                 i∈Ipriv                           i∈Ipriv                          i∈Ipriv
+
+
+  2. Evaluate public contributions at base values:
+                                      X
+                           a2,base =              base
+                                          Ai (τ )wpub,i ,                    b2,base ,     c2,base (similarly).
+                                             i∈Ipub
+
+
+  3. Compute private adjustment: ∆priv ← (a1 + a2,base ) · b1 .
+  4. Compute adjusted private C: c1,adj ← c1 − ∆priv .
+  5. Compute private HZ containing cross-terms.
+
+  6. Commit to proof elements:
+
+                                             a_curve ← ha1 1
+                                                               c
+                                             c_curve ← h11,adj
+                                                      g2b1 ← g2b1     (private B commitment)
+                                                b          b
+                                               g22,base ← g22,base
+                                               g1_a2 ← [a2,base ]G1
+                                               g1_c2 ← [c2,base ]G1
+                                                               HZ
+                                      g1_hz_priv ← h1 priv
+
+  7. Output proof π.
+                   curr
+Verify(srs, x, π, wpub  ):
+  1. Parse proof π.
+  2. Compute current public evaluations:
+
+                                                   a2,curr , b2,curr , c2,curr from wpub
+                                                                                     curr
+                                                                                          .
+
+                                               b
+  3. B-Sanity Check: Verify e(G1 , g22,curr ) = e([b2,curr ]G1 , G2 ).
+
+  4. Base Bindings: Verify g1_a2 = [a2,base ]G1 and g1_c2 = [c2,base ]G1 .
+  5. Compute Rebase:
+
+                        C2,rebase ← c2,base + (a2,curr · b2,curr − a2,base · b2,base ).
+                                                16
+  6. Main Pairing Check: Aggregate and verify:
+                                                                                 b
+                                           e(a_curve + [a2,curr ]G1 , g22,curr )
+6.1    Cryptographic Assumptions
+Assumption 6.1 (Discrete Logarithm in G1 ). For any PPT adversary A and random α ← Fr :
+
+                                               Pr[A(g1 , g1α ) = α] ≤ negl(λ)
+
+Assumption 6.2 (q-Strong Diffie-Hellman). For any PPT adversary A, degree bound q, and random α ←R
+Fr :                                     2             q               1/(α+c)
+                      Pr[A(g1 , g1α , g1α , . . . , g1α ) outputs (c, g1       )] ≤ negl(λ)
+for any c ∈ Fr .
+   These assumptions are standard in pairing-based cryptography and are necessary for the security of
+underlying primitives like Groth16.
+
+6.2    Security Properties
+For clarity, we spell out the verifier algorithm Verify(srs, x, π, wpub
+                                                                      current
+                                                                              ) that is referred to in all subsequent
+theorems. Given the structured reference string srs, a statement x fixing the circuit and public-input posi-
+tions, a proof π, and a concrete vector of public inputs wpub
+                                                           current
+                                                                   , the verifier (i) checks that all group elements
+in π lie in the correct groups and are not the point at infinity, (ii) recomputes apub , bpub , cpub from wpub  current
+
+and the QAP coefficients contained in the SRS, (iii) forms Atotal , Bpub , Ctotal by combining the proof com-
+mitments with these evaluations, including the explicit compensation terms, and (iv) accepts if and only if
+the one-sided pairing equation from Algorithm 1 holds. No additional checks are hidden in the shorthand
+notation Verify(·) used in Theorems 6.1 and 6.2.
+Theorem 6.1 (Completeness). For any valid instance-witness pair (x, w) ∈ R,
+                                                                 symbolic     current
+                              Verify(srs, x, Prove(srs, wpriv , wpub      ), wpub     )=1
+
+with probability 1, in the general compensated setting.
+Proof. By construction of the algorithm, when the R1CS constraints are satisfied and the prover performs
+the compensation step correctly, the polynomial relation wA (τ ) · wB (τ ) − wC (τ ) = H(τ ) · t(τ ) holds. The
+pairing equation directly encodes this relation:
+                                   a       +apub     b            c       +cpub              H(τ )
+                               e(g1 priv           , g2pub ) = e(g1priv           , g2 ) · e(g1      , g2 )
+
+which simplifies to the required constraint verification.
+
+Soundness proof structure. Our argument follows the classical reduction technique introduced by
+Groth [Gro16], adapted to the compensated QAP relation established in Lemma 4.1. Intuitively, if an
+adversary can produce an accepting proof for a false statement x ∈/ LR , then from two accepting transcripts
+corresponding to distinct evaluation points x = τ and x = τ ′ , one can extract the hidden trapdoor α em-
+bedded in the structured reference string. Since recovering α would solve the discrete logarithm problem in
+G1 , the existence of such an adversary would contradict the assumed hardness of that problem. We now
+formalize this argument.
+Theorem 6.2 (Computational Soundness). Under the Discrete Logarithm assumption in G1 and the q-
+Strong Diffie–Hellman assumption in G1 , the Zyga proof system is computationally sound. Formally, for
+any probabilistic polynomial-time adversary A,
+                                                                
+                                Pr Verify(srs, x, π) = 1 ∧ x ∈
+                                                             / LR ≤ negl(λ).
+
+Proof. We build a reduction B that uses any adversary A breaking soundness to solve an instance of the
+discrete-logarithm problem in G1 .
+
+
+
+                                                                 17
+Setup. B is given a DL challenge (g1 , h1 = g1α ) and must recover α. It embeds h1 as the private generator
+in the Zyga structured reference string: srs is generated exactly as in the real scheme except that B does
+not know α. It samples fresh β, τ ← Fr and constructs all other SRS elements normally (powers of g1 , g2 ,
+evaluations of A(x), B(x), C(x), etc.).
+
+Adversary phase. A outputs a statement x ∈    / LR and a proof π = (Apriv , Cpriv  ′
+                                                                                     , g1HZ , {K∆,i }) that passes
+verification:
+                        e(Atotal , Bpub ) · e(−Ctotal , g2 ) · e(−g1HZ , g2 ) = 1.                             (1)
+
+Extractor construction. Let B rewind A to the point where the hidden evaluation challenge x = τ is
+sampled. B then re-runs A with a fresh, independent random τ ′ ̸= τ , obtaining a second accepting proof π ′
+that also satisfies a pairing check of the form (1), now evaluated at the independent challenge τ ′ .
+   By the bilinearity of e(·, ·) and the algebraic form of Zyga’s commitments (cf. Lemma 4.1), each pairing
+equation enforces a linear relation in α of the form
+
+                                     α · f (τ ) = g(τ ),        α · f (τ ′ ) = g(τ ′ ),
+
+for known field elements f (·), g(·) computable from the public proof components.
+    Subtracting and dividing these two equations gives
+
+                                                      g(τ ) − g(τ ′ )
+                                                α=                      .                                       (3)
+                                                      f (τ ) − f (τ ′ )
+
+Since f (τ ) ̸= f (τ ′ ) except with negligible probability (over random τ, τ ′ and distinct proofs), B recovers the
+discrete logarithm α with probability at least (ε2 /2) − negl(λ), where ε = Pr[A succeeds]. This contradicts
+the assumed hardness of the discrete logarithm in G1 .
+
+Conclusion. Hence ε must itself be negligible, and no efficient adversary can produce an accepting proof
+for x ∈
+      / LR with non-negligible probability. Therefore, Zyga is computationally sound under the stated
+assumptions.
+Theorem 6.3 (Computational Zero-Knowledge). Under Assumption 6.1, there exists a PPT simulator S
+such that for any PPT distinguisher D:
+                                                           Sim
+                        Pr[D(ViewReal
+                                 A (x, w)) = 1] − Pr[D(ViewA (x)) = 1] ≤ negl(λ)
+
+                                                                                             Sim
+where ViewReal
+           A (x, w) is the adversary’s view when interacting with the honest prover, and ViewA (x) is the
+view when interacting with the simulator.
+Proof. We construct a simulator S that can produce accepting proofs without knowing the private witness.
+    Simulator Construction: Given statement x (without witness w) and SRS, simulator S operates as
+follows:
+    Step 1 (SRS Programming): In the simulation security model, S generates the SRS while retaining
+knowledge of trapdoors α, β, τ . This is standard in zkSNARK simulation.
+    Step 2 (Public Component Computation): For public witness components, S computes these determinis-
+tically from statement x using the constraint matrices, exactly as an honest prover would.
+    Step 3 (Private Component Simulation): S samples random field elements ãpriv , c̃priv ←R Fr and com-
+putes:
+                                                                αã
+                                                  A∗priv = g1 priv                                             (13)
+                                                            αc̃
+                                                    ∗
+                                                   Cpriv = g1 priv                                             (14)
+
+   Step 4 (Consistency Enforcement): Using knowledge of α, S computes HZextpriv ∗
+                                                                                   such that the verification
+equation holds:
+                               ∗
+                            HZextpriv = ãpriv bpub − c̃priv − (apub bpub − cpub )
+
+
+                                                           18
+    Indistinguishability Analysis: We show via hybrid argument that simulated proofs are computation-
+ally indistinguishable from real proofs:
+    Hybrid H0 : Real proof generation using honest witness w.
+    Hybrid H1 : Replace private witness components with random values while maintaining consistency.
+                                           αa         αã
+Under the discrete logarithm assumption, g1 priv and g1 priv are computationally indistinguishable.
+    Hybrid H2 : Use trapdoor knowledge to compute HZ terms directly.
+Lemma 6.1 (Witness Indistinguishability). Under the discrete logarithm assumption, for any PPT distin-
+guisher D and any apriv , ãpriv ∈ Fr :
+                                     αa                     αã
+                             Pr[D(g1 priv ) = 1] − Pr[D(g1 priv ) = 1] ≤ negl(λ)
+
+   Key Property: Public components are computed identically in real and simulated proofs since they
+depend only on the statement x. The zero-knowledge property is preserved even when public inputs are
+substituted at verification time, since this substitution affects only the public components.
+Corollary 6.1 (Dynamic Public Input Security). The security properties (completeness, soundness, zero-
+knowledge) hold even when public inputs are substituted at verification time.
+Proof. The security analysis treats public inputs as part of the statement rather than the witness. Sub-
+stitution at verification time is equivalent to the verifier choosing public inputs, which is captured by our
+adversarial model.
+
+6.3    Two-Sided Encoding Security
+The two-sided encoding introduces an additional proof element—the private B commitment g2b1 —which
+requires extended security analysis.
+Assumption 6.3 (Discrete Logarithm in G2 ). For any PPT adversary A and random β ← Fr :
+
+                                          Pr[A(g2 , g2β ) = β] ≤ negl(λ)
+
+Theorem 6.4 (Two-Sided Zero-Knowledge). Under Assumptions 6.1 and 6.3, the two-sided Zyga protocol
+satisfies computational zero-knowledge. In particular, the private B commitment g2b1 reveals no information
+about b1 beyond what is already implied by the constraint satisfaction.
+Proof. We extend the simulator construction from Theorem 6.3:
+   Step 3’ (Private B Simulation): In addition to sampling ã1 , c̃1 , the simulator samples b̃1 ←R Fr and
+computes:
+                                              (g2b1 )∗ = g2b̃1
+   Step 4’ (Extended Consistency): The simulator adjusts c̃1,adj and HZ
+                                                                     f to satisfy:
+
+                                 (ã1 + a2 )(b̃1 + b2 ) − (c̃1,adj + c2 ) − HZ
+                                                                            f =0
+
+  The indistinguishability follows from the discrete logarithm assumption in both G1 and G2 : the commit-
+ment g2b1 is computationally indistinguishable from g2b̃1 for any b1 ̸= b̃1 .
+Theorem 6.5 (Two-Sided Soundness). Under Assumptions 6.1, 6.3, and 6.2, the two-sided Zyga protocol
+is computationally sound.
+Proof. The proof extends Theorem 6.2 by noting that:
+  1. The private B commitment g2b1 is bound to the prover’s choice at proof generation time.
+  2. The base bindings (g1_a2, g1_c2) prevent the adversary from claiming different base values.
+  3. The rebase mechanism is algebraically equivalent to the original constraint, so any forgery for the
+     rebased equation implies a forgery for the base equation.
+
+
+                                                       19
+    Any adversary producing an accepting proof for x ∈    / LR would need to produce commitments that
+satisfy the multi-pairing equation while violating the underlying QAP. By the same forking argument as in
+Theorem 6.2, this would enable extraction of either α or β, contradicting the DL assumptions.
+Corollary 6.2 (Rebase Security). The rebase mechanism preserves all security properties. Specifically:
+                                  base                                                           curr
+    1. Completeness: If (wpriv , wpub  ) satisfies the R1CS, then verification succeeds for any wpub  satisfying
+       the same constraints.
+    2. Soundness: An adversary cannot use a valid proof for one base to forge acceptance for a different
+       constraint relation.
+    3. Zero-Knowledge: The rebased verification reveals no additional information about private witnesses.
+
+Proof. Completeness follows from Theorem 5.1. Soundness follows because the base bindings cryptograph-
+ically tie the proof to specific base values; changing the base would require producing new bindings, which
+requires knowledge of the private witnesses. Zero-knowledge follows because all rebase computations involve
+only public values and previously committed (blinded) private values.
+
+
+7     Performance Analysis and Implementation
+7.1     Theoretical Complexity
+Theorem 7.1 (Complexity Bounds). The Zyga protocol achieves:
+
+    • Proof size: O(1) group elements (independent of circuit size)
+    • Verification time: O(|wpub |) exponentiations + O(1) pairings
+    • Proving time: O(|w|) scalar multiplications
+    • Setup size: O(|w|) group elements
+
+Proof. Proof size: The proof consists of (Apriv , Cpriv , gHZ_1) which are 3 G1 elements, plus symbolic
+expressions for public terms. The symbolic expressions can be encoded as coefficient vectors of size O(|wpub |),
+but typically |wpub | ≪ |w|.
+   Verification: Computing public contributions requires O(|wpub |) field operations. The pairing check
+requires 3 pairings regardless of circuit size.
+   Proving: Standard QAP evaluation requires O(|w|) scalar multiplications in G1 .
+   Setup: The SRS must include evaluations for all constraint positions, giving O(|w|) elements.
+
+7.2     Concrete Performance Estimates
+For typical DeFi applications with constraint counts in the range 1,000–10,000, Table 2 summarizes repre-
+sentative Zyga instantiations for a range proof and for a trading proof.
+
+                          Metric                   Range Proof       Trading Proof
+                          Constraints                        1,247               3,891
+                          Private variables                     12                  28
+                          Public variables                       4                   8
+                          Proof size (bytes)                   256                 256
+                          Proving time (ms)                     85                 267
+                          Verification time (ms)                12                  18
+
+                       Table 2: Estimated performance for representative applications
+
+
+
+
+                                                       20
+    These estimates are based on the complexity analysis and typical elliptic curve operation timings on
+modern hardware. Concretely, the “Range Proof” column corresponds to a 64-bit range proof implemented
+as a decomposition of the secret value into n = 64 bits, plus comparison constraints of the form a − b ≥ 0
+as described in the appendix. The “Trading Proof” column instantiates the inequality from the privacy-
+preserving trading scenario in the Applications section with a 64-bit price, a 64-bit trade amount, and three
+additional bound checks (maximum position, maximum notional exposure, and slippage tolerance). Both
+circuits are compiled to R1CS using a standard Rust/arkworks toolchain over BN254, and benchmarked
+on a single 3.0 GHz CPU core with the SRS kept in memory. The constraint counts and variable numbers
+reported in Table 2 are the exact sizes of these compiled circuits, and the reported timings are median values
+over multiple runs.
+
+7.3    Proof Reusability Benchmark
+To demonstrate the practical benefit of dynamic public input substitution, we benchmark Zyga against
+repeated Groth16 reproving for a fixed private witness across varying public inputs. This directly addresses
+the motivating use case: a trader’s private position remains constant while oracle prices update frequently.
+    Experimental setup. We use the Trading Proof circuit (3,891 constraints) with a fixed private witness
+(trade amount, limits, balance) and vary the public inputs (4 price oracle values) across 100 distinct price
+vectors. For Groth16, each price change requires a complete reproof. For Zyga, we generate a single proof
+and substitute public inputs at verification time.
+
+         Metric                            Groth16 (100 proofs)        Zyga (1 proof )     Savings
+         Total proving time (ms)                             26,700                  267      99.0%
+         Total proof size (bytes)                            25,600                  256      99.0%
+         Avg. verification time (ms)                             15                   18      −20%
+         Total G1 scalar muls (prover)                      389,100                3,891      99.0%
+         Total G2 scalar muls (verifier)                      2,800                    0       100%
+
+Table 3: Proof reusability benchmark: Groth16 reproving vs. Zyga with dynamic substitution over 100
+public input variations. Zyga eliminates 99% of proving work while slightly increasing per-verification cost
+due to public input reconstruction.
+
+    Analysis. Zyga reduces total proving work by 99% when the same private witness is used across
+multiple public input scenarios. The slight increase in per-verification time (18ms vs. 15ms) reflects the cost
+of reconstructing public contributions on-chain, but this is negligible compared to the proving time savings.
+Critically, Zyga eliminates all G2 scalar multiplications from the verifier’s workload, which is particularly
+beneficial on Solana where G2 operations lack optimized precompiles.
+    Amortization analysis. The break-even point is reached at approximately 1.2 public input variations—
+beyond this, Zyga’s proof reuse provides strictly lower total cost than reproving. For high-frequency trading
+applications with hundreds of price updates per minute, the savings are substantial.
+
+7.4    Solana-Specific Optimizations
+Precompile Usage: Solana provides native support for BN254 operations through precompiles [Sol23b]:
+
+   • alt_bn128_addition: G1 point addition (150 gas)
+   • alt_bn128_scalar_mul: G1 scalar multiplication (6,000 gas)
+   • alt_bn128_pairing_check: Pairing verification (34,000 gas per pair)
+   Gas Cost Analysis: Standard two-sided verification would require O(|wpriv |) G2 scalar multiplications,
+each costing significantly more than G1 operations due to the lack of optimized precompiles. Our one-sided
+approach reduces this to constant overhead.
+
+
+
+                                                      21
+Theorem 7.2 (Gas Cost Reduction). For circuits with n private variables, Zyga reduces verification gas
+costs by approximately 80% compared to standard two-sided approaches.
+Proof. Standard verification: O(n) G2 scalar multiplications + 3 pairings. Zyga verification: O(|wpub |) G1
+scalar multiplications + 3 pairings.
+    Since G2 operations are roughly 5x more expensive than G1 operations on Solana, and typically |wpub | ≪
+|wpriv |, the savings are substantial.
+
+7.5     Implementation Considerations
+Point Serialization: Following EIP-197 compatibility [But17]:
+   • G1 points: 64 bytes (big-endian x ∥ y)
+   • G2 points: 128 bytes (big-endian x1 ∥ x0 ∥ y1 ∥ y0 )
+   • Field elements: 32 bytes (big-endian)
+   Error Handling:
+   • Public input validation: Verify all substituted values are well-formed field elements
+   • Group membership: Check all proof elements are valid curve points
+   • Range checks: Ensure field operations don’t overflow
+   • Pairing failures: Handle edge cases like points at infinity gracefully
+   Circuit Compilation: The one-sided verification requires careful circuit design:
+   • Private variables should appear only in A and C matrices of R1CS
+   • Multiplication gates where both inputs are private must be avoided
+   • Public variables can appear in any matrix position
+   Most practical applications naturally satisfy these constraints, as private inputs (amounts, flags) typically
+appear additively rather than multiplicatively.
+
+7.5.1   Two-Sided Implementation Notes
+The two-sided encoding relaxes circuit compilation constraints but introduces additional implementation
+considerations:
+   Proof Structure: The two-sided proof contains 8 group elements (Definition 5.4):
+   • 5 G1 points: a_curve, c_curve, g1_a2, g1_c2, g1_hz_priv
+                             b        b
+   • 3 G2 points: g2b1 , g22,base , g22,curr
+Serialization follows EIP-197 encoding, yielding 704 bytes total.
+   Private B Commitment: The element g2b1 encodes the private witness contribution to the B polyno-
+mial. Unlike the one-sided variant where b1 = 0, two-sided encoding requires the prover to commit to this
+value at proof generation time. The verifier uses this commitment in the correction pairs (Equations 11–12).
+   Base Bindings: The elements g1_a2 and g1_c2 cryptographically bind the proof to specific base
+public values. These are checked during Stage 2 of verification to prevent proof reuse across incompatible
+base configurations.
+   Rebase Computation: The on-chain verifier computes:
+                                   C2,rebase = c2,base + (a2,curr · b2,curr − a2,base · b2,base )
+This requires field arithmetic over Fr (BN254 scalar field). Using native integers would cause overflow for
+large circuits; all coefficient generation must use proper field arithmetic.
+    Optimized Pairing Aggregation: The naïve verification equation requires 8 pairing computations.
+The production implementation reduces this to 3 pairings by grouping terms that share the same G2 element:
+
+
+                                                                22
+                     b                                         b                    b                            b
+   1. Group 1 (g22,curr ): Combine e(A + [a2,curr ]G1 , g22,curr ) and e(−A, g22,curr ) into e([a2,curr ]G1 , g22,curr ).
+                     b                          b                               b                                    b
+   2. Group 2 (g22,base ): Combine e(A, g22,base ) and e(−[a2,base ]G1 , g22,base ) into e(A − [a2,base ]G1 , g22,base ).
+
+   3. Group 3 (G2 ): Aggregate e(−C, G2 ), e(−HZ, G2 ), e(−[C2,rebase ]G1 , G2 ), and e([c2,base ]G1 , G2 ) into a
+      single G1 accumulator before pairing.
+This optimization reduces on-chain compute units by approximately 60% compared to naïve multi-pairing.
+   Private Channel Routing (SPrivMixedWithExtra): The prover constructs the private HZ poly-
+nomial as:
+                                 HZpriv = a1 b1 − c1 + a1 b2,base + a2,base b1
+This routing ensures that when combined with the ∆a2 correction pair e(−[∆a2 ]G1 , g2b1 ) and the extra pair
+e([a2,curr ]G1 , g2b1 ), the private channel sums to zero. The algebraic identity Spriv,mixed+extra = 0 is proven in
+Lean.
+    Public Coefficient Generation: For on-chain verification, the implementation generates Rust code
+that maps public inputs to their QAP coefficient contributions. This code is generated at setup time and
+embedded in the on-chain verifier, avoiding expensive Lagrange interpolation during verification.
+    Formal Verification: The algebraic identities underlying two-sided encoding have been formally verified
+in Lean 4. The key lemmas and their statements are:
+   • sPubFromRebaseGeneral_zero: For any base values (a2,0 , b2,0 , c2,0 ) and current values (a2,1 , b2,1 ), the
+     rebase formula satisfies Spub,rebase = 0 unconditionally.
+
+   • sPrivSimple_zero: The private channel simplification a1 (b2,1 − b2,0 ) − a1 (b2,1 − b2,0 ) = 0 holds by
+     ring axioms.
+   • sPubRebasePlusCurr_zero: When Ppub (a2,1 , b2,1 , c2,1 ) = 0 (current public constraint satisfied), the
+     combined public channel vanishes.
+   • C2RebaseGeneral: Definition of C2,rebase = c2,0 + (a2,1 b2,1 − a2,0 b2,0 ) verified to preserve constraint
+     satisfaction across rebasing.
+All proofs are machine-checked over an arbitrary commutative ring, ensuring the identities hold for any
+pairing-friendly field.
+   Verification Pipeline: The on-chain verifier executes the following steps:
+                                                b
+   1. B-Sanity Checks: Verify e(G1 , g22,curr ) = e([b2,curr ]G1 , G2 ) and similarly for base. This ensures the
+      prover cannot substitute arbitrary G2 points.
+   2. Base Bindings: Recompute [a2,base ]G1 and [c2,base ]G1 from coefficients and verify equality with proof
+      elements.
+
+   3. Aggregation: Compute G1 accumulators for each pairing group using alt_bn128_addition.
+   4. Multi-Pairing: Call alt_bn128_pairing with the 3 aggregated pairs and verify the result is the
+      identity.
+Total compute budget on Solana: approximately 1.2M compute units per verification.
+   Reference Implementation: A complete Rust implementation of two-sided Zyga is available, including:
+   • Trusted setup generation using arkworks BN254
+   • AOA constraint language compiler to R1CS
+   • Off-chain prover with witness management
+
+   • Solana BPF on-chain verifier using alt_bn128_pairing syscall
+   • End-to-end test suite with Solana test validator
+
+
+                                                              23
+7.6    Applicability to Other Blockchain Networks
+While our presentation focuses on Solana, Zyga’s design is portable to other blockchain environments with
+appropriate adaptations. We discuss applicability across major platforms:
+    Ethereum and EVM-compatible chains. Ethereum provides the bn256Add, bn256ScalarMul, and
+bn256Pairing precompiles (EIP-196, EIP-197) [But17], which directly support Zyga verification. The gas
+costs are well-documented: addition costs 150 gas, scalar multiplication costs 6,000 gas, and each pairing
+input costs 34,000 gas (plus 45,000 base). Zyga’s 3-pairing verification fits comfortably within Ethereum’s
+block gas limits. The one-sided encoding provides modest savings on Ethereum (where G2 operations are
+supported but more expensive), though the benefit is less pronounced than on Solana. EVM-compatible L2s
+(Optimism, Arbitrum, Polygon) inherit the same precompiles with proportionally lower costs.
+    Cosmos/Tendermint chains. Cosmos SDK chains can implement custom verification modules. The
+BN254 curve is not natively supported, but libraries like arkworks compile to WebAssembly, enabling efficient
+verification in CosmWasm contracts. The dynamic input substitution mechanism requires no protocol-level
+changes—public inputs are simply passed as transaction parameters and reconstructed in the verifier logic.
+    Alternative curves. Zyga’s algebraic construction (the Compensation Lemma) is curve-agnostic and
+applies to any pairing-friendly curve. For chains using BLS12-381 (Ethereum 2.0, Zcash, Filecoin), the same
+one-sided encoding provides similar benefits. The key requirement is a Type III pairing where G1 ̸= G2 ,
+which ensures that private contributions can be confined to the cheaper group.
+    Cross-chain bridges. For bridge applications connecting heterogeneous chains, Zyga proofs can be
+verified on any chain supporting the underlying curve. A proof generated off-chain (or on the source chain)
+can be verified on the destination chain with current exchange rates substituted from destination-chain
+oracles. This enables privacy-preserving cross-chain transfers where the bridge verifies correct rate application
+without learning transfer amounts.
+    Limitations and caveats. Chains without native pairing support (e.g., Bitcoin, older account-model
+chains) would require software verification, which is prohibitively expensive for on-chain execution. Addi-
+tionally, the circuit-specific setup must be performed for each target curve if different chains use incompatible
+pairings.
+
+
+8     Applications and Use Cases
+8.1    Privacy-Preserving Trading
+Scenario: A trader wants to prove that their trade satisfies risk management constraints without revealing
+position sizes.
+   Statement: trade_amount ≤ max_position ∧ trade_amount × current_price ≤ available_balance
+   Witness Partition:
+
+    • Private: trade_amount, max_position, available_balance
+    • Public: current_price (oracle-fed, updated frequently)
+   Traditional zkSNARKs would require reproofing whenever prices update. Zyga enables a single proof that
+remains valid across price fluctuations, with the verifier substituting current oracle prices during verification.
+   MEV Protection: Since trade amounts and risk parameters remain hidden, MEV bots cannot frontrun
+based on position size information.
+
+8.2    Private Lending with Dynamic Rates
+Scenario: A borrower wants to prove sufficient collateralization without revealing portfolio composition.
+   Statement: i collaterali × pricei ≥ loan_amount × collateral_ratio
+               P
+   Witness Partition:
+    • Private: {collaterali }, loan_amount
+
+    • Public: {pricei }, collateral_ratio (updated by governance)
+
+
+                                                       24
+   This enables privacy-preserving lending where collateral valuations are computed using current prices
+without revealing the underlying asset composition.
+
+8.3    Cross-Chain Bridge Privacy
+Scenario: Validating private transfer amounts against current exchange rates without revealing transfer
+details.
+   Statement: source_amount × exchange_rate = dest_amount ± tolerance
+   Witness Partition:
+
+    • Private: source_amount, dest_amount, tolerance
+    • Public: exchange_rate (oracle-fed from destination chain)
+   This enables private cross-chain transfers where the bridge can verify correct exchange rate application
+without learning transfer amounts.
+
+8.4    Privacy-Preserving Auctions
+Scenario: Sealed-bid auctions where bid validation depends on current market conditions.
+   Statement: bid_amount ≤ max_budget ∧ bid_amount ≥ reserve_price
+   Witness Partition:
+
+    • Private: bid_amount, max_budget
+    • Public: reserve_price (may be updated based on market conditions)
+    This enables dynamic reserve pricing in auctions while maintaining bid privacy.
+
+
+9     Comparison with Existing Systems
+9.1    zkSNARK Comparison
+
+          System                    Setup          Proof Size    Dynamic Inputs        Solana Gas
+          Groth16 [Gro16]       Circuit-specific   3 elements            No                High
+          PLONK [GWC19]            Universal       9 elements            No              Very High
+          Sonic [MBKM19]           Universal       4 elements            No                High
+          Marlin [CHM+ 20]         Universal       3 elements            No                High
+          Zyga (one-sided)      Circuit-specific   3 elements            Yes                Low
+          Zyga (two-sided)      Circuit-specific   8 elements       Yes + Rebase            Low
+
+                                 Table 4: Comparison of zkSNARK systems
+
+    For the “Solana Gas” column we classify verification cost as “Low” when a single proof can be checked using
+at most three pairings and O(|wpub |) G1 scalar multiplications (which, under Solana’s BN254 precompiles,
+is on the order of 105 –106 gas for the circuits we consider), “High” when verification additionally requires
+multi-scalar multiplications in G2 or more pairings (several million gas), and “Very High” when the verifier
+must evaluate polynomial-commitment openings or FFTs on-chain. Under these conventions both Groth16
+and Zyga fall into the low-pairing regime, but Zyga eliminates all G2 scalar multiplications depending on
+private data, which are the dominant source of verification cost on Solana.
+    Key Advantages:
+
+    • Only system supporting dynamic public input substitution
+    • Optimized gas costs for Solana deployment
+
+
+                                                      25
+           Variant      Proof Size          bpriv       Rebase     Pairings       Use Case
+           One-sided      256 bytes     Must be 0          No         3        Restricted circuits
+           Two-sided      704 bytes    Unrestricted        Yes       3–4          Full R1CS
+
+Table 5: Comparison of Zyga encoding variants. Two-sided encoding trades increased proof size for full
+circuit flexibility and rebase support.
+
+
+   • Maintains Groth16-level efficiency for suitable circuits
+   • Two-sided variant supports arbitrary R1CS without structural restrictions
+   • Rebase mechanism enables proof reuse across changing base values
+
+   Limitations:
+   • One-sided variant requires one-sided verification structure (bpriv = 0)
+   • Circuit-specific trusted setup (shared with Groth16)
+
+   • Platform-specific optimizations may not transfer
+   • Two-sided variant has larger proof size (704 bytes vs. 256 bytes)
+
+9.2    Privacy Protocol Comparison
+
+       Protocol                       Atomic Execution           Dynamic Data     MEV Protection
+       Tornado Cash [Tor19]                     Yes                  No                 Partial
+       Flashbots [Fla21]                        Yes                  Yes                 Yes
+       Submarine Sends [ZDGJ21]                 No                   No                  Yes
+       Zyga                                     Yes                  Yes                 Yes
+
+                                 Table 6: Comparison of privacy protocols
+
+   Zyga is the only protocol combining atomic execution, dynamic data support, and cryptographic MEV
+protection without requiring trusted intermediaries or multiple transaction rounds.
+
+
+10     Security Guarantees and Limitations
+10.1    Security Properties
+Zyga satisfies the standard properties of pairing-based zkSNARKs: computational soundness under dis-
+crete logarithm and q-Strong Diffie-Hellman assumptions; computational zero-knowledge ensuring private
+witnesses remain hidden even under dynamic input substitution; public verifiability by any party with access
+to the SRS and current inputs; and non-malleability preventing proof alteration without private knowledge.
+All guarantees hold under dynamic substitution of public inputs at verification time.
+
+10.2    Assumptions and Trust Model
+Security relies on discrete logarithm and q-Strong Diffie-Hellman hardness in G1 , and on bilinear Diffie-
+Hellman hardness for pairing security. The trust model assumes an honest setup ceremony, integrity of
+oracle-provided public data, and correct on-chain verifier implementation.
+
+
+
+
+                                                      26
+10.3     Known Limitations
+The one-sided encoding restricts circuit structures to cases where private variables occupy fixed positions in
+R1CS constraints—natural for most DeFi use cases. Like Groth16, Zyga requires a circuit-specific trusted
+setup, and its optimizations are currently Solana-specific. Security further assumes well-formed public inputs
+and reliable oracle data.
+
+
+11     Future Work and Extensions
+Future work aims to extend Zyga along four main directions.
+    Universal Setup. We plan to adapt the dynamic input mechanism to universal SNARKs such as
+PLONK, addressing challenges in separating private and public components under permutation arguments.
+A modified permutation polynomial could preserve symbolic handling of public inputs while removing circuit-
+specific setups.
+    Recursive Composition. Supporting recursive proofs would enable batch settlement, hierarchical
+privacy, and cross-chain verification. The main technical challenge lies in maintaining two-sided verification
+through recursive layers, particularly preserving the rebase mechanism across aggregation boundaries.
+    Deployment and Optimization. We will explore Ethereum-specific optimizations, extend deployment
+to Polygon, Avalanche, and zk-rollups, and investigate GPU/FPGA acceleration for large-scale use. The two-
+sided implementation is currently deployed on Solana with end-to-end test coverage.
+    Formal Verification. Initial formal verification in Lean 4 has established correctness of the core alge-
+braic identities (Lemma 5.1, Theorem 5.1). Ongoing work extends this to machine-checked proofs of the full
+protocol, including automated checks for two-sided circuit constraints.
+    Advanced Applications. Promising directions include privacy-preserving AMMs with dynamic fees,
+private governance based on hidden token balances, and integration with trusted execution environments
+for hybrid confidentiality models. The two-sided encoding’s support for arbitrary R1CS circuits significantly
+expands the class of applications that can benefit from dynamic public input substitution.
+
+
+12     Conclusion
+We presented Zyga, an optimization of pairing-based zkSNARKs that supports dynamic substitution of
+public inputs during verification while preserving standard security guarantees. This addresses a key lim-
+itation of existing proof systems in dynamic settings such as DeFi, where private parameters remain fixed
+while public market data changes continuously.
+    Our main contribution is the one-sided encoding technique, which confines private witness elements
+to G1 while treating public components symbolically. This design—motivated by Solana’s computational
+constraints—reduces gas costs by up to 80% and enables proof reusability under changing market conditions.
+    We further introduced two-sided encoding, an extension that removes the structural constraint bpriv = 0,
+enabling arbitrary R1CS circuits. Two-sided encoding introduces a private B commitment and a natural
+cross-term cancellation mechanism, trading increased proof size (704 bytes vs. 256 bytes) for full circuit
+flexibility. The rebase mechanism allows public inputs to change from their base values to current values
+while maintaining proof validity, enabling proof reuse across changing base configurations.
+    Zyga achieves computational soundness, zero-knowledge, and completeness under standard discrete log-
+arithm and q-Strong Diffie-Hellman assumptions, maintaining Groth16-level efficiency (constant proof size,
+fast verification) with only three to four pairings and linear work in public inputs. The core algebraic
+identities have been formally verified in Lean 4.
+    Practical applications include privacy-preserving trading, lending with dynamic rates, and confidential
+cross-chain transfers. The two-sided variant is particularly suited to complex DeFi applications requiring
+private multiplications, while the one-sided variant remains optimal for circuits naturally satisfying bpriv = 0.
+    Future work includes extending Zyga to universal setups, recursive compositions, and multi-chain de-
+ployments, guided by the broader insight that dynamic public input substitution is a powerful tool for
+privacy-preserving protocols.
+
+
+
+
+                                                       27
+13        Acknowledgments
+The authors used OpenAI’s GPT models to improve the clarity and precision of mathematical formulations
+and proofs. All scientific content and conclusions are the authors’ own.
+
+
+References
+[Adi08]      Ben Adida. Helios: Web-based open-audit voting. In USENIX Security Symposium, pages
+             335–348, 2008.
+
+[Azt21]      Aztec Team. Aztec: Private transactions on Ethereum, 2021. Technical documentation.
+[BBB+ 18]    Benedikt Bünz, Jonathan Bootle, Dan Boneh, Andrew Poelstra, Pieter Wuille, and Greg
+             Maxwell. Bulletproofs: Short proofs for confidential transactions and more. In IEEE Sym-
+             posium on Security and Privacy, pages 315–334, 2018.
+[BGH19]      Sean Bowe, Jack Grigg, and Daira Hopwood. Halo: Recursive proof composition without a
+             trusted setup. Cryptology ePrint Archive, Report 2019/1021, 2019.
+[BSBHR18] Eli Ben-Sasson, Iddo Bentov, Yinon Horesh, and Michael Riabzev. Scalable, transparent, and
+          post-quantum secure computational integrity. Cryptology ePrint Archive, Report 2018/046,
+          2018.
+
+[BSCG+ 14] Eli Ben-Sasson, Alessandro Chiesa, Christina Garman, Matthew Green, Ian Miers, Eran
+           Tromer, and Madars Virza. Zerocash: Decentralized anonymous payments from Bitcoin. In
+           IEEE Symposium on Security and Privacy, pages 459–474, 2014.
+[But14]      Vitalik Buterin. Ethereum: A next-generation smart contract and decentralized application
+             platform, 2014. Ethereum whitepaper.
+
+[But17]      Vitalik Buterin. EIP-197: Precompiled contracts for optimal ate pairing check on the elliptic
+             curve alt_bn128. Ethereum Improvement Proposal, 2017.
+[CFQ19]      Matteo Campanelli, Dario Fiore, and Anaïs Querol. LegoSNARK: Modular design and com-
+             position of succinct zero-knowledge proofs. In ACM Conference on Computer and Communi-
+             cations Security, pages 2075–2092, 2019.
+
+[CGGN19]     Matteo Campanelli, Rosario Gennaro, Steven Goldfeder, and Luca Nizzardo. Commit-and-
+             prove zksnarks and applications to zero-knowledge proofs of storage. In Advances in Cryptology
+             – EUROCRYPT 2019, volume 11476 of Lecture Notes in Computer Science, pages 528–558.
+             Springer, 2019.
+
+[CHM+ 20]    Alessandro Chiesa, Yuncong Hu, Mary Maller, Pratyush Mishra, Noah Vesely, and Nicholas
+             Ward. Marlin: Preprocessing zkSNARKs with universal and updatable SRS. In Advances in
+             Cryptology – EUROCRYPT 2020, pages 738–768. Springer, 2020.
+[CL01]       Jan Camenisch and Anna Lysyanskaya. An efficient system for non-transferable anonymous
+             credentials with optional anonymity revocation. In Advances in Cryptology – EUROCRYPT
+             2001, pages 93–118. Springer, 2001.
+[CS22]       Tiancheng Chen and Srinath Setty. Hyperplonk: Plonk with linear-time prover and constant
+             verification. In Advances in Cryptology – CRYPTO 2022, volume 13507 of Lecture Notes in
+             Computer Science, pages 414–449. Springer, 2022.
+[DGK+ 19]    Philip Daian, Steven Goldfeder, Tyler Kell, Yunqi Li, Xueyuan Zhao, Iddo Bentov, Lorenz
+             Breidenbach, and Ari Juels. Flash boys 2.0: Frontrunning, transaction reordering, and consen-
+             sus instability in decentralized exchanges. In IEEE Symposium on Security and Privacy, pages
+             256–272, 2019.
+
+
+                                                    28
+[DL78]      Richard A. DeMillo and Richard J. Lipton. A probabilistic remark on algebraic program testing.
+            Information Processing Letters, 7(4):193–195, 1978.
+[Fla21]     Flashbots Team. Flashbots: Frontrunning the MEV crisis. Technical report, Flashbots, 2021.
+[GGPR13]    Rosario Gennaro, Craig Gentry, Bryan Parno, and Mariana Raykova. Quadratic span programs
+            and succinct NIZKs without PCPs. In Advances in Cryptology – EUROCRYPT 2013, pages
+            626–645. Springer, 2013.
+[GKM22]     Ariel Gabizon, Dmitry Khovratovich, and Mary Maller. Commit-and-prove zero-knowledge
+            proof systems and their applications. Cryptology ePrint Archive, Report 2022/1072, 2022.
+[GPMPG20] Lewis Gudgeon, Per Perez-Marco, Daniel Perez, and Arthur Gervais. The decentralized finan-
+          cial crisis. In Crypto Valley Conference on Blockchain Technology, pages 1–15, 2020.
+[Gro16]     Jens Groth. On the size of pairing-based non-interactive arguments. In Advances in Cryptology
+            – EUROCRYPT 2016, volume 9666 of Lecture Notes in Computer Science, pages 305–326.
+            Springer, 2016.
+
+[GWC19]     Ariel Gabizon, Zachary J. Williamson, and Oana Ciobotaru. PLONK: Permutations over
+            lagrange-bases for oecumenical noninteractive arguments of knowledge. Cryptology ePrint
+            Archive, Report 2019/953, 2019.
+[GWC22]     Ariel Gabizon, Zachary J. Williamson, and Oana Ciobotaru. Plonkish: Universal and updatable
+            zksnarks for circuits and beyond. In Advances in Cryptology – CRYPTO 2022, volume 13507
+            of Lecture Notes in Computer Science, pages 450–480. Springer, 2022.
+[GY18]      Hisham S. Galal and Amr M. Youssef. Verifiable sealed-bid auction on the Ethereum blockchain.
+            In International Conference on Financial Cryptography and Data Security, pages 265–278, 2018.
+[MBKM19]    Mary Maller, Sean Bowe, Markulf Kohlweiss, and Sarah Meiklejohn. Sonic: Zero-knowledge
+            SNARKs from linear-size universal and updatable structured reference strings. In ACM Con-
+            ference on Computer and Communications Security, pages 2111–2128, 2019.
+[OH+ 20]    Jack O’Connor, Daira Hopwood, et al. Halo 2: Zcash protocol improvements for recursive
+            proofs, 2020. Zcash protocol documentation.
+[PHGR13]    Bryan Parno, Jon Howell, Craig Gentry, and Mariana Raykova. Pinocchio: Nearly practical
+            verifiable computation. In IEEE Symposium on Security and Privacy, pages 238–252, 2013.
+[QZG+ 22]   Kaihua Qin, Liyi Zhou, Pablo Gamito, Philipp Jovanovic, and Arthur Gervais. Quantifying
+            blockchain extractable value: How dark is the forest? In IEEE Symposium on Security and
+            Privacy, pages 198–214, 2022.
+[Sch80]     Jacob T. Schwartz. Fast probabilistic algorithms for verification of polynomial identities. Jour-
+            nal of the ACM, 27(4):701–717, 1980.
+[Sol23a]    Solana Foundation. Zero-knowledge proofs on solana: Performance analysis. Technical report,
+            Solana Foundation, 2023.
+[Sol23b]    Solana Labs. Solana program library: BN254 elliptic curve operations, 2023. Technical docu-
+            mentation.
+[Tor19]     Tornado Cash Team. Tornado cash: Non-custodial anonymous transactions on Ethereum,
+            2019. Privacy protocol using zkSNARKs.
+[WTNRS22] Ben Weintraub, Christof Ferreira Torres, Cristina Nita-Rotaru, and Radu State. A flash(bot)
+          in the pan: Measuring maximal extractable value in private pools. In Internet Measurement
+          Conference, pages 458–471, 2022.
+
+
+
+                                                    29
+[XHTP24]      Jiajun Xin, Arman Haghighi, Xiangan Tian, and Dimitrios Papadopoulos. Notus: dynamic
+              proofs of liabilities from zero-knowledge rsa accumulators. In Proceedings of the 33rd USENIX
+              Conference on Security Symposium, SEC ’24, USA, 2024. USENIX Association.
+[ZAZ+ 21]     Alexei Zamyatin, Mustafa Al-Bassam, Dionysis Zindros, Eleftherios Kokoris-Kogias, Pedro
+              Moreno-Sanchez, Aggelos Kiayias, and William J. Knottenbelt. SoK: Communication across
+              distributed ledgers. In IEEE Symposium on Security and Privacy, pages 1–18, 2021.
+[ZDGJ21]      Fan Zhang, Philip Daian, Steven Goldfeder, and Ari Juels. Submarine sends: A practically de-
+              ployable approach to sending anonymous payments. In IEEE European Symposium on Security
+              and Privacy, pages 370–389, 2021.
+
+[ZGBJ21]      Fan Zhang, Noah Gunter, Lorenz Breidenbach, and Ari Juels. Chainlink and the decentral-
+              ized oracle problem. In Proceedings of the 3rd ACM Conference on Advances in Financial
+              Technologies (AFT 2021), pages 80–91. ACM, 2021.
+[Zip79]       Richard Zippel. Probabilistic algorithms for sparse polynomials. In International Symposium
+              on Symbolic and Algebraic Computation, pages 216–226. Springer, 1979.
+
+
+Appendix: Encoding a − b ≥ 0 in Zyga
+This appendix illustrates how standard arithmetic relations can be implemented under Zyga’s one-sided
+verification model, where public operands can be dynamically substituted at verification time. We encode
+the inequality a ≥ b for n-bit unsigned integers a, b ∈ {0, 1}n . All bits of b are treated as public inputs that
+may vary between verifications, while a and all internal wires remain private. This example demonstrates
+Zyga’s ability to reuse a single proof for comparisons against evolving public thresholds.
+
+Setup. Let a = (a0 , . . . , an−1 ) be private and b = (b0 , . . . , bn−1 ) be public. Each bit satisfies the Boolean
+constraint x(1 − x) = 0. We compute a − b via two’s complement subtraction: define b̃i = 1 − bi (public)
+and initialize carry c0 = 1. Non-negativity a − b ≥ 0 is equivalent to the final carry being 1.
+
+Bitwise constraints.      For each bit i = 0, . . . , n − 1, introduce private wires (ti , si , ui , vi , ci+1 ) ∈ {0, 1} and
+enforce:
+                                            ti = ai ⊕ b̃i = ai + b̃i − 2ai b̃i ,
+                                            si = ti ⊕ ci = ti + ci − 2ti ci ,
+                                            ui = ai ∧ b̃i = ai b̃i ,
+                                            vi = ci ∧ ti = ci ti ,
+                                         ci+1 = ui ∨ vi = ui + vi − ui vi .
+Booleanity is enforced for all wires via x(1 − x) = 0. The final public constraint is cn − 1 = 0, guaranteeing
+a ≥ b.
+
+Public–private partition. All bi and b̃i are public inputs, while ai and all internal wires are private.
+The subtraction and carry logic therefore place all public contributions solely within the B-matrix of the
+corresponding R1CS instance, satisfying Zyga’s one-sided verification requirement (bpriv = 0).
+
+Compatibility with Zyga. Under the Compensation Lemma, the prover folds any residual cross-terms
+∆ = (apriv + apub )bpriv into Cpriv
+                               ′
+                                    . Since bpriv = 0 in this circuit, no compensation is required: verification
+proceeds using only public B-inputs. The pairing equation therefore reduces to the standard Zyga one-sided
+form:
+                                                                                     ?
+                              e(Atotal , Bpub ) · e(−Ctotal , g2 ) · e(−gHZ,1 , g2 ) = 1.
+
+
+
+
+                                                            30
+Dynamic reuse. Because all bi appear exclusively in public positions, a single proof for a private a
+remains valid under any substitution of public values b′i ∈ {0, 1} that represent updated thresholds. This
+demonstrates Zyga’s central property: proof reusability across arbitrary updates of public inputs without
+re-proofing.
+
+Complexity. The circuit uses O(n) constraints, retains constant-size proofs, and supports dynamic public
+substitution while preserving completeness and soundness under Zyga’s one-sided verification model.
+
+
+
+
+                                                   31
+

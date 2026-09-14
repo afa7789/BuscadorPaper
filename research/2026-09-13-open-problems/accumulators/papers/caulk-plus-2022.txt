@@ -1,0 +1,613 @@
+    Caulk+: Table-independent lookup arguments
+                        Jim Posen1 and Assimakis A. Kattis2
+                              1
+                               Ulvetanna jimpo AT ulvetanna.io
+                        2
+                            New York University kattis AT cs.nyu.edu
+
+
+
+      Abstract. The recent work of Caulk [ZBK+ 22] introduces the security notion of
+      position hiding linkability for vector commitment schemes, providing a zero-knowledge
+      argument that a committed vector’s elements comprise a subset of some other
+      committed vector. The protocol has very low cost to the prover in the case where the
+      size m of the subset vector is much smaller than the size n of the one containing it.
+      The asymptotic prover complexity is O(m2 + m log n), where the log n dependence
+      comes from a subprotocol showing that the roots of a blinded polynomial are all nth
+      roots of unity. In this work, we show how to simplify this argument, replacing the
+      subprotocol with a polynomial divisibility check and thereby reducing the asymptotic
+      prover complexity to O(m2 ), removing any dependence on n.
+      Keywords: polynomial committments · vector commitments · zero-knowledge
+
+
+1     Introduction
+    The work in [ZBK+ 22], named Caulk, introduces the notion of position-hiding linkability
+for vector commitment schemes. Two efficient schemes for linking to a committed n-length
+vector are provided: one for arguing membership of a single committed element and one for
+arguing multimembership of an m-length subvector. The two protocols use the polynomial
+commitment scheme of [KZG10], or KZG commitment, over appropriately sized subgroups
+as the vector commitment scheme of choice. In particular, an n-length vector commitment
+can be constructed as a commitment to the polynomial interpolation of the vector elements
+over an order-n multiplicative subgroup of the field.
+    The asymptotic prover efficiency for the single-element and m-element subvector
+membership arguments are O(log n) and O(m log n + m2 ) respectively. Caulk achieves
+sublinear proving times by precomputing vector commitment opening witnesses that take
+O(n) time to compute naively. Since the evaluation set over which the vector elements lie
+is a multiplicative subgroup, there is an efficient method to aggregate the precomputed
+witnesses into a batched witness [TAB+ 20]. These elements are blinded with randomly
+sampled elements during the proving phase to provide the position-hiding property.
+
+1.1    Our Contribution
+   We present an improvement to the position-hiding linkability arguments of Caulk which
+reduces the prover complexity to O(m2 ) for an m-element membership proof, removing
+any dependence on the value of n. The log n asymptotic factor in Caulk comes from
+a subprotocol for the claim that certain blinded evaluation points of the committed
+polynomial are n-th roots of unity. Our optimization stems from replacing this with a
+pairing check constraining the evaluation points to be roots of a polynomial dividing
+X n − 1. While this modification requires the prover to precompute and store one extra
+witness element per vector index in addition to the one already required in the original
+scheme, it enjoys improved concrete efficiency and a simpler implementation.
+2                                                                                        Caulk+
+
+
+    There are two challenges to overcome in constructing this protocol. The prover generates
+a randomized polynomial of the form Z(X) = r i∈I (X −ω i ) with a multiplicative blinding
+                                                Q
+factor r, where ω is a primitive n-th root of unity and I is a non-empty subset of [n]. A
+divisibility check that Z(X)H(X) = X n − 1 for some quotient polynomial H guarantees
+the claim, except for the condition that Z has at least one root. Since Z has only a single
+degree of blinding, we must be careful when showing that Z has a root so as not to leak
+any information about that root. The other challenge is that computing the quotient
+polynomial H can take O(n) time. To circumvent this, we leverage even further the ability
+to precompute and store witness elements for pairing checks, which is already a core part
+of the original proof system.
+
+      Scheme                        Proof size         Prover work          Verifier work
+      Caulk, lookup table           14G1 , 1G2 , 4F    Oλ (m2 + m log n)    Oλ (log m), 4P
+      Caulk, Pedersen link          6G1 , 2G2 , 4F     Oλ (log n)           Oλ (1), 4P
+      This work, lookup table       7G1 , 1G2 , 2F     Oλ (m2 )             Oλ (log m), 3P
+      This work, Pedersen link      10G1 , 1G2 , 5F    Oλ (1)               Oλ (1), 3P
+
+                    Figure 1: Comparison of this work with prior work
+
+
+
+
+2     Preliminaries
+2.1    Notation
+    Let G1 , G2 , GT be cyclic groups of prime order p, written with additive notation. The
+finite field Fp with p elements will sometimes be abbreviated as F. Let e : G1 × G2 → GT
+be a pairing: an efficiently computable, non-degenerate bilinear map. Let there be
+generators [1]1 , [1]2 , [1]T of G1 , G2 , GT , respectively, with [1]T = e([1]1 , [1]2 ). For all
+elements α ∈ F and γ ∈ {1, 2, T }, the notation [α]γ represents the element α[1]γ ∈ Gγ .
+The set of polynomialsQ over F of degree at most d is written as F≤d [X]. For any set
+S ⊂ F, ZS (X) := v∈S (X − v) ∈ F[X] is the monic polynomial of degree |S| which
+vanishes on S. The set of powers of a value can be written xS := {xi }i∈S for S ⊂ Z.
+
+
+2.2    Algebraic Group Model
+    We analyze security of our protocols in the Algebraic Group Model (AGM) [FKL18].
+In the AGM, whenever an adversary outputs a group element a ∈ Gγ with γ ∈ {1, 2}, they
+also output an algebraic representation as a linear combination of the Gγ elements that the
+adversary has access to from the public parameters and structured reference string (SRS).
+
+
+2.3    Real and Ideal Pairing Checks
+   We borrow the terminology of real and ideal pairing checks from [GWC19]. An SRS
+has degree q if its elements equal SRSi = [f (x)]i for uniformly sampled x ∈R F and some
+f ∈ F<q [X], where i ∈ [q]. Let fi,j denote the corresponding polynomial for the j-th
+element of SRSi and a, b be the vectors in Fq whose encodings in G1 , G2 are returned by
+algebraic adversary A. A real pairing check is defined as:
+
+                                     (a · T1 ) · (T2 · b) = 0,
+
+for some matrices T1 , T2 over F. Real pairing checks can be efficiently computed from the
+encoded elements and pairing function e : G1 × G2 → GT .
+Jim Posen and Assimakis A. Kattis                                                                            3
+
+
+   If P
+      we operate in the AGM, for each output  P [aj ]i , A also outputs a vector v for which
+aj =    vℓ fi,ℓ (x) = Ri,j (x) for Ri,j (X) := vℓ fi,ℓ (X). For i ∈ {1, 2}, let Ri = (Ri,j )j be
+a vector of polynomials over F. The corresponding ideal check then is given by:
+
+                                      (R1 · T1 ) · (T2 · R2 ) ≡ 0.
+
+
+2.4    Cryptographic Assumptions
+   We use the formulation of the q-DLOG assumption from [GWC19], Definition 2.1.
+
+Definition 1 (q-DLOG assumption, [GWC19] Definition 2.1, verbatim). Fix integer q.
+The q-DLOG assumption states that given
+
+                              [1]1 , [x]1 , ..., [xq ]1 , [1]2 , [x]2 , ..., [xq ]2
+
+for uniformly chosen x ∈ F, the probability of an efficient A outputting x is negligible.
+
+   We also use Lemma 2.2 from [GWC19], which follows from the q-DLOG assumption in
+the AGM.
+
+Lemma 1 ([GWC19] Lemma 2.2, verbatim). Assume the q-DLOG for (G1 , G2 ). Given
+an algebraic adversary A participating in a protocol with a degree q SRS, the probability of
+any real pairing check passing is larger by at most an additive negligible factor than the
+probability the corresponding ideal check holds.
+
+
+2.5    Vector Commitments
+   We recall vector commitment schemes with a trusted setup. Here PP denotes the
+public parameters of the protocol.
+
+ Setup(PP) → (SRS, x). Given the public parameters, perform the trusted setup, pro-
+     ducing structured reference string SRS and trapdoor x.
+
+ Commit(PP, SRS, ⃗c, r) → C. Given an input vector ⃗c and randomness r, produce a
+    commitment C.
+
+ ProveOpen (PP, SRS, C, i, ci , ⃗c, r) → πi . Given a commitment C and claimed opening
+    (i, ci ) along with the committed vector ⃗c and randomness r, produce a proof πi .
+
+ VerifyOpen (PP, SRS, C, i, ci , πi ) → {0, 1}. Given a commitment C and claimed opening
+    (i, ci ), verify the opening proof πi .
+
+    ProveOpen and VerifyOpen can be generalized to public-coin interactive protocols
+allowing interaction between prover and verifier. We write VerifyP
+                                                                 Open for the verification
+algorithm interacting with a prover P. The following security property is associated with
+vector commitments:
+
+Definition 2 (Position Binding). A vector commitment is position binding if for all
+efficient adversaries A the following probability is negligible:
+
+           ci ̸= c′i
+                                                                                                      
+                                                                                 SRS ← Setup(PP) 
+   Pr     VerifyA Open (PP, SRS, C, i, ci , π) = 1                                                      .
+                                                               (C, i, ci , π, c′i , π ′ ) ← A(PP, SRS)
+           VerifyA Open (PP, SRS, C, i, ci , π ) = 1
+                                         ′    ′
+4                                                                                             Caulk+
+
+
+2.6     Position-Hiding Linkability
+    We restate the definition of position-hiding linkable vector commitments as stated
+in [ZBK+ 22], which extends the definition of a vector commitment scheme. A vector
+commitment scheme has position-hiding linkability if there is a zero-knowledge argument
+of knowledge for the following witness relation:
+
+                              PP, SRS ;          Commit(⃗c, rc ) = C
+                                                                          
+                                                                            
+            RLink :=         C, A, n, m ;      Commit(⃗a, ra ) = A           .
+                             ⃗c, rc , ⃗a, ra     ∀i ∈ [m], ∃j ∈ [n], ai = cj
+                                                                            
+
+
+2.7     Zero-Knowledge with Precomputation
+    We use the standard definition of honest-verifier zero-knowledge for public-coin inter-
+active protocols: informally, that there exists an efficient algorithm Simulate which can
+produce an accepting transcript that is computationally indistingushable from a real one
+between a prover and an honest verifier. In our setting, the prover is allowed to precompute
+advice inputs from the public parameters and SRS to reduce its online execution time
+when given an instance. We consider a model where the distinguisher cannot discriminate
+based on timing information between an execution where the prover has precomputed
+advice and one where they have not, assuming the precomputation is polynomial-time. In
+practice, if timing information is available the prover will precompute and store advice for
+all instances it may generate proofs for.
+
+
+3      Lookup Argument Construction
+     Our protocol is based on the one in section 7 of [ZBK+ 22]. The commitments c and a
+are to vectors ⃗c ∈ Fn and ⃗a ∈ Fm respectively. Assume both n and m are powers of two1 .
+Let H and V be multiplicative subgroups of F of size n and m. The vector commitment
+scheme used is a KZG commitment over a polynomial which evaluates to the committed
+vector over some multiplicative subgroup of F. In particular, c commits to a polynomial
+C(X) which evaluates to ⃗c over H and a commits to a polynomial A(X) which evaluates
+to ⃗a over V. Let ω be a generator of H and ν be a generator of V. The protocol is then a
+zero-knowledge argument for the following relation RKZG Link , which instantiates RLink with
+KZG commitments:
+
+
+                      {[xk−1 ]1 , [xk−1 ]2 }k∈[d] ;      c = [C(x)]1
+                                                                                         
+                                                                                           
+     Link :=
+    RKZG             c , a , H, V, ω, µ ;              a = [A(x)]1                          . (1)
+                      C(X), A(X), I ⊂ [n]                ∀i ∈ [m], ∃j ∈ I, A(µi ) = C(ω j )
+                                                                                           
+
+   Let I ⊂ [n] be the set of indices in ⃗c that ⃗a takes values from and u : [m] → I be
+a mapping such that ai = cu(i) for all i ∈ [m]. The protocol begins with the prover
+computing polynomials ZI , CI , U ∈ F≤m [X] so that the following polynomial identities
+hold over ZI :
+
+
+                                   C(X) − CI (X) = 0       mod ZI ,                                 (2)
+                                                ZH = 0     mod ZI ,                                 (3)
+
+and the following identities hold over ZV :
+    1 The vectors can always be padded with duplicate elements up to the nearest power of two length.
+Jim Posen and Assimakis A. Kattis                                                        5
+
+
+
+
+                            CI (U (X)) − A(X) = 0 mod ZV ,                             (4)
+                                    ZI (U (X)) = 0           mod ZV .                  (5)
+
+    Intuitively, ZI is a low-degree polynomial which vanishes on ω I , CI is a low-degree
+polynomial which agrees with C on ω I , and U maps V to ω I . Concretely, the prover com-
+putes the Lagrange polynomials {τi }i∈I ⊂ F<|I| [X] over ω I and the Lagrange polynomials
+{µj }j∈[m] ⊂ F<m [X] over V. They then define:
+
+                                           Y
+                                ZI (X) =         X − ωi ,
+                                           i∈I
+                                           X
+                                CI (X) =         ci τi (X),
+                                           i∈I
+                                            X
+                                 U (X) =            u(j)µj (X).
+                                           j∈[m]
+
+   Now, we could proceed with the standard compilation of polynomial IOPs to regular
+IOPs. However, equations 2 and 3 involve polynomials with degree up to n, so computing
+a KZG commitment opening would take O(n) time. We notice that neither equation
+involves polynomial composition and so we can enforce the constraints with real pairing
+checks at the point x from the structured reference string SRS. This approach has the
+benefit that the quotient elements for the pairing check can be computed in O(m2 ) time
+from precomputed values.
+   Define W1 , W2 ∈ F<n [X] to be such that C − CI = ZI W1 and ZH = ZI W2 . The
+                                               (i)        (i)                 (i)
+prover will look up precomputed values {[W1 (x)]2 , [W2 (x)]2 }i∈I , where W1 (X) =
+                          (i)
+(C(X) − ci )/(X − ω i ), W2 (X) = ZH /(X − ω i ), and then compute:
+
+                                                       (i)
+                                          X        [W1 (x)]2
+                            [W1 (x)]2 =         Q           i    j
+                                                                   ,
+                                          i∈I     j∈I,i̸=j ω − ω
+                                                       (i)
+                                          X        [W2 (x)]2
+                            [W2 (x)]2 =         Q           i    j
+                                                                   .
+                                          i∈I     j∈I,i̸=j ω − ω
+
+
+    After sending these quotient elements for the pairing checks corresponding to equations
+2 and 3, the verifier will query equations 4 and 5 at a challenge point α. The prover will
+provide polynomial commitment opening proofs which can be computed in O(m log m)
+time due to the lower degree bound on the polynomials involved.
+    The final ingredient is to blind ZI , CI , U appropriately to preserve zero-knowledge.
+While CI and U can be blinded by respectively adding multiples of ZI and ZV , ZI can
+only be blinded by a single multiplicative factor. At first glace, this presents a problem
+because the prover must present the evaluation of ZI at a challenge point during the last
+step of the protocol and there may not be sufficient degrees of randomness to blind both
+the evaluation and commitment to ZI itself. Fortunately however, the KZG openings
+can be batched together using verifier-supplied randomness in such a way that additional
+blinding of CI prevents information leakage.
+6                                                                                      Caulk+
+
+
+
+                             Figure 2: Interactive Protocol for RKZG
+                                                                 Link
+
+    Public inputs:
+
+      • Prime order cyclic groups G1 , G2 , GT with bilinear map e and generators [1]1 , [1]2
+      • Scalar field F
+      • Structured reference string [x]1 , ..., [xd−1 ]1 , [x]2 , ..., [xd−1 ]2
+
+    Common inputs:
+
+      • Multiplicative subgroup H < F∗ with order n and generator ω
+      • Multiplicative subgroup V < F∗ with order m and generator ν
+      • KZG commitment c to C(X) with evaluation points in H
+      • KZG commitment a to A(X) with evaluation points in V
+
+    Witness inputs:
+
+      • Set of indices I ⊂ [n]
+      • Values {ci }i∈I
+      • Polynomials C(X), A(X)
+      • Mapping u : [m] → I
+
+    Precomputed inputs:
+             (i)                                (i)
+      • [W1 (x)]2 for all i ∈ I where W1 (X) = (C(X) − ci )/(X − ω i )
+             (i)                                (i)
+      • [W2 (x)]2 for all i ∈ I where W2 (X) = ZH (X)/(X − ω i )
+
+    Round 1 Prover:
+
+      • Randomly sample blinding factors r1 , ..., r6
+      • Compute the Lagrange basis polynomials {τi (X)}i∈[m] over ω j j∈I
+      • Define ZI′ (X) = r1 i∈I (X − ω i )
+                           Q
+
+      • Define CI (X) = i∈I ci τi (X)
+                         P
+
+      • Define blinded CI′ (X) = CI (X) + (r2 + r3 X + r4 X 2 )ZI′ (X)
+      • Define U (X) to be the degree m−1 interpolation over V with U (νi ) = ω u(i) , ∀i ∈
+        [m]
+      • Define blinded U ′ (X) = U (X) + (r5 + r6 X)ZV (X)
+      • Publish zI = [ZI′ (x)]1 , cI = [CI′ (x)]1 , u = [U ′ (x)]1
+
+    Round 2 Verifier: Send random challenge χ1 , χ2
+    Round 2 Prover:
+                                                              (i)              (i)
+                                                            [W1 (x)]2 +χ2 [W2 (x)]2
+      • Compute [W1 (x) + χ2 W2 (x)]2 =
+                                                 P
+                                                      i∈I
+                                                               Q
+                                                                         ω i −ω j
+                                                                    j∈I,i̸=j
+
+      • Compute H(X) = (ZI′ (U ′ (X)) + χ1 (CI′ (U ′ (X)) − A(X)))/ZV (X)
+      • Publish w = r1−1 [W1 (x) + χ2 W2 (x)]2 − [r2 + r3 x + r4 x2 ]2 , h = [H(x)]1
+Jim Posen and Assimakis A. Kattis                                                         7
+
+
+    Round 3 Verifier: Send random challenge α
+    Round 3 Prover: Output v1 , v2 , π1 , π2 , π3 where
+
+                P1 (X) ← ZI′ (X) + χ1 CI′ (X)
+                P2 (X) ← ZI′ (U ′ (α)) + χ1 (CI′ (U ′ (α)) − A(X)) − ZV (α)H(X)
+               (v1 , π1 ) ← KZG.Open(U ′ (X), α)
+               (v2 , π2 ) ← KZG.Open(P1 (X), v1 )
+                (0, π3 ) ← KZG.Open(P2 (X), α)
+
+    Verifer: Compute p1 = zI + χ1cI and p2 = [v2 ]1 − χ1a − ZV (α)h and verify
+
+                                    1 ← KZG.Verify(u , α, v1 , π1 )
+                                    1 ← KZG.Verify(p1 , v1 , v2 , π2 )
+                                   1 ← KZG.Verify(p2 , α, 0, π3 )
+                          e((C − cI ) + χ2 [xn − 1]1 , [1]2 ) = e(zI , w )
+
+
+
+
+    Prover complexity is O(m2 ), with the limiting steps being polynomial interpolations of
+ZI and CI in round 1 and the aggregation of the precomputed KZG witnesses to produce
+w in round 2. The verifier verifies three KZG commitment openings and one additional
+pairing check. Notice that we can drop one degree of blinding from U ′ (X) as compared to
+Caulk because U ′ (X) is not opened as a KZG commitment in the subprotocol to show
+well-formedness. Furthermore, one fewer pairing is required for verification because the
+degree bound check used in the subprotocol is eliminated. We can use the same standard
+batching techniques described in section 8 of [ZBK+ 22] to reduce the number of pairing
+checks from 4 to 3 and the number of G1 elements in the proof from 8 to 7.
+
+Theorem 1. The protocol in Figure 2 is a zero-knowledge argument of knowledge for
+the relation in equation 1 with verifier complexity Oλ (1) and prover complexity Oλ (m2 ),
+granted the prover has precomputed KZG witnesses for C and X n − 1 at all indices in I.
+
+   Proof. The proof of knowledge soundness for Theorem 1 is given in Appendix A and
+the proof of zero-knowledge is given in Appendix B.
+
+Theorem 2. There exists a vector commitment scheme with position-hiding linkability,
+verifier complexity Oλ (1), and prover complexity Oλ (m2 ), for m the size of the subset and
+n the size of the table. The commitment scheme requires a trusted setup and requires the
+prover to precompute and store a constant number of elements per linked index that take
+O(n) time to compute each or O(n log n) time to compute as a batch.
+
+    Proof. The KZG polynomial commitment scheme over evaluation domains which are
+multiplicative subgroups is a vector commitment scheme per Section 4.6, “KZG as Vector
+Commitment Scheme”, of [ZBK+ 22]. The protocol in Figure 2 provides position-hiding
+linkability with the required asymptotic complexity per Theorem 1.
+
+
+4      Linking to Pedersen Commitments
+   Section 6 of [ZBK+ 22] presents a specific argument for linking a Pedersen commitment
+to an element in a committed vector. In this setting, the SRS contains one additional
+random element h ∈ G1 for which the discrete log relations to all other SRS elements are
+unknown. Then we can construct a zero-knowledge argument for the witness relation:
+8                                                                                             Caulk+
+
+
+
+                                   {[xk−1 ]1 , [xk−1 ]2 }k∈[d] , h ;      c = [C(x)]1 
+                                                                                     
+                      
+           RPC-Link :=            c , v , H, ω ;                        v = [v]1 + rh   .
+                                   C(X), j, v, r                          v = C(ω j )
+                                                                                       
+
+    Care must be taken when modifying the argument from section 6 of [ZBK+ 22] to
+replace the unity subprotocol with a divisibility check. The divisibility check does not
+guarantee that ZI has a root, and if it is a constant polynomial then the main pairing
+check does not correspond to a blinded KZG opening. In the generalized argument this is
+not an issue because equation 5 ensures that ZI has a root.
+    Instead, we will compose the generalized lookup argument with a generalized Schnorr
+proof to produce an efficient argument for the single element case. It is well known that
+the classic Schnorr argument of knowledge of a discrete logarithm can be generalized to
+more complex group homomorphisms from a scalar field to a prime order group [Sch91].
+In this setting we generalize Schnorr’s protocol to an argument of knowledge of the shared
+opening to two Pedersen commitments with different bases in G1 .
+    The prover samples k ← F and computes a polynomial A(X) = v + k(X − 1). The
+commitment to A(X) is a = v[1]1 + k[x − 1]1 . The prover and verifier run the lookup
+argument as a subprotocol with a and V = {1}. Finally they engage in a proof of knowledge
+of v, r, k such that:
+
+
+                                        v = v[1]1 + rh ,
+                                        a = v[1]1 + k[x − 1]1 .
+
+
+
+
+                           Figure 3: Interactive Protocol for RPC-Link
+
+    Public inputs:
+
+      • Prime order cyclic groups G1 , G2 , GT with bilinear map e and generators [1]1 , [1]2
+      • Scalar field F
+      • Structured reference string [x]1 , ..., [xd−1 ]1 , [x]2 , ..., [xd−1 ]2
+      • Independent G1 generator h
+
+    Common inputs:
+
+      • Multiplicative subgroup H < F∗ with order n and generator ω
+      • KZG commitment C to C(X) with evaluation points in H
+      • Pedersen commitment v
+
+    Witness inputs:
+
+      • Value v, Pedersen commitment randomness r, index i
+      • Polynomial C(X)
+
+    Precomputed inputs:
+             (i)                 (i)
+      • [W1 (x)]2 where W1 (X) = (C(X) − ci )/(X − ω i )
+             (i)                 (i)
+      • [W2 (x)]2 where W2 (X) = ZH (X)/(X − ω i )
+Jim Posen and Assimakis A. Kattis                                                           9
+
+
+    Round 1 Prover:
+
+      • Randomly sample blinding factors k, v̂, r̂, k̂ ← F
+      • Prover outputs a = [v]1 + k[x − 1]1
+      • Prover and verifier engage in Link protocol with c , a , A(X) = v + k(X − 1), V =
+        {1}, I = {i} (Figure 2)
+
+    Round 2 Prover: Output ṽ = [v̂]1 + r̂h , ã = [v̂]1 + k̂[x − 1]1
+
+    Round 3 Verifier: Sample random χ
+    Round 3 Prover: Output sv = v̂ + χv, sr = r̂ + χr, sk = k̂ + χk
+
+    Verifier: Verify that
+
+                                         [sv ]1 + srh = ṽ + χv
+                                 [sv ]1 + sk [x − 1]1 = ã + χa .
+
+
+
+
+5      Acknowledgements
+    We thank Arantxa Zapico for discussions and clarifications on the original Caulk
+protocol. We thank Oana Ciobotaru for identifying several mistakes in the presentation,
+including the statement of the verifier complexity. We thank Michal Zajic, Janno Siim,
+Helger Lipmaa, and Roberto Parisella for identifying mistakes in the protocol specification
+which violated correctness and zero-knowledge guarantees.
+
+
+References
+[FKL18]     Georg Fuchsbauer, Eike Kiltz, and Julian Loss. The algebraic group model
+            and its applications. In Hovav Shacham and Alexandra Boldyreva, editors,
+            Advances in Cryptology – CRYPTO 2018, pages 33–62, Cham, 2018. Springer
+            International Publishing.
+
+[GWC19] Ariel Gabizon, Zachary J. Williamson, and Oana Ciobotaru. Plonk: Per-
+        mutations over lagrange-bases for oecumenical noninteractive arguments of
+        knowledge. Cryptology ePrint Archive, Paper 2019/953, 2019. https:
+        //eprint.iacr.org/2019/953.
+
+[KZG10]     Aniket Kate, Gregory M. Zaverucha, and Ian Goldberg. Constant-size commit-
+            ments to polynomials and their applications. In Masayuki Abe, editor, Advances
+            in Cryptology - ASIACRYPT 2010, pages 177–194, Berlin, Heidelberg, 2010.
+            Springer Berlin Heidelberg.
+
+[Sch91]      C. P. Schnorr. Efficient signature generation by smart cards. J. Cryptol.,
+             4(3):161–174, jan 1991.
+
+[TAB+ 20] Alin Tomescu, Ittai Abraham, Vitalik Buterin, Justin Drake, Dankrad Feist,
+          and Dmitry Khovratovich. Aggregatable subvector commitments for stateless
+          cryptocurrencies. In Clemente Galdi and Vladimir Kolesnikov, editors, Security
+          and Cryptography for Networks, pages 45–64, Cham, 2020. Springer International
+          Publishing.
+10                                                                                        Caulk+
+
+
+[ZBK+ 22] Arantxa Zapico, Vitalik Buterin, Dmitry Khovratovich, Mary Maller, Anca
+          Nitulescu, and Mark Simkin. Caulk: Lookup arguments in sublinear time.
+          Cryptology ePrint Archive, Paper 2022/621, 2022. https://eprint.iacr.
+          org/2022/621.
+
+
+A     Proof of Theorem 1: Knowledge Soundness
+     The protocol for position-hiding linking has knowledge soundness in the Algebraic
+Group Model of [FKL18]. Knowledge soundness is defined by a game GameKS involving an
+algebraic adversary A and an efficient extractor E. Given an SRS, the adversary outputs
+an instance c , a , ω, µ and produces an interactive argument for the verifier. The extractor
+then outputs polynomials C, A. The adversary wins if 1) the verifier accepts and 2) it
+is not the case that c = [C(x)]1 ∧ a = [A(x)]1 ∧ ∀i ∈ [m], ∃j ∈ [n], A(µi ) = C(ω j ). The
+protocol has knowledge soundness if there exists an E so that no adversary wins the game
+with greater than negligible probability over the verifier’s randomness.
+     Because the structured reference string consists of the powers of x up to xd−1 lifted to G1
+and G2 , an algebraic representation of a group element in either group can be interpreted as
+the coefficients of a polynomial in Fd [X]. The adversary outputs zI , cI , u , h ∈ G1 , w ∈ G2
+along with their representations, and so the extractor learns the corresponding polynomials
+ZI′ , CI′ , U ′ , W, H. The real pairing check
+
+                          e((C − cI ) + χ2 [xn − 1]1 , [1]2 ) = e(zI , w ),
+
+corresponds to the ideal pairing check
+
+                                C − CI′ + χ2 (X n − 1) = ZI′ W.
+
+    Consequently by Lemma 1, the above polynomial identity holds except with negligible
+probability. Therefore, ZI′ | C − CI′ + χ2 (X n − 1). Since χ2 is sampled after the prover
+commits to CI′ , ZI′ , except with probability |F|1
+                                                    it must be that ZI′ | C − CI′ and ZI′ | X n − 1.
+Let I be the set of roots of ZI . Since ZI | X n − 1, it follows that I ⊂ H, and since
+                                   ′            ′
+
+ZI′ | C − CI′ , it follows that C(y) = CI′ (y) for all y ∈ I.
+    By the knowledge soundness of the KZG polynomial commitment scheme and the
+Schwartz-Zippel lemma, the following polynomial identity holds except with negligible
+probability because the evaluation holds at a random point α:
+
+                   ZI′ (U ′ (X)) + χ1 (CI′ (U ′ (X)) − A(X)) = ZV (X)H(X).
+    Therefore, ZV (X) | ZI′ (U ′ (X)) + χ1 (CI′ (U ′ (X)) − A(X)). Since χ1 is sampled after the
+prover commits to ZI′ , CI′ , U ′ , except with probability |F|
+                                                              1
+                                                                it must be that ZV | ZI′ (U ′ (X))
+and ZV | CI (U (X)) − A(X). Then, ZI (U (y)) = 0 and CI′ (U ′ (y)) = A(y) for all y ∈ V.
+             ′  ′                           ′    ′
+
+Furthermore, U ′ (y) ∈ I for all y ∈ V, since I is the set of roots of ZI′ by definition. Now,
+for any i ∈ [m], A(µi ) = CI′ (U ′ (µi )). There exists a y ∈ I with U ′ (µi ) = y since U ′ maps
+V to I. For all y ∈ I, A(µi ) = CI′ (y) = C(y). Let j be such that y = ω j , which we know
+to exist because I ⊂ H and ω generates H. Then when the extractor outputs C, A, it holds
+that for all ∀i ∈ [m], ∃j ∈ [n], A(µi ) = C(ω j ), meaning the adversary loses the game.
+
+
+B     Proof of Theorem 1: Zero Knowledge
+   We describe the SimulateLink algorithm that, given an instance c , a and the trapdoor
+value x convinces an interactive verifier to accept. This is similar to the argument in
+Appendix F of [ZBK+ 22]. The simulator samples s1 , ..., s8 ← F at random and outputs
+zI = [s1 ]1 , cI = c − [s2 ]1 , u = [s3 ]1 . The simulator then receives χ1 , χ2 and outputs
+Jim Posen and Assimakis A. Kattis                                                        11
+
+
+w = s−1
+      1 [s2 + χ2 ZH (x)]2 , h = [s4 ]2 . As in Appendix F, the simulator receives α, outputs
+v1 = s5 , v2 = s6 , and computes KZG evaluation proofs:
+
+                          π1 = (x − α)−1 (u − [v1 ]1 ),
+                          π2 = (x − v1 )−1 (zI + χ1cI − [v2 ]1 ),
+                          π3 = (x − α)−1 ([v2 ]1 − χ1a − ZV (α)h ).
+
+   It can be seen that the simulator’s outputs satisfy the pairing check.
+
+
+                               e((C − cI ) + χ2 [xn − 1]1 , [1]2 )
+                             =e([s2 ]1 + χ2 [ZH (x)]1 , [1]2 )
+                             =e([1]1 , [s2 ]2 + χ2 [ZH (x)]2 )
+                             =e([s1 ]1 , s−1
+                                          1 ([s2 ]2 + χ2 [ZH (x)]2 ))
+                             =e(zI , w )
+
+   We note the distribution of output elements matches a valid distribution because:
+  • zI is blinded by r1 for the prover and s1 for the simulator,
+  • cI is blinded by r2 for the prover and s2 for the simulator,
+  • u is blinded by r5 for the prover and s3 for the simulator,
+  • w uniquely satisfies the pairing check,
+  • h is blinded by r3 for the prover and s4 for the simulator,
+  • v1 is blinded by r6 for the prover and s5 for the simulator,
+  • v2 is blinded by r4 for the prover and s6 for the simulator,
+  • π1 , π2 , π3 uniquely satisfy the KZG openings.
+

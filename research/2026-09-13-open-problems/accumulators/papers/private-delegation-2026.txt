@@ -1,0 +1,2655 @@
+ Private Delegation of (Non-)Membership Proof
+    Updates in Cryptographic Accumulators
+
+Bence Soóki-Tóth1 , Botond Glasz2 , Alireza Kavousi3 , and István András Seres2
+                               1
+                                  Aarhus University
+                            2
+                              Eötvös Loránd University
+                            3
+                              University College London
+
+
+
+      Abstract. A universal, dynamic accumulator is a verifiable data struc-
+      ture that compresses a set of elements (e.g., unspent coins, issued public
+      key certificates, etc.) into a succinct digest while supporting addition
+      and deletion of elements alongside efficient proving of (non-)membership
+      in that set. In many applications, valid (non-)membership proofs are
+      a prerequisite to accessing a service (e.g., sending a private payment
+      transaction, establishing a TLS connection, etc.). Typically, newly added
+      or deleted elements necessitate updating all existing (non-)membership
+      proofs per update. Thus, intermittently connected clients will possess
+      invalid (non-)membership proofs whenever they reconnect. In this work,
+      we design, implement, and evaluate algorithms for the RSA and bilinear
+      accumulators that allow a resource-constrained client to privately dele-
+      gate the updates of its (non-)membership proofs to an untrusted server.
+      We define and prove security in a game-based framework under standard
+      assumptions. We also study proof delegation in the batch setting. The on-
+      line client algorithms are constant-time,√i.e., independent of the updated
+      set size k, compared to prior O(k), O( k) works. The private delega-
+      tion algorithms for membership proofs incur an asymptotically constant
+      computational overhead for the server (e.g., 6.12× overhead when 210
+      elements were added in the offline phase to the RSA accumulator) com-
+      pared to the non-private membership proof creation algorithms.
+
+      Keywords: Cryptographic Accumulator · Proof Delegation · RSA Ac-
+      cumulator · Bilinear Accumulator · Membership Proof
+
+
+1   Introduction
+Imagine a client owning an element x in a set St at time t, e.g., unspent coins
+in a cryptocurrency ledger, public keys in a key directory, etc. Suppose that
+the set St is large, i.e., |St |≫ 210 , and more importantly, that it is dynam-
+ically changing over time. In other words, operators can add and remove el-
+ements from the set St , i.e., typically St ̸= St′ . We assume that St is rep-
+resented succinctly as Acct , i.e., an accumulator value using a universal, dy-
+namic cryptographic accumulator scheme [9,52]. Suppose that the client can
+use a service (e.g., send a cryptocurrency transaction [56], end-to-end encryp-
+tion), if it can prove with a (non-)membership proof πt,x (πt,x ) that x ∈ St
+2       Soóki-Tóth et al.
+
+(x ∈/ St ). We observe that in many applications of cryptographic accumulators
+(e.g., stateless blockchains [14,24], registration-based encryption [37,40], trans-
+parency logs [54]), clients are running on resource-constrained devices, and are
+typically intermittently connected. Thus, whenever they reconnect after an of-
+fline period, they possess an outdated (non-)membership proof disabling them
+from accessing the desired services. Thus, the clients’ goal is to possess a valid
+(non-)membership proof πt,x (πt,x ) corresponding to the element x at time t
+without forfeiting their privacy, i.e., releasing anything about the element x.
+Our goal in this work is fourfold as follows.
+
+Proof Delegation Resource-constrained clients should be able to delegate the
+   updates of their (non-)membership proofs πt,x (πt,x ) for all time t, element
+   x to an untrusted server, we call proof-serving node (PSN).
+Privacy The proof-serving node should not learn anything about the element
+   x, it updates the (non-)membership proofs for. More precisely, two (non-
+   )membership updates should be computationally indistinguishable.
+Client Efficiency Ideally, the clients’ computational complexity in updating
+   their (non-)membership proofs is in O(poly(log(k))), whenever the server
+   inserts/deletes k elements into/from the set St , cf. Table 1.
+Public Verifiability Serving thousands of users and updating their accumu-
+   lator proofs is a resource-intensive task. Thus, PSNs should be financially
+   incentivized properly to serve their clients. To that end, we devise efficient,
+   publicly verifiable proofs for (non-)membership proof updates allowing a
+   PSN to prove that they successfully completed their computational tasks.
+
+We only trust the third-party PSNs for availability (i.e., the server is online), but
+not for privacy or correctness. Note that there are already established efficient
+markets (e.g., the Golem network [41]) for verifiably outsourcing computational
+tasks [42].
+
+
+1.1   The Necessity of Frequent Proof Updates
+
+Recently, a growing body of literature has been developed that exposes the limits
+of accumulators and related cryptographic primitives, such as vector commit-
+ments. Christ and Bonneau [27] showed that there is no interesting asymptotic
+trade-off between the accumulator’s digest size and the number of proofs that
+must be updated. In other words, either for n elements the accumulator digest
+is O(1)-sized and every membership proof must be updated or the accumulator
+digest is O(n)-sized (i.e., the entire database is stored), and thus no proofs need
+to be updated. The authors demonstrate that this impossibility result is univer-
+sal and applies to all major authenticated data structures used in blockchains,
+including cryptographic accumulators, vector commitments, and authenticated
+dictionaries. As a concrete example, adding a single leaf to a standard Merkle
+tree [55] changes the root and potentially every node on the path, invalidating
+the witnesses/proofs for all existing leaves. This results in O(n2 ) total witness
+updates to add n items. In a follow-up work, Bonneau et al. [16] show that
+                      Private Delegation of Cryptographic Accumulator Proofs            3
+
+when inserting n new elements into a positive accumulator, then each mem-
+bership proof needs to be updated ω(1) times. In fact, more is true, i.e., any
+accumulator with succinct state (polylogarithmic size) must incur at least ω(n)
+total witness updates when adding n items. Abusalah et al. [1] investigate the
+same question of update frequency in the setting where a single element is added
+to a positive accumulator. They found that in an accumulator with n elements
+providing λ-bit security, essentially all proofs, i.e., n − negl(λ) proofs need to be
+updated when a new element is inserted. These results underscore the inevitable
+need for PSNs to make accumulators and vector commitments practical.
+
+
+1.2     Applications
+
+We detail three promising applications for delegating (non-)membership proof
+updates privately in cryptographic accumulators.
+
+
+Stateless Blockchains In traditional blockchains such as Bitcoin and Ethe-
+reum, users can stay offline for a long time and simply broadcast a transaction
+when ready. In stateless blockchain designs [14,24,65], users must constantly
+monitor the network to update their proofs as the blockchain state evolves. If
+they did not update their proofs would become stale, and they could not spend
+their coins. Roughly speaking, the state of a cryptocurrency system at time t is
+essentially the set St = {xi }ni=1 consisting of all the unspent coins in the system.
+Each new transaction removes elements from St and inserts new unspent coins
+into St , updating it to a new St′ . However, storing the entire set St is burden-
+some for smaller clients.4 In a stateless blockchain, the full nodes store the entire
+set St , while clients only store an accumulator digest Acct to the St . Whenever
+clients want to spend a coin x, they can do so by issuing a valid membership
+proof πt,x along with other authorization material, i.e., digital signatures, and
+other proofs. Interestingly, in a privacy-preserving cryptocurrency system, such
+as Zcash [7], clients issue a zero-knowledge proof-of-knowledge of owning πt,x ,
+since clients would lose their privacy if they disclose which unspent coins they
+want to spend. This design motivates the need for privately delegating the up-
+dates of (non-)membership proofs in the stateless blockchain design context.
+
+
+Anonymous Credentials with Revocations In anonymous credential sys-
+tems, cryptographic accumulators are commonly employed to encode the revo-
+cation state of credentials in a compact and publicly verifiable manner, enabling
+users to prove (non-)membership of a hidden revocation handle. However, a
+practical challenge is that accumulator witnesses must be updated whenever
+the underlying set changes, which is problematic for intermittently connected
+users such as mobile wallet holders. This paradigm underlies classical creden-
+tial frameworks based on Camenisch–Lysyanskaya signatures [20,21] as well as
+4
+    For example, the set of unspent coins in Bitcoin takes up tens of gigabytes [31].
+4        Soóki-Tóth et al.
+
+pairing-based constructions [13]. Dynamic RSA and bilinear accumulators pro-
+vide succinct witnesses and scalable revocation [8,57], but require users to update
+witnesses whenever the accumulator changes. These designs make large-scale
+real-world credential revocation system deployments5 infeasible. Our framework
+extends this model by allowing users to outsource witness updates to an un-
+trusted server while preserving unlinkability and public verifiability, thereby im-
+proving practicality for intermittently connected users in large-scale anonymous
+credential deployments, for example European Digital Identity wallet.
+
+
+Registration-based Encryption Registration-Based Encryption [37,38] (RBE)
+is a cryptographic primitive designed to eliminate the trusted key authority
+present in Identity-Based Encryption [15] by replacing it with an untrusted “key
+curator” that maintains a succinct digest of all registered user public keys. This
+system suffers from the same efficiency bottlenecks as stateless blockchains, as
+both rely on a dynamic global commitment that changes with every newly regis-
+tered user. Just as spending a coin in a stateless blockchain invalidates the inclu-
+sion proofs for other users, registering a new user in an RBE system updates the
+global digest, forcing all existing users to download data and update their own
+decryption keys to remain compatible with the new state. This is information-
+theoretically impossible to avoid [16], i.e., users cannot simply generate a key
+once and go offline; instead, they face a witness update burden that scales with
+the number of new registrations (specifically Θ(n log n/log log n)), mirroring the
+heavy bandwidth requirements that plague stateless cryptocurrency designs.
+
+
+1.3     Strawman Solutions
+
+A straightforward idea is to simply send the (non-)membership proof πt,x (πt,x )
+to the PSN to update these proofs as the set St dynamically evolves over time.
+This strawman solution certainly outsources (non-)membership updates, how-
+ever, at the cost of sacrificing privacy. Note that the PSN can break privacy
+by brute-forcing the (non-)membership verification checks, i.e., for instance, for
+                                                                            ?
+membership proofs, the PSN checks ∀si ∈ St : VerMem(Acct , πt,x , si ) = 1, which
+holds iff. si = x. Assuming |St |= poly(λ) in the security parameter λ, this brute-
+force computation can be carried out efficiently.
+    To preserve the privacy of the outsourced element x, one might apply fully
+homomorphic encryption on the outsourced (non-)membership proofs [39]. In
+detail, the client could homomorphically encrypt the accumulator proofs πt,x
+(πt,x ) and send the ciphertexts to the PSN, who completes the (non-)membership
+proof update on the homomorphic ciphertext. This approach solves the problem
+of privately delegating accumulator proofs, but yields a less practical solution
+than applying our tailor-made techniques.
+
+5
+    European Digital Identity wallet [34] must support ≈ 450 million users by late 2026.
+                                   Private Delegation of Cryptographic Accumulator Proofs              5
+
+
+                                                 Operator              Public bulletin Proof serving
+                         Client
+                                                                           board           node
+                               1. Insert element sj
+
+ Online                                         Process insertion
+                                              (update accumulator)
+ Time t                              Return                      Publish
+                                   proof πt,sj               new digest Acct+1
+
+
+
+
+   Of f line
+                                                Process incoming
+                                               insertions {si }k
+                                                               i=1
+
+
+
+
+Time {t + i}k
+                                                           Periodically publish
+                                                           digests {Acct+i }k
+             i=1
+                                                                            i=1
+
+
+
+                                                          Request proof update
+                     Blind proof πt,sj                       (send blinded
+                                                                     ′
+                                                              proof πt,s )
+  Online
+                                                                         j
+
+                                                             Return updated             Update proof
+                                                                     ′                     ′
+                                                              proof πt+k,s                πt+k,s
+ Time t + k
+                                                                             j                  j
+
+                                  ′
+                   Unblind proof πt+k,s
+                                          j
+                     (updated proof)
+
+
+
+Fig. 1: A sequence diagram illustrating the interactions of participants (cf. Sec-
+tion 4) in a privately delegatable cryptographic accumulator scheme. In a private
+delegation protocol for (non-)membership proof updates, at time t + k, the client
+requests a proof serving node the update of an outdated proof πt,sj for a blinded
+element sj to the latest valid proof πt+k,sj .
+
+
+1.4                Technical Overview
+
+In this work, our goal is to endow universal, dynamic accumulators with efficient
+algorithms that allow a client and a server–also known as proof serving node
+(PSN)–to update the client’s (non-)membership proofs privately, cf. Figure 1.
+
+
+Syntax and Security Requirements We introduce four efficient PPT algo-
+rithms BlindProof, BlindProofUpd, VerBlindProofUpd, and UnBlindProof, to allow
+private delegation of (non-)membership proof updates in accumulators.
+                                    ′
+    The BlindProof(·, ·, πt,x ) → πt,x  algorithm is run by the client, and blinds the
+                                      ′
+(non-)membership proof πt,x to πt,x      . Given a blinded (non-)membership proof
+  ′                                                      ′
+πt,x the server runs BlindProofUpd(Acct , Acct′ , St′ , πt,x ) → (πt′ ′ ,x , aux) to update
+the proof with respect to the current accumulator digest Acct′ and produces a
+succinct proof of update correctness aux. Public verifiability of the update cor-
+                                                                ′
+rectness is checked by the VerBlindProofUpd(Acct , Acct′ , πt,x     , πt′ ′ ,x , aux) → {0, 1}
+                                                                  ′
+algorithm. After the private delegation UnBlindProof(·, ·, πt′ ,x , ·) → πt′ ,x is run
+by the client to unblind πt′ ′ ,x and retain the updated proof πt′ ,x .
+6       Soóki-Tóth et al.
+
+    Intuitively, correctness for private accumulator proof delegation entails that
+an honestly run private delegation should always yield a valid (non-)membership
+proof with respect to the current accumulator value. We formalize our privacy
+requirement for private accumulator proof delegation protocols in a notion we
+call blinded membership proof indistinguishability. We require that the
+                                                          ′
+PSN server when seeing a blinded membership proof πt,x        should not be able to
+tell for which element x the blinded accumulator proof belongs to. We formalize
+this notion in Definition 5 as a classical indistinguishability game. Finally, we
+demand computational delegation soundness from a private proof delega-
+tion protocol. Specifically, a malicious PSN server should not be able to produce
+a publicly verified update proof aux such that the unblinded (non-)membership
+proof πt′ ,x is rejected by the accumulator scheme’s (Non)MemVer(·) algorithm.
+    We present constructions for both the bilinear and the RSA accumulator
+schemes, which yield client-efficient proof updates (that is O(1), i.e., independent
+of the update size). We first provide a technical overview of private delegation
+in the RSA accumulator.
+
+Private Delegation of RSA Accumulator Proofs
+
+Membership proofs In the RSA      Q accumulator for an element x, and set St , the
+                                             s
+membership proof is πt,x = g sj ∈S,sj ̸=x j , i.e., it is an xth root of the accu-
+                                                              Qk
+mulator digest Acct . Let St′ := St ∪ {xi }ki=1 and ∆ := i=1 xi . We define the
+                                                ′
+blinded RSA membership proof simply as πt,x        = πt,x · g r for an element r ∈ Zλ
+                                                                  ′
+generated by the client uniformly at random. Note that πt,x           statistically hides
+                                            ′
+πt,x . Thus, the client can safely send πt,x to the PSN server. Afterwards, the
+PSN updates the blinded membership proof πt,x      ′
+                                                       from time t to t′ by comput-
+       ′          ′   ∆ ∆
+ing πt′ ,x := ((πt,x ) , g ). The server also computes discrete logarithm equality
+proofs aux to show consistency between the public accumulator digests (Acct ,
+Acct′ = Acc∆                                                                 ′
+               t ) and the (updated) blinded membership proofs (πt,x , (πt,x ) ).
+                                                                                   ′  ∆
+                       ′
+The server sends (πt′ ,x , aux) to the client. Finally, the client can obtain its up-
+                                                                ′
+dated membership proof πt′ ,x by computing πt′ ,x := (πt,x          )∆ /(g ∆ )r using the
+randomness r it generated at the beginning.
+
+Non-membership proofs Recall,        if x ∈ / St , then gcd (s∗ , x) = 1(⇔ ∃(a, b) ∈ Z2 :
+  ∗                       ∗
+                              Q
+as +bx = 1), where s = sj ∈St sj . The RSA non-membership proof proves the
+co-primality of s∗ and x in the exponent. More precisely, the non-membership
+proof in the RSA accumulator is πt,x := (a, g b ) for (a, b) ← Bezout(s∗ , x).
+    One may be tempted to design a protocol that updates the Bezout-coefficients
+corresponding to x. Assume St+1 = St ∪s′ . We can compute the updated Bezout-
+coefficients (a′ , b′ ) ← Bezout(s∗ · s′ , x) as a function of (a, b, s∗ , s′ ) as follows.
+                                                 1 − aus∗ s′
+                              a′ := au ∧ b′ :=               ,                       (1.1)
+                                                     x
+where u = s′ mod x. Computing the expressions in Equation (1.1) in a privacy-
+preserving manner turns out to be extremely difficult over Z. Thus, we take a
+                     Private Delegation of Cryptographic Accumulator Proofs               7
+
+different and simpler approach. The high-level idea is that the client uses the
+server as an untrusted Bézout-oracle. More precisely, first the client masks the
+non-element x (instead of the non-membership proof) by computing πt,x ′ := x·q,
+which hides x for a random prime q assuming the hardness of factoring and that
+the primes are chosen from a large enough set. Afterwards, the client asks the
+server to compute πt′ ,x ′ := (a, g b ) = (a, B) for (a, b) ← Bezout(s∗ , πt,x ′ ). Finally,
+the client obtains the final non-membership proof as πt′ ,x := (a, B q ). We note
+that this construction only satisfies a weaker notion of privacy, cf. Definition 6.
+
+Private Delegation of Bilinear Accumulator Proofs
+
+Membership proofs In the bilinear accumulator,Qthe accumulated set St is en-
+coded as the accumulator polynomial pt (X) = si ∈St (X − si ), and the corre-
+sponding accumulator digest is defined as the KZG polynomial commitment [48]
+of pt (X), i.e., Acct := KZG.Com(pt (X)). The membership proof for an element
+sj is the KZG commitment πt,sj = KZG.Com(qt,sj (X)) to the quotient polyno-
+mial qt,sj (X) = pt (X)/(X − sj ). Papamanthou observes [58] that when a single
+element is added to the set St+1 = St ∪ sn+1 , then one can simply update the
+bilinear accumulator membership proofs as
+                                                  s
+                                                 n+1   −sj
+                              πt+1,sj = Acct · πt,sj
+                                                             .                        (1.2)
+
+Treating newly added elements as unknown variables, it is straightforward to see
+that Equation (1.2) suggests when k new elements {sn+i }ki=1 are added to St ,
+i.e., St′ = St ∪ {sn+i }ki=1 , then we must compute a degree-k polynomial function
+q ∗ (X) of the quotient polynomial q(X) committed in πt,sj .
+     Motivated by the above technique, we define the blinded bilinear membership
+            ′
+proof as πt,x   = {KZG.Com(crs, rX i q(X)}ki=0 , where r is a uniformly random
+element in Fp and k is the maximum supported number of added elements during
+                                     ′
+the offline period. Intuitively, πt,s  j
+                                         is a randomized common reference string
+encoding q(X) that the server can use to commit to q(X)q ∗ (X) for any update
+polynomial q ∗ (X) of degree ≤ k, without ever learning q(X).
+
+Non-membership proofs If sj ∈   / St , then pt (sj ) = yt,sj ⇔ ∃qt,sj (X) : pt (X) =
+qt,sj (X)(X−sj )+yt,sj , where yt,sj ̸= 0. Thus, πt,sj := (KZG.Com(qt,sj (X)), yt,sj ).
+Observe that after adding a single element sn+1 to the set St , we obtain the fol-
+lowing recurrence relation for the bilinear non-membership proof elements.
+
+                      qt+1,sj (X) = qt,sj (X)(X − sn+1 ) + yt,sj ,
+                                    yt+1,sj = yt,sj sj − yt,sj sn+1 .
+
+In Section 5.4, we show how these recurrence relations admit a simple and in-
+teractive non-membership proof delegation protocol.
+
+1.5   Our Contributions
+In this work, we provide the following three contributions.
+8             Soóki-Tóth et al.
+
+Scheme            Accumulator      Update msg. size    Client cost     Server cost       Mem/Non-mem Batching Decentralized
+    [18]        Merkle tree [55]        O(1)             O(1)        O(k log2 (|St |))       ✓/✗          ✗         ✓
+    [4]            RSA [8]              O(k)             O(k)             O(k)               ✓/✗          ✗         ✓
+    Section 5.3    RSA [8]            O(1)\O(1)        O(1)\O(1)      O(k)\O(k)              ✓/✓          ✓         +
+    [68]          Bilinear [57]          O(k)
+                                          √               O(k)
+                                                           √         O(k log2 (k))           ✓/✓          ✓         ✗
+    [45]          Bilinear [57]         O( k)            O( k)          O(k)                 ✓/✗          ✗         ✓
+    Section 5.4   Bilinear [57]    O(1) (O(k))\O(k) O(1) (O(k))\O(k) O(k)\O(k)               ✓/✓          ✓         ✓
+
+Table 1: Comparing related work on delegating privately (non-)membership
+proofs in accumulators. The column “Mem/Non-mem” indicates that the dele-
+gation schemes support (non-)membership proofs. The column “decentralized”
+denotes whether the delegation schemes assume that an accumulator manager
+knows the trapdoor of the accumulator (e.g., group order, crs trapdoor, etc.) or
+not. Offline/preprocessing costs are written in parentheses. If a scheme supports
+both (non-)membership proof delegations, then these protocols’ asymptotics is
+separated by a backslash. + means that the property can only be achieved under
+an append-only instantiation, i.e., one that does not support deletion.
+
+
+
+Private accumulator proof delegation framework To the best of our knowl-
+    edge, for the first time, we define private accumulator proof delegation and
+    its security, privacy, and soundness in a game-based security framework.
+Efficient constructions We construct the first efficient proof delegation pro-
+    tocols for the RSA [9], and bilinear accumulators [57] that achieve privacy,
+    public verifiability, and constant client complexity.
+Open-source implementation We provide the first open-source implementa-
+    tion of private accumulator proof delegation and evaluate its performance.
+    Our code is publicly available at https://github.com/GlaszBoti/priva
+    te-accumulator-proof-delegation.
+
+Organization This paper is organized as follows. In Section 2, we review the
+related work. We provide the necessary pertinent background in Section 3. We
+describe our system model in Section 4. We introduce our constructions in Sec-
+tion 5, and optimizations in Section 6. We discuss our implementation and per-
+formance evaluation in Section 7. Finally, we conclude our paper in Section 8
+with open problems and future directions.
+
+
+2        Related Work
+
+2.1        Accumulators and Privacy
+
+The anonymous credential literature [20,22] often relies on cryptographic accu-
+mulators to store revoked credentials [19]. These works typically do not provide
+privacy for the witness update operation [52,19,62], i.e., the server knows which
+witness it is updating. Even if they provide privacy-preserving witness update op-
+erations, they do not offer poly-logarithmic update costs for clients [4,45] cf. Ta-
+ble 1. To the best of our knowledge, there are two private membership proof
+                    Private Delegation of Cryptographic Accumulator Proofs        9
+
+delegation schemes [68,18] that provide a constant-time client, a necessity in
+real-world applications. The delegation scheme of [68] works in the accumulator
+manager setting for the bilinear accumulator [68], i.e., incompatible with decen-
+tralized applications. The scheme of [18] for Merkle trees applies heavy recursive
+SNARK machinery, we wish to concretely outperform. Baldimtsi et al. create
+new accumulators that hide the elements and set size, i.e., a so-called oblivious
+accumulator [5]. In the applications we have in mind, the accumulated set is typ-
+ically public. Barthoulot et al. explore delegating accumulator proofs privately
+to a server in a generic setting [6]. They characterize what properties a generic
+solution must satisfy, and they conclude that likely such a construction does
+not exist. In contrast, we show non-generic techniques that are tailored to the
+accumulator schemes at hand in a white-box manner. Thus, we can circumvent
+their impossibility result. Bowe and Miers devised updatable membership proofs
+for Merkle trees using SNARK recursion in the context of privacy-preserving
+cryptocurrencies [18]. However, they provided neither security proofs for their
+constructions nor implementation and performance evaluation. In contrast, in
+this work, we do not resort to heavy techniques such as proof recursion.
+
+2.2   Delegation of Cryptographic Computations
+The study of securely delegating cryptographic computations to a malicious
+server was initiated by Hohenberger and Lysyanskaya [44]. In particular, to our
+discussion, outsourcing (modular) exponentiations is the most related research
+direction [70,25,61]. These works mostly study the problem of outsourcing an
+exponentiation g u ∈ G, where both the base g and the exponent u must be
+kept secret from the helping server. Additionally, the server wants to ensure
+the verifiability of the output g u . At a first glance, one may think that updating
+(non-)membership proofs in certain accumulators (e.g., the RSA accumulator) is
+“just” outsourcing an exponentiation to an untrusted server. Observe that in our
+setting, these techniques are not applicable, since the client does not even know
+the exponent u (derived from the newly added/deleted items) it wishes to raise
+its outdated membership proof g. An added challenge we must solve is to show
+that the output of the outsourced cryptographic computation is correct w.r.t.
+the latest accumulator digest. The typical output verifiability notion considered
+in the aforementioned papers is insufficient in our applications, as the server
+must show validity to a public value, i.e., the accumulator’s latest digest.
+
+2.3   Private Information Retrieval
+The problem of privately delegating (non-)membership proofs for cryptographic
+accumulators can be cast [45] as a Private Information Retrieval (PIR) prob-
+lem [26]. Given a database of valid membership proofs Dt = {πt,sj }sj ∈S , the
+client wants to obtain Dt [i] := πt,si for some index i ∈ I without disclosing the
+index i to the server [45]. An added challenge in our setting is that the database
+is dynamically changing; most PIR protocols do not support this efficiently [53].
+There are a multitude of lower bounds for single-server PIR protocols, e.g., a
+10     Soóki-Tóth et al.
+
+              Notation Description
+                 x, sj      Element in the accumulated set
+                  St        The accumulated set S at time t
+                   n        The size of St , i.e., |St |:= n
+                   k        The number of added elements from t to t′
+                   l        The number of deleted elements from t to t′
+                 Acct       The accumulator digest of the set S at time t
+             πt,sj (πt,sj ) (Non-)membership proof for sj at time t
+              Primes(λ) The first 22λ prime numbers in N
+               Hprime (·) A hash function from {0, 1}∗ to Primes(λ)
+                 Table 2: Notations used throughout the paper.
+
+
+
+typical lower bound for PIR protocols in the information-theoretic setting states
+that Ω(n) bits must be communicated by the server, where n is the database
+size [43]. In the preprocessing setting, there is a tradeoff of online and offline
+communication complexity. In particular, Corrigan-Gibbs and Kogan showed
+the lower bound for any preprocessing PIR, i.e., C · T ≥ Ω̃(n), where C denotes
+the bits of communication in the offline phase, and T denotes the number of bits
+probed of the database in the online phase [29]. In contrast, we create protocols
+where the client’s communication and computation complexity are both O(1) by
+exploiting the algebraic structure of the underlying database Dt = {πt,sj }sj ∈S .
+
+
+3     Background
+3.1   Notations
+The randomization of a group/field element x is denoted as x′ . We use a mul-
+tiplicative notation for the group operation in both the elliptic curve and the
+group of unknown order contexts. Deterministic assignment is denoted as =,
+while probabilistic assignment or uniform random sampling from a set S is de-
+noted as x ← S. Our notation is summarized in Table 2.
+
+3.2   Universal, Dynamic Accumulator Syntax
+A universal, dynamic accumulator Π is a tuple of six probabilistic polynomial
+time (PPT) algorithms [8,5] as follows.
+
+Setup(1λ ) → pp. Given a security parameter λ, this algorithm returns the public
+    parameters pp. The pp is implicitly given to all of the following algorithms.
+Add(Acct , x) → (Acct+1 , u). Given an accumulator Acct and element x, the ad-
+    dition algorithm returns the new accumulator Acct+1 with x added to the
+    set of accumulated values and an update information u.
+Del(Acct , x) → (Acct+1 , u). Given an accumulator Acct and element x, the dele-
+    tion algorithm returns the new accumulator Acct+1 with x being deleted
+    from the set of accumulated values St and an update information u.
+                    Private Delegation of Cryptographic Accumulator Proofs         11
+
+(Non)MemProofCreate(St , Acct , x) → πt,x . Given a set St at time t, an accumu-
+   lator digest Acct , and element x, the (non-)membership creation algorithm
+   returns a (non-)membership proof πt,x .
+(Non)MemProofUpdate(Acct , πt,x , St′ ) → πt′ ,x . Given an old accumulator value
+   Acct , an outdated membership proof πt,x , and the latest set St′ , the proof
+   update algorithm returns an updated (non-)membership proof πt′ ,x .
+(Non)MemVer(Acct , x, πt,x ) → {0, 1}. For a digest Acct , an element x, and a
+   (non-)membership proof πt,x (πt,x ), the (non-)membership verification algo-
+   rithm outputs 1 or 0 indicating accept or reject.
+
+Definition 1 (Correctness). An accumulator scheme Π is correct if all hon-
+estly generated proofs are accepted with overwhelming probability. More for-
+mally, ∀x ∈ St :
+
+      Pr(MemVer(Acct , x, MemProofCreate(Acct , x)) = 1) ≥ 1 − negl(λ) .
+
+Definition 2 (Soundness). An accumulator scheme Π is sound if all adver-
+sarially generated proofs are accepted with negligible probability. More formally,
+∀x ∈/ St :
+
+         Pr(MemVer(Acct , x, MemProofCreate(Acct , x)) = 1) ≤ negl(λ) .
+
+3.3   The RSA and Bilinear Accumulators
+We recall the efficient algorithms of the RSA [8,52] and bilinear [57,30] universal
+dynamic accumulators in Figures 11 and 12.
+
+3.4   Non-interactive Zero-knowledge Proofs
+We recall the relevant syntax of non-interactive zero-knowledge (NIZK) proofs
+following [11], and for the details and exact security requirements, we refer to [11].
+NIZK arguments consist of four PPT algorithms that are defined with respect
+to a relation generator algorithm R-Gen(1λ ) that, upon receiving some security
+parameter λ, outputs a polynomial-time decidable relation R : {0, 1}∗ × {0, 1}∗
+for which (ϕ, w) ∈ R, where ϕ is typically an algebraic statement in a ring FN
+or in a finite field Fp and w is a valid witness for the instance.
+
+ – NIZK.Setup(R) → (crs, τ ). For the relation R, the setup produces a common
+   reference string crs and a simulation trapdoor τ . This possibly randomized
+   algorithm may use public/private coins (a.k.a. transparent/trusted setup).
+ – NIZK.Prove(R, crs, ϕ, w) → π. Given (ϕ, w) ∈ R and the common reference
+   string crs, the prover returns an argument π.
+ – NIZK.Verify(R, crs, ϕ, π) → {0, 1}. the relation R, the common reference
+   string crs, the statement ϕ, and an argument π, the verification algorithm
+   returns 0 or 1 indicating reject or accept.
+ – NIZK.Sim(R, τ, ϕ) → π. Using the simulation trapdoor τ of the relation R,
+   and the statement ϕ, the simulator returns a simulated proof π.
+12     Soóki-Tóth et al.
+
+   This work builds on NIZKs for the following efficiently decidable languages in
+both groups of unknown order and elliptic-curve groups. All of the corresponding
+proofs have constant size and constant-time verification.
+   Discrete Logarithm equality (DLEq) [23,14].
+
+              RDLEq = {(((g, u, h, v) ∈ G4 ); w ∈ Z) : u = g w ∧ v = hw }.                         (3.1)
+
+   Polynomial Exponentiation Equality (PoEEq) A variant of the DLEq
+proof for “exponentiating” with a polynomial, cf. [66].
+
+               RPoEEq = {(((g, u, h, v) ∈ G4 , ϕ(X) ∈ Fp [X]); τ ∈ Fp ) :
+                                                                                                   (3.2)
+                                                           u = g ϕ(τ ) ∧ v = hϕ(τ ) }.
+
+
+4    System and Threat Models
+
+In this work, we apply a discrete-time model. A timer t ∈ N is only incremented
+when an item is inserted or deleted from the accumulator with digest Acct , i.e.,
+we update our timer from t to t + 1, and the digest to Acct+1 . Next, we describe
+our system model illustrated in Figure 2.
+
+
+
+                                            t
+                                         en fs
+                                   c urr proo
+                                s
+                            est hip                            5.
+                      e qu bers                                   Re
+                                                                     ad
+                 .  R em                       f                        su
+                4 )m                        o o  Proof serving             pd
+                   n-                    pr                                   ate
+               n o                 r n s             node
+              (                 t u                                               s
+                            R e
+                        6 .          3. Reads accumulator digest
+
+                                                                                st
+     Client
+                    1. R
+                          e                                                 dige Public bulletin
+                inse
+                    rtio quests                                      ates
+                         n/d                                 2.   Upd                board
+                   of a      e
+                        n it letion
+                            em
+                                            Operator
+
+Fig. 2: Our System Model. 1 A client requests the insertion/deletion of an
+item into/from the accumulated set. 2 Subsequently, the operator regularly
+updates the accumulator digest and publishes it to a public bulletin board (e.g.,
+a blockchain) to reflect its current state. 3 The client (and all other parties
+as well) can read the latest accumulator digest and elements from the bulletin
+board. 4 After an offline period, the client may request its latest valid (non-
+)membership proofs from a proof serving node (PSN). 5 - 6 Finally, the PSN
+serves the client with its latest (blinded) valid (non-)membership proofs.
+                    Private Delegation of Cryptographic Accumulator Proofs        13
+
+Client We assume resource-constrained, intermittently connected clients, e.g.,
+   a browser, a cryptocurrency wallet, smart watch, etc., that want to privately
+   delegate the updates of (non-)membership proofs for an element x ∈ S (x ∈        /
+   S). The client possesses a valid (non-)membership proof for an item x w.r.t
+   Acct , and wishes to obtain a valid (non-)membership proof for Acct′ , where
+   t′ > t. Naturally, the client does not know which elements were added or
+   removed from the set S between time t and t′ .
+Public Bulletin Board There is a trusted public bulletin board (e.g., a blockchain
+   or an independent cloud server) readable by everyone, acting as a source of
+   truth, i.e., it stores the current accumulator digest Acct at all times t, en-
+   abling clients to verify (non-)membership proofs.
+Operator The public bulletin board is operated by a set of incentivized par-
+   ties. For instance, they are validators (i.e., stakers of proof-of-work miners) in
+   the blockchain context or certificate authorities in the key transparency ap-
+   plication. The operator appends new elements, removes necessary elements
+   from the accumulator, updates the accumulator digest on the public bulletin
+   board i.e., manages the accumulator.
+Proof Serving Nodes The so-called proof serving nodes (PSNs) are untrusted
+   third parties that are always online and, upon request, privately update the
+   clients’ (non-)membership accumulator proofs. In practical accumulator de-
+   ployments, PSNs and operators may be the same entities, but for conceptual
+   reasons, we separate them in our discussion.
+
+
+4.1   Supporting Various Set Operations
+
+Clients can update the accumulated set St in various ways depending on the
+application. We focus mainly on supporting the following two set operations.
+
+Addition Users or the accumulator manager may add new elements to the
+   accumulator i.e., St+1 := St ∪sn+1 . In our target applications, this operation
+   models the creation of new coins in stateless blockchains, or the issuance of
+   new public key certificates in key transparency logs.
+Deletion Users or the accumulator manager may remove elements from the set,
+   i.e., St+1 := St \ sj for some sj ∈ St . This operation models the spending of
+   a cryptocurrency coin, or the revocation of a public key certificate.
+
+We admit that there are more interesting set operations that we may consider,
+e.g., element modification or element modification by some allowed function f (·),
+i.e., st+1,j := f (st,j ). We leave it to future work to devise privately delegatable
+accumulator schemes supporting other set operations as well.
+
+
+4.2   Threat Model
+
+As we show later, our protocols offer strong privacy guarantees, i.e., the server
+cannot distinguish two (non-)membership proof updates for the same time in-
+terval (cf. Definition 5). However, we acknowledge that the PSN can use various
+14        Soóki-Tóth et al.
+
+side-channel information to breach user privacy. For example, the PSN server
+may take advantage of update request timing correlations, repeated queries, or
+other correlation attacks. We consider these leakages to be orthogonal to this
+work, as they can be circumvented by the appropriate use of anonymous com-
+munication tools, e.g., Tor, virtual private networks, etc.
+
+
+5      Privately Delegating Accumulator Proofs
+
+We aim to endow any universal, dynamic accumulator scheme with four new
+efficient algorithms.6
+
+
+5.1     Syntax of Privately Delegatable Cryptographic Accumulators
+
+We introduce privately delegatable cryptographic accumulator schemes, i.e.,
+we endow universal, dynamic accumulator schemes ACC = (Setup, Add, Del,
+MemProofCreate, MemVer, NonMemProofCreate, NonMemVer) with four new al-
+gorithms i.e., ΠACC = (BlindProof, BlindProofUpd, VerBlindProofUpd, UnBlindProof)
+enabling to privately delegate membership proof updates in ACC. For the sake
+of notational simplicity, we define our syntax and security definitions only for
+privately delegating membership proofs. It is straightforward to define them anal-
+ogously for non-membership proofs as well.
+
+Definition 3 (Privately Delegatable Accumulator). We say an accumu-
+lator scheme ACC has privately delegatable membership proof updates if, in addi-
+tion, it also implements the following four PPT algorithms ΠACC = (BlindProof,
+BlindProofUpd, VerBlindProofUpd, UnBlindProof) where the public parameters pp
+of ACC are assumed to be implicitly given.
+                                     ′
+BlindProof(Acct , x, πt,x ) → (πt,x      , st). Given a membership proof πt,x for the ele-
+                                                                                                  ′
+    ment x at time t, this algorithm returns a blinded membership proof πt,x                           and
+    a state st.
+BlindProofUpd(Acct , {xi }ki=1 , {yi }li=1 , Acct′ , πt,x     ′
+                                                                ) → (πt′ ′ ,x , aux). For a blinded
+                            ′
+    membership proof πt,x , element x and the old accumulator value Acct , the
+                                                                       ′
+    server can update the blinded membership proof πt,x                       to a new blinded mem-
+                       ′
+    bership proof πt′ ,x so that it will be valid for the updated accumulator value
+    Acct′ which corresponds to the digest of the set St′ := (St ∪{xi }ki=1 )\{yi }li=1 .
+                                       ′
+VerBlindProofUpd(Acct , Acct′ , πt,x        , (πt′ ′ ,x , aux)) → {0, 1}. For the digests
+                                                                                      ′
+    Acct , Acct′ it is publicly verifiable that the proof update from πt,x              to (πt′ ′ ,x , aux)
+    was computed correctly. This deterministic algorithm returns a bit indicating
+    whether the proof delegation was done correctly.
+UnBlindProof(Acct′ , x, πt′ ′ ,x , st) → πt′ ,x . Given the latest accumulator digest Acct′ ,
+    a blinded membership proof πt′ ′ ,x for the element x and a state st, this algo-
+    rithm returns an unblinded membership proof πt′ ,x for x ∈ St′ .
+6
+     Four algorithms for membership proofs, and four for non-membership proofs.
+                      Private Delegation of Cryptographic Accumulator Proofs                 15
+
+                                                           ′
+Remark 1. We must blind the membership proof πt,x to πt,x    , otherwise the PSN
+could link the membership proof to an item x by repeatedly calling the mem-
+bership verification algorithm of the accumulator scheme. Our model is compre-
+hensive as we allow additions and deletions in the offline period to the accumu-
+lator, cf. the BlindProofUpd(·) function. Observe that the VerBlindProofUpd(·)
+algorithm does not have private inputs, making the witness update publicly ver-
+ifiable. We omit ACC from the subscript of Π as it is obvious from the context
+which accumulator scheme is endowed with the private delegation algorithms.
+
+5.2   Security and Privacy Requirements
+We define the security and privacy requirements for privately delegatable ac-
+cumulator schemes in a game-based framework. Intuitively, the delegated proof
+updates when honestly computed are accepted with overwhelming probability.
+Definition 4 (Correctness). Honestly run proof updates yield valid member-
+ship proofs with overwhelming probability, i.e., ∀t, t′ ∈ N, ∀Acct , Acct′ , ∀x ∈ S,
+we have
+      Pr[ VerMem(Acct′ , x, UnBlindProof(Acct , Acct′ , πt,x , (πt′ ′ ,x , aux))) = 1 ]
+          ≥ 1 − negl(λ) ,
+       ′
+where πt,x ← BlindProof(Acct , x, πt,x ), and
+
+         (πt′ ′ ,x , aux) ← BlindProofUpd(Acct , {xi }ki=1 , {yi }li=1 , Acct′ , πt,x
+                                                                                  ′
+                                                                                      ).
+
+   Intuitively, the blinded (non-)membership proofs should not leak anything
+about neither the element x nor the unblinded (non-)membership proof.
+Definition 5 (Blinded Membership Proof Indistinguishability). A pri-
+vately delegatable accumulator scheme Π has blinded membership proof indistin-
+guishability if ∀λ, ∀ PPT adversary A, ∃negl(·) s.t. the advantage of the adversary
+in the indistinguishability game ( cf. Figure 3) is negl(λ). Formally,
+                                                    1
+                            Pr[GA,Π (λ) = 1] ≤        + negl(λ) .                          (5.1)
+                                                    2
+
+   We also introduce a relaxed notion of blinded membership proof indistin-
+guishability. In this weaker privacy notion, the adversary cannot link the blinded
+membership proof among exponentially many accumulated elements with non-
+negligible probability.
+Definition 6 (Weak Blinded Membership Proof Indistinguishability).
+ Let x ∈R {0, 1}λ and πt,x a valid membership proof x at time t. Moreover, we
+     ′
+let πt,x := BlindProof(pp, πt,x ). Then, we say that a privately delegatable accu-
+mulator scheme Π satisfies weak blinded membership proof indistinguishability if
+∀(λ, t) ∈ N2 , x ∈R {0, 1}λ , and ∀A PPT, there exists a negl(·) function such that
+the following holds:
+                                     ′
+                          Pr[A(pp, πt,x ) = x] ≤ negl(λ) .                    (5.2)
+16      Soóki-Tóth et al.
+
+
+        Adversary A                                       Challenger C
+                                    pp
+ x0 , x1 ∈ {0, 1}λ                              pp ← Setup(1λ )
+                               x0 , x1 , Acc1     $
+ Acc1 ← Add(Acc0 , x0 , x1 )                    b←
+                                                 − {0, 1}
+                                                π1,xb ← MemProofCreate(pp, Acc1 , xb )
+                                    ′            ′
+                                   π1,x b
+                                                π1,x b
+                                                       ← BlindProof(Acc1 , xb , π1,xb )
+ output b′ ∈ {0, 1}
+
+
+
+Fig. 3: The blinded membership proof indistinguishability game, cf. Definition 5.
+The adversary A wins the game iff. b = b′ .
+
+
+    In Section 5.3, we will see a private delegation protocol that satisfies weak
+blinded membership proof indistinguishability, but it does not satisfy the stronger
+notion of blinded membership proof indistinguishability.
+    Next, we introduce the notion of delegation soundness. Intuitively, a mali-
+cious PSN should not be able to produce a convincing (publicly verifiable) proof
+update aux for a valid (non-)membership proof πt,x such that later the unblinded
+(non-)membership proof is not verified by the accumulators (non-)membership
+verification algorithms. We define the notion for membership proofs as follows.
+Definition 7 ((Computational) Delegation Soundness). A privately del-
+egatable accumulator scheme ΠACC is computationally delegation sound if ∀λ, ∀
+PPT adversary A, ∀x ∈ St , ∀(t, t′ ) ∈ N2 s.t. t ≤ t′ , ∀πt,x : MemVer(Acct , πt,x , x) =
+1, there exists a negl(·) function s.t.,
+         h
+      Pr MemVer(UnBlindProof(Acct′ , st, πt′ ′ ,x )) = 0
+                                                                         i
+                                                 ′
+           VerBlindProofUpd(pp, Acct , Acct′ , πt,x , πt′ ′ ,x , aux) = 1 ≤ negl(λ).
+
+Definition 8 (Private Delegation of Membership Proof Updates). A
+universal, dynamic accumulator scheme ACC has a secure, private delegation
+scheme for membership proof updates if ΠACC = (BlindProof, BlindProofUpd,
+VerBlindProofUpd, UnBlindProof) satisfies correctness, delegation soundness, and
+(weak) blinded membership proof indistinguishability.
+
+5.3   Privately Delegating Proofs in the RSA Accumulator
+Membership proofs Due to the RSA accumulator’s multiplicative structure,
+            ′
+a simple πt,x  = πt,x · g r randomization suffices for the blinded membership
+proof,
+Qk     while enabling efficient blinded proof updates. The server computes ∆ =
+                                        ′       ′    ∆
+   i=1 i ∈ Z and the exponentiation πt′ ,x := (πt,x ) to obtain the updated blind
+      x
+membership proof. Finally, the server shows consistency between the accumula-
+                                                             ′
+tor digests (Acct , Acct′ ) and blinded membership proofs (πt,x , πt′ ′ ,x ) by creating
+a non-interactive discrete logarithm equality proof. We describe the four algo-
+rithms for our privately delegatable RSA accumulator scheme in Figure 4.
+                       Private Delegation of Cryptographic Accumulator Proofs   17
+
+
+  BlindMemProof(pp, πt,x ):
+                 $
+    1. st := r ←
+               − Z2λ
+         ′
+    2. πt,x := πt,x · g r
+                  ′
+    3. return (πt,x   , st)
+
+                                                                    ′
+  BlindMemProofUpd(pp, St , Acct , {xi }ki=1 , {yi }li=1 , Acct′ , πt,x ):
+    1. St′ = (St ∪ {xi }ki=1 )\{yi }li=1
+                Qk              l
+                                Q
+    2. PT ←        xi , PR ←       yi
+               i=1             i=1
+                         −1
+                                      
+    3a. ∆ ← PT · PR mod |G|
+    3b. ∆ ← PT (∈ Z) //assuming no deletion
+                ′
+    4. A = (πt,x   )∆ , B = g ∆
+                                        ′
+    5. π1 ← NIZK.Prove(RDLEq , (πt,x      , A, Acct , Acct′ ), ∆)
+                                             ′
+    6. π2 ← NIZK.Prove(RDLEq , (g, B, πt,x      , A), ∆)
+        ′
+    7. πt′ ,x ← {A, B}, aux ← {π1 , π2 }
+    8. return (πt′ ′ ,x , aux)
+                                          ′
+  VerBlindMemProofUpd(pp, Acct , Acct′ , πt,x , πt′ ′ ,x , aux):
+    1. {π1 , π2 } ← aux, {A, B} ← πt′ ′ ,x
+                                   ′
+    2. b1 := NIZK.Verify(RDLEq , (πt,x   , A, Acct , Acct′ ), π1 )
+                                            ′
+    3. b2 := NIZK.Verify(RDLEq , (g, B, πt,x   , A), π2 )
+    4. return b1 ∧ b2
+
+  UnMemBlindProof(Acc′t , st, πt′ ′ ,x ):
+    1. {A, B} ← πt′ ′ ,x , r ← st
+    2. πt′ ,x := A/B r
+    3. return πt′ ,x
+
+
+
+Fig. 4: The private delegation algorithms for membership proof updates in the
+RSA accumulator. Step 3a of BlindProofUpd(·) (typeset in blue) can be efficiently
+performed if the PSN knows the trapdoor of the group of unknown order, i.e.,
+its factorization in case of an RSA instantiation. This is reasonable when the
+PSN is also the accumulator manager.
+
+
+Theorem 1 (RSA accumulator is privately delegatable for member-
+ship proofs). Our construction in Figure 4 yields a secure, privately delegatable
+membership proof update scheme for the RSA with element additions and dele-
+tions under the strong RSA assumption and knowledge soundness of Figure 13.
+   The proof can be found in Appendix B.1.
+
+
+Non-membership proofs We describe the four efficient algorithms that al-
+low a client to privately delegate the updates of their RSA accumulator non-
+membership proofs, cf. Figure 5. The intuition is that due to the hardness of
+18         Soóki-Tóth et al.
+
+
+     BlindNonMemProof(pp, x):
+       1. if x ∈ St : return ⊥
+                    $
+                  − Primes(1λ )
+       2. st := q ←
+              ′
+       3. πt,x := x · q
+       4. return (πt,x ′ , st)
+
+     BlindNonMemProofUpd(pp, Acct , {xi }ki=1 , {yi }li=1 , Acct′ , πt,x ′ ):
+       1. s∗ := s∈S ′ s mod |G|
+                   Q
+                       t
+       2. {a, b mod |G|} ← Bezout(s∗ , πt,x ′ )
+       3. πt′ ,x ′ ← {a, B := g b }, aux ← ∅
+       4. return (πt′ ,x ′ , aux)
+
+     VerBlindNonMemProofUpd(pp, Acct′ , πt,x ′ , πt′ ,x ′ , aux):
+       1. {a, B} ← πt′ ,x ′
+       2. y ← πt,x ′
+       3. return 1 if g = Accat′ B y
+
+     UnBlindNonMemProof(Acc′t , st, πt′ ,x ′ ):
+       1. {a, B} ← πt′ ,x ′
+       2. q ← st
+       3. B ′ := B q
+       4. return πt′ ,x ← {a, B ′ }
+
+
+
+Fig. 5: The private delegation algorithms for updating non-membership proofs in
+the RSA accumulator. The steps 1 and 2 of BlindNonMemProofUpd(·) (typeset
+in blue) can be largely sped up if the PSN knows the trapdoor of the group of
+unknown order, i.e., its factorization in case of an RSA instantiation. This is
+reasonable when the PSN is also the accumulator manager.
+
+
+factoring, for a non-element x, i.e., x ∈
+                                        / S, x·q hides x for appropriately large uni-
+form random primes. Although in many RSA accumulator applications, elements
+are hashed to smaller primes, i.e., of size 256-bits, thus, the proposed protocol
+requires the use of an HPrimes with a larger image space for privacy reasons. This
+is because factoring a 512-bit semiprime is considered highly practical [67].
+
+Remark 2. The implicit assumption in the protocol presented in Figure 5 is that
+the size of the set that clients want to update their non-membership proofs for
+(denote this set as S ′ s.t. S ′ ∩ S = ∅), has an exponential size in λ. In the state-
+less blockchain application of Section 1.2, elements are coin identifiers hashed to
+256-bit primes, giving an effectively O(λ)-size element space; the weak notion
+suffices. In contrast, for certificate revocation lists with a bounded registry, this
+construction should not be used without additional precautions. Note that if
+|S ′ |∈ poly(λ), then it is trivial to break weak blinded non-membership proof in-
+distinguishability: the server computes ∀x′ ∈ S ′ : gcd(x′ , πt,x ′ ). If gcd(x′ , πt,x ′ ) ̸=
+                    Private Delegation of Cryptographic Accumulator Proofs         19
+
+1, the server found the element x′ for which the clients obtained up-to-date non-
+membership proofs. Thus, this non-membership proof update delegation can-
+not satisfy blinded non-membership proof indistinguishability (cf. Definition 5).
+However, as we show next, it satisfies weak blinded non-membership proof in-
+distinguishability, cf. Definition 6.
+
+Theorem 2 (The RSA accumulator is privately delegatable for non-
+membership proofs). Our construction in Figure 5 yields a privately delegat-
+able non-membership proof update scheme for the RSA accumulator with element
+additions and deletions under the strong RSA and factoring assumptions in the
+random oracle model (ROM).
+
+      The proof can be found in Appendix B.2.
+
+5.4     Privately Delegating Proofs in Bilinear Accumulators
+Next, we make the bilinear accumulator privately delegatable. Note that the
+following bilinear delegation protocols do not support element deletions, i.e., we
+only support element additions. We leave this gap to future work.
+
+Membership proofs The high-level idea of our protocol for privately dele-
+gating membership proofs in bilinear accumulators is as follows.       QnRecall, in a
+bilinear accumulator ∀sj ∈ S ⇔ (X − sj )|f (X), i.e., f (X) := i=1 (X − si ).
+Thus, the membership proof for an element sj is the KZG commitment to the
+                                f (X)
+quotient polynomial q(X) := X−s     j
+                                      . Our idea is that the client sends a random-
+ized common reference string crs′ to the PSN, where each monomial in crs′ is
+additionally raised to rq(τ ), i.e., crs′ := {KZG.Com(rq(X)X i )}ki=0 , where τ is
+the trapdoor of the KZG CRS and r is a randomizer field element sampled by
+the client. The PSN uses crs′ in the update algorithm to commit to the updated
+                                                        f ′ (X)        Qk
+membership proof for the element sj , i.e., q ′ (X) = (X−s    j)
+                                                                 = q(x) i=1 (X − si ).
+The crs′ allows the PSN to update the membership proof supporting up to k
+newly added elements. Finally, the client derandomizes the updated membership
+proof to obtain the latest valid membership proof for sj . The private delegation
+protocol is detailed in Figure 6.
+
+Preprocessing. At first glance, BlindMemProof(·) algorithm imposes an O(k)
+online computational cost on the client (cf. Figure 6) to generate the blinded
+reference string crs′sj , where k is the batch size of newly accumulated elements.
+However, we observe that the preparation of crs′sj is independent of the update
+elements {xi }ki=1 . Consequently, the client can compute this blinded CRS dur-
+ing an offline, preprocessing phase. In the online phase —when the accumulator
+transitions from t to t′ —the heavy O(k) polynomial commitment is entirely del-
+egated to the PSN. The client’s online computational cost is thereby reduced
+to verifying a constant-size PoEEq NIZK (RPoEEq ) and performing a single un-
+blinding exponentiation. This offline-online decoupling achieves a strictly O(1)
+20         Soóki-Tóth et al.
+
+
+     BlindMemProof(pp, Acct , St , sj , πt,sj ):
+                     $
+       1. st := r ←
+                  − Fp
+                    Qn
+       2. q(X) ←       (X − si )
+                     i=1,i̸=j
+           ′
+       3. πt,sj
+                ← {KZG.Com(crs, rX i q(X)}ki=0
+                    ′
+       4. return (πt,s j
+                         , st)
+                                                      ′
+     BlindMemProofUpd(pp, Acct , {xi }ki=1 , Acct′ , πt,s j
+                                                            ):
+                         k
+       1. q ∗ (X) :=                          ′
+                                                   , πt′ ′ ,sj , Acct , Acct′ )
+                         Q
+                           (X − xi ), W := (πt,s j
+                       i=1
+                        ′
+       2. crs′sj ← {πt,s   j
+                             }
+       3. πt′ ′ ,sj ← KZG.Com(crs′sj , q ∗ (X))
+       4. aux ← NIZK.Prove(RPoEEq , W, crs′sj , q ∗ (X))
+       5. return (πt′ ′ ,sj , aux)
+                          ′
+     VerBlindMemProofUpd(πt,s j
+                                , πt′ ′ ,sj , Acct , Acct′ , aux):
+       1. π ← aux
+                                     ′
+       2. b = NIZK.Verify(RPoEEq , (πt,sj
+                                          , πt′ ′ ,sj , Acct , Acct′ ), π)
+       3. return b
+
+     UnBlindMemProof(Acct′ , st, πt′ ′ ,sj ):
+       1. r ← st
+                                         −1
+       2. return πt′ ,sj ← (πt′ ′ ,sj )r    mod p
+
+
+
+
+Fig. 6: The delegation algorithms for privately updating membership proofs in
+the bilinear accumulator.
+
+
+online computational complexity for the client, making the delegation protocol
+highly practical for resource-constrained devices.
+
+Theorem 3 (Bilinear accumulator is privately delegatable). The con-
+struction in Figure 6 is a secure, privately delegatable membership proof update
+scheme for the bilinear accumulator, under q-Strong Diffie-Hellman (q-SDH)
+assumption in the algebraic group model and ROM.
+
+      The proof can be found in Appendix B.3.
+
+
+Non-membership proofs Unlike the membership case, the following protocol
+is interactive and requires k rounds between the client and the PSN – one per
+added element – making it suitable only for small offline update sizes. Recall
+that in the bilinear accumulator if sj ∈  / St =⇒ 0 ̸= (st (X) mod (X − sj )).
+Thus, st (X) = qt,sj (X)(X − sj ) + yt,sj , where yt,sj ̸= 0. That is, for sj at time
+t we have: πt,sj := (KZG.Com(qt,sj (X)), yt,sj ) [30].
+                            Private Delegation of Cryptographic Accumulator Proofs   21
+
+
+
+
+  BlindNonMemProof(pp, Acct , sj , πt,sj ):
+          q      (τ )
+    1. {g t,sj          , yt,sj } ← πt,sj
+                    $
+    2. (r1 , r2 ) ←
+                  − Fp , st ← (r1 , r2 , yt,sj )
+                   r q    (τ )  r τq     (τ )
+    3. crs′ := {g 1 t,sj , g 1 t,sj }
+    4. πt,sj ′ ← {crs′ , r2 · yt,sj }
+    5. return (πt,sj ′ , st)
+
+  BlindNonMemProofUpd(pp, Acct , sn+1 , Acct+1 , πt,sj ′ ):
+    1. {crs′ , yt,s
+                 ′
+                    j
+                      } ← πt,sj ′
+    2. Q := KZG.Com(crs′ , X − sn+1 )
+          ′
+        ′                      ′              s
+    3. yt+1,s  j
+                  := sn+1 · yt,s  j
+                                    , aux ← {g2n+1 }
+                 ′       ′   ′
+    4. πt+1,sj ← {Q , yt+1,sj }
+    5. return (πt+1,sj ′ , aux)
+
+  VerBlindNonMemProofUpd(πt,sj ′ , πt+1,sj ′ , sn+1 , Acct+1 , aux):
+    1. {Q′t , yt,s
+               ′
+                   j
+                     } ← πt,sj ′ , {Q′t+1 , yt+1,s
+                                             ′
+                                                  j
+                                                    } ← πt+1,sj ′ , A ← aux
+               ′              ? ′
+    2. b1 := (yt+1,sj
+                      = sn+1 · yt,sj
+                                     mod p)
+                                                   ′            ′
+                                                τ yt,s         yt+1,s
+    3. rhs ← e(Acct+1 · Q′t+1 · g1                       j
+                                                             /g1        j
+                                                                            , g2 )
+                                      ′
+                                     yt,s                      ?
+    4. b2 := (e(Acct · Q′t · g1             j
+                                                , g2τ /A) = rhs)
+    5. return b1 ∧ b2
+
+  UnBlindNonMemProof(Acct , st, πt+1,sj ′ ):
+    1. {Q′ , yt+1,s
+               ′
+                      j
+                        } ← πt+1,sj ′
+    2. (r1 , r2 , yt,sj ) ← st
+                       −1          y
+    3. Q := (Q′ )r1 mod p · g t,sj
+                                 ′
+    4. yt+1,sj := yt,sj sj − yt+1,sj /r2
+    5. return πt+1,sj ← {Q, yt+1,sj }
+
+
+
+Fig. 7: The private delegation algorithms for updating non-membership proofs in
+the bilinear accumulator after a single element sn+1 is added to the accumulated
+set; St+1 = St ∪ sn+1 . If multiple elements are added during the offline period,
+the PSN and the client repeat this protocol sequentially for each added element.
+22       Soóki-Tóth et al.
+
+    One may be tempted to take a similar approach as in Figure 5, i.e., using the
+PSN as a polynomial “Bézout-oracle”: the PSN could evaluate Bezout(st (X), ·)
+for cleverly crafted input polynomials. This approach is not fruitful, as no matter
+how one blinds the desired query polynomial (X −sj ) it seems difficult to obtain a
+meaningful protocol. For example, masking with a random r, i.e., r(X−sj ) seems
+to be at odds not only with privacy but also correctness, as Bezout(st (X), ·) is
+non-linear. Masking (X − sj ) with higher-degree polynomials is pointless as one
+can efficiently factor polynomials over finite fields due to Berlekamp [10]. Instead
+of the previous approach, we study how (qt,sj (X), yt,sj ) must be updated after
+a single element sn+1 is added to the accumulator. That is,
+                                                                
+     st+1 (X) = st (X)(X − sn+1 ) = qt,sj (X)(X − sj ) + yt,sj (X − sn+1 ) =
+                                               = qt+1,sj (X)(X − sj ) + yt+1,sj .
+
+The
+ polynomial division computation     (i.e., yt,sj (X − sn+1 )/(X − sj ) = yt,sj ∧
+ yt,sj (X − sn+1 ) mod (X − sj ) ≡ (yt,sj sj − yt,sj sn+1 ))) yields the following
+recurrence relation for updating non-membership proofs in bilinear accumulators
+after adding a single element to the accumulated set.
+
+                      qt+1,sj (X) = qt,sj (X)(X − sn+1 ) + yt,sj ,              (5.3)
+                                  yt+1,sj = yt,sj sj − yt,sj sn+1 .             (5.4)
+
+The recurrence relations above suggest the following private delegation protocol.
+The PSN server and the client can engage in an interactive protocol during the
+update process for each element sn+1 added to the set St . In each round of
+the non-membership update protocol, the client sends a very short randomized
+crs′ allowing the PSN to KZG-commit to a randomized version of qt+1,sj (X).
+Similarly, the server can compute and return a randomized version of yt+1,sj . At
+the end of the protocol, the client can verify the correctness of the final received
+non-membership proof elements. The full protocol is detailed in Figure 7.
+Theorem 4 (Bilinear accumulator is privately delegatable for non-
+membership proofs). Our construction in Figure 7 yields a privately dele-
+gatable non-membership proof update scheme for the bilinear accumulator with
+additions under the q-SDH assumption in the ROM.
+      The proof can be found in Appendix B.4.
+
+
+6      Batching and Other Optimizations
+6.1     Client-side Batching of Private Delegation
+The accumulators we study in this work support constant-sized batch (non-
+)membership proofs [14,66]. These succinct batch proofs attest either that B ⊆
+St , for membership, or that B ∩St = ∅, for non-membership. Thanks to the alge-
+braic properties of these batch proofs, it is straightforward to modify our proof
+                    Private Delegation of Cryptographic Accumulator Proofs          23
+
+update delegation protocols to the batch setting, cf. Figure 8. Essentially, the
+same blinding technique works that we developed in Sections 5.3 and 5.4. More
+precisely, we only need to change the semantics of the Blind(Non)MemProof(·)
+algorithms, i.e., these algorithms work correctly even if we input batch (non-
+)membership proofs instead of single (non-)membership proofs. In this setting,
+the client either owns a batch of numerous set elements B := {si }m i=1 ⊆ St or
+non-set elements B := {si }mi=1 ∩ St = ∅ and wants  to privately update a batch
+(non-)membership proof πt,B (πt,B ) corresponding to B. We formalize this in-
+tuition in Figure 8.
+
+RSA batch (non-)membership proof updates An RSA batch membership
+proof update for a batch B can be computed almost in the same fashion as
+in Figure 4. However, one needs to slightly modify the Blind(Non)MemProof(·)
+algorithm
+ Q
+          semantically, as it must now blind a batch membership proof πt,B :=
+             s
+g {sj ∈S\B} j , instead of a single membership proof, cf. Figure 8. A similar idea
+works, cf. Figure 8, for updating a batch RSA non-membership proof. Note,
+in this case, the batch size is leaked to the PSN, which, in certain applications,
+might be untenable. To avoid this, one may revisit our initial ideas in Section 1.4
+to take another direction in designing an RSA non-membership proof delegation
+protocol.
+
+Bilinear batch membership proof updates Observe that it is possible to
+adapt our membership proof delegation to the batch setting for the bilinear
+accumulator. In particular, we only need to modify the BlindMemProof(·) func-
+tion, Figure 8. Crucially, the PSN cannot know whether it is updating a mem-
+bership proof for a single element sj or for a larger batch B.
+
+6.2     Server-side Batching of Private Delegation
+Imagine that there are numerous querying clients (denoted Q) who request proof
+updates for the same time period (i.e., from t to t′ ) for blinded membership
+                  ′
+proofs ∀si ∈ Q : πt,si
+                       . At a high-level, in both accumulators (cf. Figures 4 and 6),
+                                         ′
+the server must compute ∀si ∈ Q : (πt,s     i
+                                              )∆ for each queried element si , for some
+public exponent ∆, derived from the updated elements. The server’s goal is to
+compute all updated proofs efficiently e.g., in sublinear time in |Q|. However, as
+we show next, asymptotic server-side batching is impossible in the generic group
+model [64]. Thus, PSN operators cannot offer economies of scale in the naı̈ve
+sense, which directly affects the business model of running a PSN, cf. Section 7.4.
+Lemma 1 (Linear lower bound for component-wise exponentiation in
+the generic group model). Let G be a cyclic group of prime order p in the
+generic group model. Let g1 , . . . , gn ∈ G be independent random group elements
+and let x ∈ Zp be known. Any generic algorithm that outputs (g1x , g2x , . . . , gnx )
+must perform at least n oracle queries. In particular, the generic complexity of
+this computational task is Ω(n).
+      We present the proof of this lemma in Appendix B.5.
+24         Soóki-Tóth et al.
+
+
+     BlindBatchRSAMemProof(pp, πt,{sj }m
+                                       j=1
+                                           ):
+                   $
+                  − Z2λ , B := {sj }m
+       1. st := r ←                 j=1 ⊆ S
+            ′
+       2. πt,B := πt,B · g r
+                     ′
+       3. return (πt,B  , st)
+
+     BlindBatchRSANonMemProof(pp, {sj }m
+                                       j=1 ):
+
+                }m
+       1. if {sjQj=1 ∩ St ̸= ∅ : return ⊥
+       2. B := m  j=1 sj
+                   $
+       3. st := q ←− Primes(1λ )
+       4. πt,B ′ := B · q
+       5. return (πt,B ′ , st)
+
+     BlindBatchBilinearMemProof(pp, Acct , St , {sj }m
+                                                     j=1 , πt,{sj }m
+                                                                   j=1
+                                                                       ):
+                   $
+                  − Fp , B := {sj }m
+       1. st := r ←                j=1 ⊆ S
+                     n
+                     Q
+       2. q(X) ←           (X − si )
+                          ∈B
+                    i=1,si /
+       3. crs′B ← {KZG.Com(crs, rX i q(X)}ki=0
+           ′
+       4. πt,B  ← {crs′B }
+                     ′
+       5. return (πt,B   , st)
+
+
+
+Fig. 8: The batch delegation algorithms for privately updating batch (non-
+)membership proofs in the RSA and bilinear accumulators. The rest of the algo-
+rithms remain the same as in the non-batch setting, i.e., cf. Figures 4 to 6.
+
+
+6.3      Batched Verification Proof
+
+After this negative result, we now speed up the verification cost of m aux proofs
+issued to attest to the correctness of m proof delegation tasks. In particular, con-
+sider a client who blinds m membership proofs independently, but the PSN reuses
+the same update exponent ∆ and produces one NIZK proof that all blinded
+membership proofs were updated consistently with the accumulator transition.
+
+
+RSA accumulator For {xj }m                                       m
+                         j=1 ⊆ St with membership proofs {πt,xj }j=1 , the
+                                 $                                            ′
+client samples {rj }m   j=1 ←− Z2λ and sends blinded membership proofs πt,x      j
+                                                                                   :=
+πt,xj · g rj for all j ∈ [m] to the PSN. Given the update (St , Acct ) → (St′ , Acct′ )
+with exponent ∆ (computed as in the base scheme), the PSN computes
+                               ′
+                       Aj := (πt,xj
+                                    )∆    for all j ∈ [m],        B := g ∆ .
+
+To efficiently prove correctness, the PSN and the client derive random Fiat–
+                                              ′
+Shamir challenges αj := H(Acct , Acct′ , B, {πt,x }m , {A }m , j) and aggregate
+                                                 i i=1 Q i i=1
+                           Qm      ′  αj                m    α
+the instances into X := j=1 (πt,xj ) and Y := j=1 Aj j . The PSN then
+                    Private Delegation of Cryptographic Accumulator Proofs        25
+
+returns {Aj }m
+             j=1 , B together with a constant-size DLEq non-interactive zero-
+knowledge proof of knowledge for the aggregated relation
+                  ∃ ∆ : Y = X ∆ ∧ Acct′ = Acc∆       ∆
+                                             t ∧ B =g .
+
+The client computes X and Y , verifies the DLEq NIZK proof, and then un-
+blinds each updated blinded witness locally via πt′ ,xj := Aj /B rj , recovering the
+                                                           ∆
+updated RSA-accumulator membership proof πt′ ,xj = πt,x       j
+                                                                for every j ∈ [m].
+By aggregating the relations, the aux proof size is reduced from O(m) to O(1)
+group/field elements. The soundness for this aggregated verification is based
+on the low-order assumption in the underlying group of unknown order, ensur-
+ing that adversarial error terms cannot be canceled out by wrapping around a
+small-order subgroup [14].
+
+Bilinear accumulator In the bilinear setting, naively verifying m independent
+PoEEq proofs requires the client to compute m separate pairing equations. Given
+that the standard PoEEq relation (cf. Figure 14) uses an instance-dependent
+Fiat–Shamir challenge αj that appears inside the G2 argument of the pairing
+        τ +α
+(i.e., g2 j ), these pairings cannot be directly batched. To overcome this, we
+modify the PoEEq protocol to use a shared challenge for the entire batch. First,
+                                                                                  ∗
+the PSN and the client derive a single global challenge α := H({aj , fj }m
+                                                                         j=1 ) ∈ Fp .
+For each instance j ∈ [m], the PSN computes the quotient polynomial hj (X)
+                                                                               h (τ )
+such that fj (X) = (X +α)hj (X)+βj , and sends the proof elements Qj := g1 j
+to the client. Because α is shared, the G2 pairing argument g2τ +α is now identical
+across all m verification equations. This thus enables the client to verify the
+entire batch using a random linear combination. In particular, the client derives
+random Fiat–Shamir weights γj := H ′ (α, {Qi }m               ∗
+                                                  i=1 , j) ∈ Fp and computes the
+aggregated elements in G1 :
+                        m                             m
+                               γ                                 −βj γj
+                        Y                             Y
+              Qagg :=         Qj j   and    Aagg :=       (aj · g1   ) .
+                        j=1                           j=1
+
+The client then accepts the batch if and only if the following single pairing
+                                  ?
+equation holds: e(Qagg , g2τ +α ) = e(Aagg , g2 ).
+
+
+7     Implementation and Performance Evaluation
+7.1   Theoretical Performance
+Observe that all client algorithms in the RSA (non-)membership delegation pro-
+tocols, i.e., BlindProof(·), VerBlind(Non)MemProofUpd(·), and UnBlind(Non)MemProof(·)
+run in O(1) time (cf. Table 3), which is independent of the updated set size
+as desired in real-world applications. The linear O(k) computational cost of
+Blind(Non)MemProof(·) in the bilinear membership proof delegation protocol
+could be offloaded to a preprocessing phase. Unsurprisingly, cf. Lemma 1, the
+asymptotic cost of the PSN server is O(k) in all our private delegation protocols.
+26         Soóki-Tóth et al.
+
+                                  ′
+Private Delegation Protocol     |πt,x |      |aux|    BlindProof      BlindProofUpd       VerBlindProofUpd UnBlindProof
+Merkle tree mem. [18]       O(log22 (kd))|G|       ∅         N/A      ≈ k(d|Zp |+d|G|+H)       O(log2 (kd))G    N/A
+RSA mem.(Figure 4)               |GU |       4|GU |+2|Zλ |    GU     2kZλ + 6GU + 2HPrimes    8GU + 2HPrimes    GU
+RSA non-mem.(Figure 5)           |Zλ |             ∅          Zλ          kZλ + GU                 2GU          GU
+Bilinear mem. (Figure 6)      (k + 1)|G|      4|G|+|Zp | (k + 1)G (4k + 2)G + (2k + 1)Zp + H        3P         G + Zp
+Bilinear non-mem. (Figure 7) 2k|G|+k|Zp |       k|G2 |     2kG + kZp   2kG + kZp + kG2       2kP + 3kG + kZp 2kG + 3kZp
+
+Table 3: Theoretical performance of our private (non-)membership proof update
+delegation algorithms for the RSA and bilinear accumulators. G, GU , P, H, Zλ
+denote elliptic curve, unknown order group operations (i.e., RSA, class groups),
+pairing, hashing and finite field operations, respectively. Recall, k denotes the
+#elements added to St in the offline phase and d, the depth of the Merkle tree,
+i.e., d = O( log2 (|St |)). For this comparison, we instantiated [18] with the Nova
+folding scheme and Spartan decider SNARK [51]. Note that [18] provides no
+public implementation, precluding direct empirical comparison.
+
+
+
+7.2     Our Implementation
+
+In the publicly available implementation 7 of our protocols, all code is imple-
+mented in Rust, using the Arkworks library [3] and the Zengo class group li-
+brary [28]. The criterion-rs crate was used for all benchmarks. We chose the
+security parameter as λ = 128. Following NIST guidelines, this amounts to us-
+ing moduli N of bit-length of 3072 [59]. Following the work of Dobson et al.
+[32], we chose the discriminant ∆ for class groups of imaginary quadratic fields
+to be 6784 bits long, providing λ bit security for class groups [33]. Accordingly,
+we chose the BLS12-381 curve that is currently known to provide roughly 128-
+bit security [17]. Interestingly, the Rust num bigint library always chooses the
+most efficient integer multiplication algorithm (i.e., textbook, Karatsuba [47],
+or Toom-Cook multiplication algorithms [50]) depending on the input integer
+sizes. Similarly, division is implemented using Knuth’s algorithm; when dividing
+by linear factors, we employ synthetic division [35]. Our hash-to-prime function
+HPrime (·) is implemented with the image space of the first 22λ prime numbers
+to provide a collision resistance of λ-bits (and λ-bit soundness in the applied
+NIZKs compiled with the Fiat-Shamir heuristic [36]). Applying the prime num-
+ber theorem, we set the image space of HPrime (·) to {0, 1}2λ+log(2λ) , i.e., in our
+case {0, 1}262 . We instantiate HPrime (·) using a deterministic hash-and-increment
+construction, starting from HSHA256 (·) we test the primality of odd candidates
+with the Miller-Rabin probabilistic primality testing algorithm [60] using 64 it-
+erations. All experiments are run on a consumer laptop with 16 GB RAM, and
+an Apple M2 processor with 8 cores. Each experiment was run 50 times.
+
+
+7.3     Performance Evaluation
+
+Client Runtime Analysis In Table 4, we provide our benchmarks for the
+constant-time client algorithms. Observe in Table 4 that all client algorithms
+7
+     See: https://github.com/GlaszBoti/private-accumulator-proof-delegation.
+                    Private Delegation of Cryptographic Accumulator Proofs            27
+
+
+                                    RSA            Class Group          Bilinear
+Algorithm                     Avg(ms) Var(ms) Avg(ms) Var(ms) Avg(ms) Var(ms)
+BlindMemProof(·)               18.82      4.60     56.68    15.37     0.94     0.00
+UnBlindMemProof(·)             10.71      0.00    46.58     0.00      0.21     0.00
+BlindNonMemProof(·)            13.15      0.60     8.03     0.69      0.75     0.00
+UnBlindNonMemProof(·)           6.25      0.00     40.82    0.01      0.32     0.00
+VerBlindMemProofUpd(·)         90.95      0.01    513.39    2.65      8.23     0.00
+VerBlindNonMemProofUpd(·)      20.29      0.01    161.65    0.30      8.31     0.00
+Table 4: Performance evaluation of the constant-time client algorithms in the
+private (non-)membership proof update protocols for the RSA (instantiated with
+Z∗N and class groups of imaginary quadratic fields) and bilinear accumulators.
+
+
+
+run in the millisecond range, showcasing the practicality of our protocols for
+clients, one of our initial design goals. Moreover, the results show that the bilinear
+accumulator-based constructions are significantly faster, with sub-millisecond
+running time for most operations. The RSA accumulator instantiated with class
+groups avoids trusted setups, but incurs substantial overhead for all our algo-
+rithms due to larger group sizes and the slower Abelian group law for composing
+binary quadratic forms. The low variance across all schemes and algorithms pro-
+vides evidence of stable and deterministic behavior of our implementations.
+
+Server Runtime Analysis In Figure 9a, we measure the total runtime of
+private (non-)membership proof updates as the set St grows. Our private dele-
+gation algorithms for the bilinear accumulator significantly outperform other pri-
+vate membership update algorithms, achieving at least 2× faster runtime when
+adding up to 1024 elements. Similarly, for non-membership proof updates, the
+bilinear accumulator consistently outperforms every RSA accumulator instanti-
+ation. Interestingly, the trapdoor setting of RSA (i.e., when the factorization is
+known to the server) achieves constant-time, i.e., O(1) updates. Figure 15 in-
+vestigates which cryptographic operations (e.g., hashing, exponentiation (multi-
+scalar multiplication), NIZK proof generation, etc.) constitute a bottleneck for
+the server during private proof update delegation.
+
+Baseline Comparison: Privacy Overhead We consider the accumulator
+scheme’s (non-)membership proof computational cost as baseline. In Figure 9b,
+we evaluate the computational overhead incurred by our private (non-)membership
+proof update algorithms as the size of the updates grows. Formally, we define
+the privacy overhead as the ratio
+                             t(Blind(Non)MemProofUpd(·), k)
+                    κ(k) =                                  ,                      (7.1)
+                               t((Non)MemProofCreate(·), k)
+where t(·, k) denotes the running time of an algorithm when k elements were
+added to the accumulator in the offline phase. Intuitively, a client can request
+28                                Soóki-Tóth et al.
+
+                          Private membership proof update                                         Private non-membership proof update                                           Private membership proof update                                            Private non-membership proof update
+
+                                                                                                                                                                     10                                                                         10
+                          RSA trapdoored                                                           RSA trapdoored                                                                                                                                           RSA trapdoored
+            105           RSA trapdoorless                                                         RSA trapdoorless                                                                                                                                         RSA trapdoorless
+                                                                                       104
+                          Class group                                                              Class group                                                                                                                                   5          Class group
+                                                                                                                                                                      5
+
+
+
+
+                                                                                                                                              Privacy overhead (κ)                                                       Privacy overhead (κ)
+                          Bilinear                                                                 Bilinear                                                                                                                                                 Bilinear
+            104
+                                                                                       103
+                                                                                                                                                                                                                                                 2
+
+
+Time (ms)                                                                  Time (ms)
+            103                                                                        102                                                                            2
+                                                                                                                                                                                                                                                 1
+            102                                                                        101                                                                            1                                                                         0.5
+                                                                                                                                                                                                     RSA trapdoored
+                                                                                                                                                                                                     RSA trapdoorless
+            101                                                                        100
+                                                                                                                                                                     0.5                             Class group
+                                                                                                                                                                                                                                                0.2
+                                                                                                                                                                                                     Bilinear
+            100
+                  2   3
+                          2   4
+                                  25     6
+                                         2     7
+                                               2     8
+                                                     2    2   9
+                                                                  2   10
+                                                                                             23     24   25     26    27    28   29     210                                23   24   25     26    27    28   29    210                                23     24   25     26    27    28   29     210
+                                  Inserted elements (k)                                                  Inserted elements (k)                                                       Inserted elements (k)                                                        Inserted elements (k)
+
+
+
+                                                   (a) Runtimes                                                                                                                        (b) Delegation Overhead
+
+Fig. 9: PSN server running times in the (non-)membership proof update al-
+gorithms (Blind(Non)MemProofUpd(·)). Private update overhead is defined
+as the ratio of the running times of the Blind(Non)MemProofUpd(·) and
+(Non)MemCreate(·) algorithms.
+
+
+a fresh (non-)membership proof from the server without privacy or use private
+proof updates that may incur a performance overhead for the PSN.
+    Observe that the overhead of the RSA accumulator’s private proof delega-
+tion algorithms κ(·) quickly converges. In case of membership proof updates,
+this is expected as exponentiation is the dominant cost, and BlindMemProofUpd
+performs six exponentiations with kλ-bit exponent against the single exponenti-
+                                    6k
+ation of (n + k)λ-bit exponent, so n+k  → 6 as k → ∞ where n is the number of
+elements in the accumulator before the updates. Similarly, non-membership algo-
+rithms converge to one as both NonMemProofCreate and BlindNonMemProofUpd
+do one extended GCD and exponentiation. The bilinear accumulator incurs a
+high privacy overhead attributed to the already efficient proof creation and inter-
+active design of non-membership proof updates. Overall, the data demonstrate
+that the RSA-based instantiation provides the lowest overhead for privately del-
+egated (non-)membership proof updates.
+
+7.4                           Case Study: PSN for Stateless Blockchains
+We study the communication and operational costs of running a PSN server
+for the stateless blockchain use case [14,24,65] in Figure 10. At the time of
+writing, the hourly running cost of a t3.medium AWS instance with 8 threads
+is cost = 0.052 USD/hour [2]. In Bitcoin, the coin age distribution (the time
+elapsed between the creation and spending of a UTXO) follows a power-law
+distribution, i.e., p(x) = Cx−α , where C = e−1.4159 = 0.243, α = 0.9550 as
+measured in [63]. Thus, the average coin age in Bitcoin is avg(p(x)) ≈ 162
+days. For simplicity, for a given stateless blockchain throughput y (in trans-
+actions per second (tps)), we treat that between each coin spending there are
+y · avg(p(x)) new elements inserted into the accumulator representing the set
+of unspent coins in the cryptocurrency system. In case of the bilinear accumu-
+lator, we assume the system uses the longest available crs today, which has a
+length of 228 [69]. Thus, the PSN can support the outsourcing of a member-
+ship proof update iff y · avg(p(x)) ≤ 228 . In this case, the operational cost is
+                                                           Private Delegation of Cryptographic Accumulator Proofs                                                                                    29
+
+
+                                     00        00                                                                                                     00        00
+                                                                           101
+                                                       2       1                                                                                                        2
+                               2    e+        e+     e-0     e-0    3.4                                                                         2    e+        e+     e-0    1.1      .1
+                                   0.0      0.0     1.0     2.1                                                                                     0.0      0.0     7.0            18     102
+
+
+
+
+Blockchain Throughput (tps)                                                                                      Blockchain Throughput (tps)
+                                     00        00      2       1                                                                                      00         2      1
+                               4                                           100                                                                  4
+
+
+
+
+                                                                                 Communication complexity (PB)
+                                                     e-0     e-0                                                                                               e-0    e-0             .3
+                                    e+
+                                   0.0
+                                              e+
+                                            0.0     3.0     4.3
+                                                                    6.8                                                                              e+
+                                                                                                                                                    0.0       1.0    2.1
+                                                                                                                                                                             3.3    53     101
+
+
+
+
+                                                                                                                                                                                                 Server cost (USD)
+                                     00        00      2       1                                                                                      00         2      1
+                               8    e+        e+     e-0
+                                                    5.0
+                                                             e-0
+                                                            8.5    13.6    10 1                                                                 8    e+        e-0
+                                                                                                                                                              4.0
+                                                                                                                                                                      e-0
+                                                                                                                                                                     6.1
+                                                                                                                                                                             9.8     6.9
+                                                                                                                                                                                    15     100
+                                   0.0      0.0                                                                                                     0.0
+
+                                     00         2      1                                                                                              2          1
+                              16    e+        e-0
+                                             1.0
+                                                     e-0
+                                                    1.1
+                                                             1.7   27.3
+                                                                           10 2                                                                16    e-0
+                                                                                                                                                    1.0
+                                                                                                                                                               e-0
+                                                                                                                                                              1.1
+                                                                                                                                                                      1.8     .9
+                                                                                                                                                                             28
+                                                                                                                                                                                     1.9
+                                                                                                                                                                                    46     10 1
+                                   0.0
+
+                              32                                                                                                               32                                          10 2
+                                                                           10 3
+
+
+                              64                                                                                                               64                                          10 3
+                                                                           10 4
+
+                                     0         1      21     341      1                                                                               0         1      21     341      1
+                                                                   546                                                                                                              546
+                                         PSN server running time (days)                                                                                   PSN server running time (days)
+                                   (a) Communication costs (in PB)                                                                                   (b) Operational costs (in USD)
+
+  Fig. 10: Stateless Blockchain case study. Communication and operational costs
+  of a PSN for a blockchain throughput and uptime with the bilinear accumulator.
+
+
+  cost · z · (y · avg(p(x))) · t(BlindMemProofUpd(·), y · avg(p(x)) assuming that the
+  PSN serves its clients for z days and the running times t(·, ·) were approximated
+  from the measurements of Figure 9 using linear regression (R2 = 0.95). Figure 10
+  suggests that operating a PSN with real-world workloads has low economic costs
+  in the stateles blockchain application.
+
+
+  8                                Open Problems and Future Directions
+
+  In this work, we presented efficient algorithms that allow an intermittently con-
+  nected, resource-constrained client to privately delegate its (non-)membership
+  proof updates to an untrusted server. We built and evaluated efficient schemes
+  for the RSA and bilinear accumulators. We leave several open problems and
+  foresee promising research directions for future work.
+
+  Limitations We acknowledge the shortcomings of our private (non-)membership
+  proof delegation protocols, e.g., RSA non-membership proof updates achieve
+  only weak privacy (cf. Section 5.3), and the bilinear non-membership proofs
+  only admit interactive private delegation protocols with rounds proportional to
+  the number of updates (cf. Section 5.4). These design constraints, however, in-
+  herently stem from the algebraic structure of the underlying RSA and bilinear
+  accumulator schemes we build upon. We aim for our work to be an initiative
+  for building efficient private delegation protocols for accumulator schemes and
+  possibly other authenticated data structures. We hope that the (in)ability to
+  build efficient private delegation algorithms better informs researchers and prac-
+  titioners to keep private delegation in mind when deploying accumulator schemes
+30     Soóki-Tóth et al.
+
+in large-scale, real-world applications. Moreover, we highlight the following as
+potential directions for future research.
+
+Delegation-friendly accumulator schemes Our work highlights that we still
+   lack the “perfect” cryptographic accumulator scheme that could be readily
+   applied and deployed in real-world applications serving millions of resource-
+   constrained devices. Designing an efficient, universal, dynamic, batchable,
+   delegation-friendly accumulator scheme is still a major open problem.
+Post-quantum privately delegatable accumulators None of our delegation
+   schemes provides post-quantum security. Thus, the imminent post-quantum
+   transition motivates the need to design private delegation schemes for post-
+   quantum secure accumulators [49,55]. We leave the construction of post-
+   quantum variants of our schemes as an exciting research question.
+Other authenticated data structures Our primary focus in this work was
+   to design private proof delegation for universal, dynamic accumulators. One
+   could explore other authenticated data structures such as vector commit-
+   ments (VC), polynomial commitment schemes, or authenticated dictionar-
+   ies. For instance, we believe similar techniques could work for the Hyper-
+   proofs VC scheme [65]. The authors in [46] construct a key-value commitment
+   (KVC) scheme in which a dictionary (a set of key-value pairs D = {(ki , vi )})
+   is represented directly as a sum of partial fractions. It seems in reach to
+   design a private delegation scheme for the (non-)membership proofs in their
+   KVC scheme with O(1) server complexity.
+Multi-server proof delegation In real-world deployments, it may be the case
+   that multiple servers store different disjoint subsets of the update. Thus, it is
+   promising to extend our protocols to a multi-server setting, e.g., for better
+   liveness. A basic design could be to have PSNs share a zero secret in the
+   preprocessing phase, and collaboratively generate the proof update (blinded
+   by a zero share). We leave the details of this protocol to future work.
+
+Acknowledgements. We are grateful to Ivan Homoliak, Alin Tomescu, and Steve
+Thakur for insightful conversations. István András Seres was supported by the
+Ministry of Culture and Innovation and the National Research, Development,
+and Innovation Office within the Quantum Information National Laboratory of
+Hungary (Grant No. 2022-2.1.1-NL-2022-00004).
+
+
+References
+
+ 1. Hamza Abusalah, Gaspard Anthoine, Gennaro Avitabile, and Emanuele Giunta.
+    Lower bounding update frequency in short accumulators and vector commitments.
+    Cryptology ePrint Archive, 2025.
+ 2. Amazon Web Services. Aws pricing calculator: Amazon ec2 estimate. https:
+    //calculator.aws/#/createCalculator/ec2-enhancement, 2026. Accessed
+    Apr. 2026.
+ 3. arkworks contributors. arkworks zksnark ecosystem. https://arkworks.rs, 2022.
+                    Private Delegation of Cryptographic Accumulator Proofs         31
+
+ 4. Foteini Baldimtsi, Jan Camenisch, Maria Dubovitskaya, Anna Lysyanskaya, Leonid
+    Reyzin, Kai Samelin, and Sophia Yakoubov. Accumulators with applications to
+    anonymity-preserving revocation. In 2017 IEEE European Symposium on Security
+    and Privacy (EuroS&P), pages 301–315, San Jose, CA, USA, 2017. IEEE.
+ 5. Foteini Baldimtsi, Ioanna Karantaidou, and Srinivasan Raghuraman. Oblivious ac-
+    cumulators. In Qiang Tang and Vanessa Teague, editors, Public-Key Cryptography
+    – PKC 2024, pages 99–131, Cham, 2024. Springer Nature Switzerland.
+ 6. Anaı̈s Barthoulot, Olivier Blazy, and Sébastien Canard. Cryptographic accumu-
+    lators: New definitions, enhanced security, and delegatable proofs. In Cryptology
+    in Africa Conference, Lecture Notes in Computer Science, pages 94–119, Cham,
+    Switzerland, 2024. Springer.
+ 7. Eli Ben-Sasson, Alessandro Chiesa, Christina Garman, Matthew Green, Ian Miers,
+    Eran Tromer, and Madars Virza. Zerocash: Decentralized anonymous payments
+    from bitcoin. In 2014 IEEE Symposium on Security and Privacy (S&P 2014),
+    pages 459–474, San Jose, CA, USA, 2014. IEEE.
+ 8. Josh Benaloh and Michael de Mare. One-way accumulators: A decentralized al-
+    ternative to digital signatures. In Advances in Cryptology – EUROCRYPT 1993,
+    volume 765 of Lecture Notes in Computer Science, pages 274–285, Berlin, Heidel-
+    berg, 1994. Springer.
+ 9. Josh Benaloh and Michael De Mare. One-way accumulators: A decentralized al-
+    ternative to digital signatures. In Advances in Cryptology – EUROCRYPT 1993,
+    volume 765 of Lecture Notes in Computer Science, pages 274–285, Berlin, Heidel-
+    berg, 1994. Springer.
+10. Elwyn R. Berlekamp. Factoring polynomials over finite fields. Bell System Tech-
+    nical Journal, 46(8):1853–1859, 1967.
+11. Manuel Blum, Paul Feldman, and Silvio Micali. Non-interactive zero-knowledge
+    and its applications. In Providing Sound Foundations for Cryptography: On the
+    Work of Shafi Goldwasser and Silvio Micali, pages 329–349. ACM, New York, NY,
+    USA, 2019.
+12. Dan Boneh, Joseph Bonneau, Benedikt Bünz, and Ben Fisch. Verifiable delay
+    functions. In Annual international cryptology conference, pages 757–788. Springer,
+    2018.
+13. Dan Boneh, Xavier Boyen, and Hovav Shacham. Short group signatures. In Ad-
+    vances in Cryptology – CRYPTO 2004, volume 3152 of Lecture Notes in Computer
+    Science, pages 41–55, Berlin, Heidelberg, 2004. Springer.
+14. Dan Boneh, Benedikt Bünz, and Ben Fisch. Batching techniques for accumula-
+    tors with applications to iops and stateless blockchains. In Advances in Cryptol-
+    ogy – CRYPTO 2019, Lecture Notes in Computer Science, pages 561–586, Cham,
+    Switzerland, 2019. Springer.
+15. Dan Boneh and Matt Franklin. Identity-based encryption from the weil pairing.
+    In Advances in Cryptology – CRYPTO 2001, volume 2139 of Lecture Notes in
+    Computer Science, pages 213–229, Berlin, Heidelberg, 2001. Springer.
+16. Joseph Bonneau, Jessica Chen, Miranda Christ, and Ioanna Karantaidou. Merkle
+    mountain ranges are optimal: On witness update frequency for cryptographic ac-
+    cumulators. In Advances in Cryptology – CRYPTO 2025, volume 14025 of Lecture
+    Notes in Computer Science, pages 170–202, Cham, Switzerland, 2025. Springer.
+17. Sean Bowe. Bls12-381: New zk-snark elliptic curve construction. Zcash Company
+    blog, URL: https://z. cash/blog/new-snark-curve, 22, 2017.
+18. Sean Bowe and Ian Miers. A note on notes: Towards scalable anonymous payments
+    via evolving nullifiers and oblivious synchronization. Cryptology ePrint Archive,
+    2025.
+32      Soóki-Tóth et al.
+
+19. Jan Camenisch, Markulf Kohlweiss, and Claudio Soriente. An accumulator based
+    on bilinear maps and efficient revocation for anonymous credentials. In Interna-
+    tional Workshop on Public Key Cryptography (PKC 2009), volume 5443 of Lecture
+    Notes in Computer Science, pages 481–500, Berlin, Heidelberg, 2009. Springer.
+20. Jan Camenisch and Anna Lysyanskaya. An efficient system for non-transferable
+    anonymous credentials with optional anonymity revocation. In Advances in Cryp-
+    tology – EUROCRYPT 2001, volume 2045 of Lecture Notes in Computer Science,
+    pages 93–118, Berlin, Heidelberg, 2001. Springer.
+21. Jan Camenisch and Anna Lysyanskaya. Dynamic accumulators and application
+    to efficient revocation of anonymous credentials. In Advances in Cryptology –
+    CRYPTO 2002, volume 2442 of Lecture Notes in Computer Science, pages 61–76,
+    Berlin, Heidelberg, 2002. Springer.
+22. Jan Camenisch and Anna Lysyanskaya. A signature scheme with efficient protocols.
+    In Security in Communication Networks (SCN 2002), volume 2576 of Lecture Notes
+    in Computer Science, pages 268–289, Berlin, Heidelberg, 2003. Springer.
+23. David Chaum and Torben Pryds Pedersen. Wallet databases with observers. In Ad-
+    vances in Cryptology – CRYPTO 1992, volume 740 of Lecture Notes in Computer
+    Science, pages 89–105, Berlin, Heidelberg, 1992. Springer.
+24. Alexander Chepurnoy, Charalampos Papamanthou, Shravan Srinivasan, and Yu-
+    peng Zhang. Edrax: A cryptocurrency with stateless transaction validation. Cryp-
+    tology ePrint Archive, 2018.
+25. Céline Chevalier, Fabien Laguillaumie, and Damien Vergnaud. Privately outsourc-
+    ing exponentiation to a single server: cryptanalysis and optimal constructions.
+    Algorithmica, 83(1):72–115, 2021.
+26. Benny Chor, Eyal Kushilevitz, Oded Goldreich, and Madhu Sudan. Private infor-
+    mation retrieval. Journal of the ACM (JACM), 45(6):965–981, 1998.
+27. Miranda Christ and Joseph Bonneau. Limits on revocable proof systems, with
+    implications for stateless blockchains. In International Conference on Financial
+    Cryptography and Data Security (FC 2023), volume 13924 of Lecture Notes in
+    Computer Science, pages 54–71, Cham, Switzerland, 2023. Springer.
+28. class contributors. Rust library for building iqc. https://github.com/ZenGo-X/c
+    lass, 2019.
+29. Henry Corrigan-Gibbs and Dmitry Kogan. Private information retrieval with sub-
+    linear online time. In Annual International Conference on the Theory and Applica-
+    tions of Cryptographic Techniques (EUROCRYPT 2020), volume 12105 of Lecture
+    Notes in Computer Science, pages 44–75, Cham, Switzerland, 2020. Springer.
+30. Ivan Damgård and Nikos Triandopoulos. Supporting non-membership proofs with
+    bilinear-map accumulators. Cryptology ePrint Archive, 2008.
+31. Sergi Delgado-Segura, Cristina Pérez-Solà, Guillermo Navarro-Arribas, and Jordi
+    Herrera-Joancomartı́. Analysis of the bitcoin utxo set. In Financial Cryptography
+    and Data Security, volume 10957 of Lecture Notes in Computer Science, pages
+    78–91, Cham, Switzerland, 2018. Springer.
+32. Samuel Dobson, Steven Galbraith, and Benjamin Smith. Trustless unknown-order
+    groups. arXiv, 2022.
+33. Samuel Dobson, Steven D. Galbraith, and Benjamin Smith. Trustless unknown-
+    order groups. Cryptology ePrint Archive, Paper 2020/196, 2020.
+34. European Parliament and the Council of the European Union. Regulation (eu)
+    2024/1183 of the european parliament and of the council of 11 april 2024 amending
+    regulation (eu) no 910/2014 as regards establishing the european digital identity
+    framework. Official Journal of the European Union, L 2024/1183, 30 April 2024,
+                    Private Delegation of Cryptographic Accumulator Proofs         33
+
+    April 2024. ELI: http://data.europa.eu/eli/reg/2024/1183/oj. Accessed: 2026-07-
+    22.
+35. Lianghuo Fan. A generalization of synthetic division and a general theorem of
+    division of polynomials. Mathematical Medley, 30(1):30–37, June 2003.
+36. Amos Fiat and Adi Shamir. How to prove yourself: Practical solutions to iden-
+    tification and signature problems. In Advances in Cryptology – EUROCRYPT
+    1986, volume 263 of Lecture Notes in Computer Science, pages 186–194, Berlin,
+    Heidelberg, 1987. Springer.
+37. Sanjam Garg, Mohammad Hajiabadi, Mohammad Mahmoody, and Ahmadreza
+    Rahimi. Registration-based encryption: Removing private-key generator from ibe.
+    In Theory of Cryptography Conference (TCC 2018), volume 11239 of Lecture Notes
+    in Computer Science, pages 689–718, Cham, Switzerland, 2018. Springer.
+38. Sanjam Garg, Mohammad Hajiabadi, Mohammad Mahmoody, Ahmadreza
+    Rahimi, and Sruthi Sekar. Registration-based encryption from standard assump-
+    tions. In IACR international workshop on public key cryptography, pages 63–93.
+    Springer, 2019.
+39. Craig Gentry. Fully homomorphic encryption using ideal lattices. In Proceedings
+    of the 41st Annual ACM Symposium on Theory of Computing, STOC ’09, pages
+    169–178, New York, NY, USA, 2009. ACM.
+40. Noemi Glaeser, Dimitris Kolonelos, Giulio Malavolta, and Ahmadreza Rahimi.
+    Efficient registration-based encryption. In Proceedings of the 2023 ACM SIGSAC
+    Conference on Computer and Communications Security, CCS ’23, pages 1065–
+    1079, New York, NY, USA, 2023. ACM.
+41. Golem Network. Golem network. https://golem.network/, 2026. Accessed:
+    2026-04-16.
+42. Tiantian Gong, Aniket Kate, Alexandros Psomas, and Athina Terzoglou. V3rified:
+    Revelation vs non-revelation mechanisms for decentralized verifiable computation.
+    arXiv, 2024.
+43. Iftach Haitner, Jonathan J. Hoch, and Gil Segev. A linear lower bound on the com-
+    munication complexity of single-server private information retrieval. In Theory of
+    Cryptography Conference (TCC 2008), volume 4948 of Lecture Notes in Computer
+    Science, pages 445–464, Berlin, Heidelberg, 2008. Springer.
+44. Susan Hohenberger and Anna Lysyanskaya. How to securely outsource crypto-
+    graphic computations. In Theory of Cryptography Conference (TCC 2005), vol-
+    ume 3378 of Lecture Notes in Computer Science, pages 264–282, Berlin, Heidelberg,
+    2005. Springer.
+45. Samuel Jaques, Hart Montgomery, and Michael Lodder. Allosaur: Accumulator
+    with low-latency oblivious sublinear anonymous credential updates with revoca-
+    tions. In Proceedings of the 19th ACM Asia Conference on Computer and Com-
+    munications Security, pages 1708–1723, New York, NY, USA, 2024. ACM.
+46. Charanjit S. Jutla, Rohit Nema, and Arnab Roy. Partial fraction techniques for
+    cryptography. Cryptology ePrint Archive, 2025.
+47. Anatolii A. Karatsuba and Yuri Ofman. Multiplication of many-digital numbers
+    by automatic computers. Doklady Akademii Nauk SSSR, 145(2):293–294, 1962.
+48. Aniket Kate, Gregory M. Zaverucha, and Ian Goldberg. Constant-size commit-
+    ments to polynomials and their applications. In Advances in Cryptology – ASI-
+    ACRYPT 2010, Lecture Notes in Computer Science, pages 177–194, Berlin, Hei-
+    delberg, 2010. Springer.
+49. Victor Youdom Kemmoe, Anna Lysyanskaya, and Ngoc Khanh Nguyen. Lattice-
+    based accumulator and application to anonymous credential revocation. In Shi
+34      Soóki-Tóth et al.
+
+    Bai and Edoardo Persichetti, editors, Public-Key Cryptography – PKC 2026, pages
+    404–436, Cham, 2026. Springer Nature Switzerland.
+50. Donald E. Knuth. The Art of Computer Programming, Volume 1: Fundamental
+    Algorithms. Addison-Wesley, Reading, MA, USA, 3 edition, 1997.
+51. Abhiram Kothapalli, Srinath Setty, and Ioanna Tzialla. Nova: Recursive zero-
+    knowledge arguments from folding schemes. In Advances in Cryptology – CRYPTO
+    2022, pages 359–388, Cham, 2022. Springer Nature Switzerland.
+52. Jiangtao Li, Ninghui Li, and Rui Xue. Universal accumulators with efficient non-
+    membership proofs. In International Conference on Applied Cryptography and
+    Network Security, pages 253–269. Springer, 2007.
+53. Yiping Ma, Ke Zhong, Tal Rabin, and Sebastian Angel. Incremental Offline/Online
+    pir. In 31st USENIX Security Symposium (USENIX Security 22), pages 1741–1758,
+    Boston, MA, USA, 2022. USENIX Association.
+54. Marcela S. Melara, Aaron Blankstein, Joseph Bonneau, Edward W. Felten, and
+    Michael J. Freedman. CONIKS: Bringing key transparency to end users. In 24th
+    USENIX Security Symposium (USENIX Security 15), pages 383–398, Washington,
+    D.C., USA, 2015. USENIX Association.
+55. Ralph C. Merkle. A digital signature based on a conventional encryption function.
+    In Advances in Cryptology – EUROCRYPT 1987, Lecture Notes in Computer Sci-
+    ence, pages 369–378, Berlin, Heidelberg, 1987. Springer.
+56. Ian Miers, Christina Garman, Matthew Green, and Aviel D. Rubin. Zerocoin:
+    Anonymous distributed e-cash from bitcoin. In 2013 IEEE Symposium on Security
+    and Privacy (S&P 2013), pages 397–411, Berkeley, CA, USA, 2013. IEEE.
+57. Lan Nguyen. Accumulators from bilinear pairings and applications. In Cryptog-
+    raphers’ Track at the RSA Conference (CT-RSA 2005), volume 3376 of Lecture
+    Notes in Computer Science, pages 275–292, Berlin, Heidelberg, 2005. Springer.
+58. Charalampos Papamanthou. Cryptography for Efficiency: New Directions in Au-
+    thenticated Data Structures. PhD thesis, Brown University, 2011.
+59. W Timothy Polk, Donna F Dodson, William E Burr, Hildegard Ferraiolo, and
+    David Cooper. Cryptographic algorithms and key sizes for personal identity veri-
+    fication. NIST Special Publication, 800(78–4):1–19, 2015.
+60. Michael O Rabin. Probabilistic algorithm for testing primality. Journal of number
+    theory, 12(1):128–138, 1980.
+61. Jothi Rangasamy and Lakshmi Kuppusamy. Revisiting single-server algorithms for
+    outsourcing modular exponentiation. In International Conference on Cryptology in
+    India (INDOCRYPT 2018), volume 11263 of Lecture Notes in Computer Science,
+    pages 3–20, Cham, Switzerland, 2018. Springer.
+62. Leonid Reyzin and Sophia Yakoubov. Efficient asynchronous accumulators for
+    distributed pki. In Security and Cryptography for Networks, Lecture Notes in
+    Computer Science, pages 292–309, Cham, Switzerland, 2016. Springer.
+63. Mario Schröck. Time is money: How coin age shapes bitcoin’s spending patterns.
+    https://insights.glassnode.com/time-is-money-how-coin-age-shapes-bit
+    coins-spending-patterns/, December 2024. Glassnode Insights blog.
+64. Victor Shoup. Lower bounds for discrete logarithms and related problems. In
+    Advances in Cryptology – EUROCRYPT 1997, volume 1233 of Lecture Notes in
+    Computer Science, pages 256–266, Berlin, Heidelberg, 1997. Springer.
+65. Shravan Srinivasan, Alexander Chepurnoy, Charalampos Papamanthou, Alin
+    Tomescu, and Yupeng Zhang. Hyperproofs: Aggregating and maintaining proofs
+    in vector commitments. In 31st USENIX Security Symposium (USENIX Security
+    22), pages 3001–3018, 2022.
+                     Private Delegation of Cryptographic Accumulator Proofs            35
+
+66. Steve Thakur. Batching non-membership proofs with bilinear accumulators. Cryp-
+    tology ePrint Archive, 2019.
+67. Luke Valenta, Shaanan Cohney, Alex Liao, Joshua Fried, Satya Bodduluri, and
+    Nadia Heninger. Factoring as a service. In Financial Cryptography and Data
+    Security, volume 9603 of Lecture Notes in Computer Science, pages 321–338, Berlin,
+    Heidelberg, 2016. Springer.
+68. Giuseppe Vitto and Alex Biryukov. Dynamic universal accumulator with batch
+    update over bilinear groups. In Cryptographers’ Track at the RSA Conference (CT-
+    RSA 2022), Lecture Notes in Computer Science, pages 395–426, Cham, Switzer-
+    land, 2022. Springer.
+69. Faxing Wang, Shaanan Cohney, and Joseph Bonneau. Sok: Trusted setups for
+    powers-of-tau strings. In International Conference on Financial Cryptography and
+    Data Security (FC 2025), volume 14513 of Lecture Notes in Computer Science,
+    pages 197–218, Cham, Switzerland, 2025. Springer.
+70. Yujue Wang, Qianhong Wu, Duncan S. Wong, Bo Qin, Sherman S. M. Chow, Zhen
+    Liu, and Xiao Tan. Securely outsourcing exponentiations with single untrusted
+    program for cloud storage. In European Symposium on Research in Computer
+    Security (ESORICS 2014), volume 8712 of Lecture Notes in Computer Science,
+    pages 326–343, Cham, Switzerland, 2014. Springer.
+
+
+A     Additional Background
+A.1    The RSA and bilinear accumulators
+We recall the algorithms of the universal, dynamic RSA [9,52] and bilinear ac-
+cumulators [57,30] in Figures 11 and 12.
+
+A.2    The KZG Polynomial Commitment scheme
+KZG Polynomial Commitments. The Kate–Zaverucha–Goldberg (KZG) com-
+mitment scheme [48] allows committing to a polynomial over a finite field while
+later enabling succinct proofs of its evaluations.
+           λ                        $
+          , n) →2 crs. Letn τ ←
+KZG.Setup(1                           − Fp. Compute the structured reference string
+               τ    τ            τ
+   crs = g1 , g1 , g1 , . . . , g1 , g2 , g2τ . Output crs. These public parameters al-
+   low users to commit to polynomials of degree at most n without knowing
+   the trapdoor τ itself.                     Pd        i
+KZG.Com(crs, f ) → C. Let f (X) =               i=0 ai X be a polynomial with d ≤ n.
+                               Pd
+                      f (τ )        a τi
+   Compute C = g1         = g1 i=0 i . Output the commitment C. To commit to
+   f (X), the committer evaluates the polynomial at the hidden value τ in the
+   exponent. Using the crs powers of τ , this exponentiation can be computed
+   efficiently without knowing τ .
+KZG.Open(crs, f, z) → π. Compute the evaluation y = f (z). Compute the quo-
+                                                                         q(τ )
+   tient polynomial q(X) = f (X)−yX−z . Compute the proof π = g1               . Output
+   (y, π).
+KZG.Vrfy(crs, C, z, y, π) → {0, 1} Accept if and only if e(C/g1y , g2 ) = e(π, g2τ /g2z ).
+   Otherwise reject. The verifier checks a pairing equation encoding the identity
+   f (τ ) − y = (τ − z)q(τ ) in the exponent.
+36         Soóki-Tóth et al.
+
+
+     Setup(λ):                                   MemProofCreate(Acct , St , x):
+                                                                  Q
+              $
+                                                   1a. πt,x ← g   s∈St , s̸=x s
+       1. G ←
+            − GGen(λ)
+             $                                                        x−1 mod |G|
+       2. g ←
+            −G                                     1b. πt,x ← Acct
+       3. return G, g                              2. return πt,x
+
+     Add(Acct , St , x):                         NonMemProofCreate(Acct , St , x):
+                                                  1. s∗ ← s∈St s mod |G|
+                                                           Q
+       1. if x ∈ St : return Acct
+       2. else:                                   2. a, b mod |G| ← Bezout(s∗ , x)
+       3.     St+1 ← St ∪ {x}                     3. B ← g b
+       4.     u←x                                 4. return πt,x ← {a, B}
+       5.     Acct+1 ← Accxt
+       6.     return Acctx , u                   MemVer(Acct , πt,x , x):
+                                                   1. return 1 if (πt,x )x = Acct
+     Del(Acct , St , x):
+       1. if x ∈
+               / S : return Acct                 NonMemVer(Acct , πt,x , x):
+       2. else:                                    1. {a, B} ← πt,x
+       3.     St+1 ← St \ {x}                      2. return 1 if Accat B x = g
+                          Q
+                                 s
+       4a.     Acct+1 ← g s∈St+1
+                                 x−1 mod |G|
+       4b.     Acct+1 ← Acct
+       5.     u ← {x, Acct , Acct+1 }
+       6.     return Acct+1 , u
+
+
+
+Fig. 11: The algorithms of the universal, dynamic RSA accumulator [9,52]. Cer-
+tain algorithms can be significantly sped up whenever the group order is known
+to a trusted accumulator manager (written in blue).
+
+
+
+Security properties. The KZG commitment scheme satisfies correctness, (poly-
+nomial) binding, and evaluation binding. Intuitively, polynomial binding ensures
+that a polynomial commitment cannot be opened to two different polynomials.
+Evaluation binding ensures that at any point z ∈ Fp , the prover can only open
+the committed polynomial to a single evaluation point y. Finally, correctness
+ensures that an honest opening proof is always accepted by the verifier. For the
+formal security definitions, the reader is referred to [48].
+
+
+
+A.3      NIZK for NP-statement in Groups of Unknown Order
+
+
+Discrete logarithm equality (sometimes Chaum-Pedersen proof) (DLEq) [23,14].
+
+                  RDLEq = {(((g, u, h, v) ∈ G4 ); w ∈ Z) : u = g w ∧ v = hw }.      (A.1)
+                            Private Delegation of Cryptographic Accumulator Proofs                        37
+
+
+    Setup(λ, n):                                          MemProofCreate(Acct , St , st (X), sj ):
+                                 $
+      1. (G1 , G2 , GT , p) ←
+                            − GGen(λ)
+              $              $                                1. qt,sj (X) ← st (X)/(X − sj )
+      2. g1 ←− G1 , g 2 ←
+                        − G2 , s0 (X) ← 1
+                                                              2. πt,sj ← KZG.Com(qt,sj (X))
+      3. pp := (G1 , G2 , GT , g1 , g2 , s0 (X))
+                       i                          $           3. return πt,sj
+      4. crs := ({g1τ }n           τ
+                       i=0 , g2 , g2 ) for τ ←
+                                             − Fp
+      5. return (pp, crs)                         NonMemProofCreate(Acct , St , st (X), sj ):
+
+    Add(Acct , St , st (X), sj ):
+                                           1. qt,sj (X) ← st (X)/(X − sj )
+      1. if sj ∈ St : return Acct          2. yt,sj ← st (X) mod (X − sj )
+      2. else:                             3. Bt,sj ← KZG.Com(qt,sj (X))
+      3.     St+1 ← St ∪ {sj }             4. return πt,sj ← {yt,sj , Bt,sj }
+      4.     st+1 (X) ← st (X) · (X − sj )
+      5.     Acct+1 ← KZG.Com(st+1 (X)) MemVer(Acct , πt,sj , sj ):
+      6.     return Acct+1 , st+1 (X)                                     s
+                                           1. return 1 if e(πt,sj , g2τ /g2j ) = e(Acct , g2 )
+    Del(Acct , St , sj ):                                 NonMemVer(Acct , πt,sj , sj ):
+      1. if sj ∈
+               / St : return Acct                             1. {yt,sj , Bt,sj } ← πt,x
+      2. else:                                                                     τ −s           y
+                                                              2. lhs ← e(Bt,sj , g2 j )e(g1 , g2 ) t,sj
+      3.     St+1 ← St \ {sj }
+                                                              3. return 1 if lhs = e(Acct , g2 )
+      4.     st+1 (X) ← st (X)/(X − sj )
+      5.     Acct+1 ← KZG.Com(st+1 (X))
+      6.     return Acct+1 , st+1 (X)
+
+
+
+                  Fig. 12: The algorithms of the bilinear accumulator [57].
+
+
+B      Deferred Security Proofs
+
+B.1      RSA Membership Proof Delegation
+
+Theorem 5 (RSA accumulator is privately delegatable for member-
+ship proofs). Our construction in Figure 4 yields a secure, privately delegatable
+membership proof update scheme for the RSA accumulator under the strong RSA
+assumption and knowledge soundness of Figure 13.
+
+Proof. Correctness. For any accumulated set St and any element x ∈ St , an
+honestly run proof update should yield a valid membership proof for the updated
+accumulator Acct′ that is accepted with overwhelming
+                                                Q
+                                                         probability.
+   Let the accumulator at time t Qbe Acct = g s∈St s . For x ∈ St the correspond-
+ing membership proof is πt,x = g s∈St /{x} s . Then, an honestly generated proof
+                                ′
+update on the blinded witness πt,x  = πt,x · g r yields
+                                                         Qk
+                           (πt′ ′ ,x , aux) = ((πt,x
+                                                 ′
+                                                     )    i=1 xi        ′
+                                                                   , ((πt,x )r , g r , z)) ,          (B.1)
+38         Soóki-Tóth et al.
+
+
+     NIZK.Prove(pp, RDLEq , (ĝ, u, h, v), w):      NIZK.Verify(pp, RDLEq , (ĝ, u, h, v), π):
+       1. g ∗ ← g w                                  1. (Q1 , Q2 , Q3 , g ∗ , r) ← π
+       2. e ← HPrimes (ĝ, h, u, v, g ∗ )            2. e ← HPrimes (ĝ, h, u, v, g ∗ )
+       3. (q, r) ← Z s.t. w = q · e + r for r ∈ [e] 3. return 1 if r ∈ [e] ∧ u = ĝ r · Qe1 ∧
+                      2
+
+       4. Q1 ← ĝ q , Q2 ← hq , Q3 ← g q           ∧v = hr · Qe2 ∧ Qe3 · g r = g ∗
+       5. return π := (Q1 , Q2 , Q3 , g ∗ , r)
+
+
+
+Fig. 13: A non-interactive zero-knowledge (NIZK) proof system for the relation
+RDLEq using the Fiat-Shamir heuristic instantiated in a group of unknown or-
+der [14,66]. Note that the proof system has constant-size proofs (four G elements
+and a λ-bit integer) and a constant-time (six λ-bit exponentiations in G) verifier.
+
+
+where the current set of accumulated values is St′ = (St ∪ {xi }ki=1 ). The unblind
+algorithm outputs
+                                      πt′ ′ ,x ∆
+                             πt′ ,x = ∆ r = πt,x   .                          (B.2)
+                                     (g )
+Finally, we verify the unblinded, updated membership proof
+                               Q            x∆
+                                                 = g ( s∈St s)·∆ = Acct′ ,
+                                                      Q
+                  (πt′ ,x )x = g s∈St /{x} s                                              (B.3)
+
+which always leads to acceptance, thus completing the proof of correctness.
+     Blinded Membership Proof Indistinguishability. Consider the blinded
+membership proof indistinguishability game in Figure 3. The adversary A sends
+                                                              $
+x0 , x1 , after which the challenger C samples a random bit b ←
+                                                              − {0, 1} and responds
+                                         ′             r
+with the blinded membership proof π1,xb = π1,xb · g , where r is freshly sampled
+for each query. If r is sampled uniformly at random, then π1,xb · g r is uniform
+in G, and thus, independent of the challenger’s bit b. In other words, we have
+information-theoretic indistinguishability. Therefore,
+
+                                      ′              1
+                           Advind
+                              A = Pr[b = b] −          ≤ negl(λ) .
+                                                     2
+
+    Delegation Soundness. Towards contradiction, let us assume that there
+exists an adversary A that can output a blinded membership proof (πt′ ′ ,x , aux)
+for an element x ∈ St with non-negligible probability s.t.,
+
+                                   MemVer(UnBlindProof(Acct , st, πt′ ′ ,x ) =
+                                                     ′
+                 = 0 ∧ VerBlindProofUpd(pp, Acct′ , πt,x , πt′ ′ ,x , aux) = 1.
+
+Since the applied NIZK for the discrete logarithm equality NP-relation is an
+argument of knowledge, the extractor E outputs the triplet (a, b, z) satisfying
+the NIZK.Verify function with non-negligible probability. Thus, there exists a
+                        Private Delegation of Cryptographic Accumulator Proofs          39
+
+
+  NIZK.Prove(pp, RPoEEq , (g, u, h, v), crs, crsg , q ∗ (X)):
+      1. ge ← KZG.Com(crs, q ∗ (X))
+      2. α ← H(g, u, h, v)
+      3. h(X) ← q ∗ (X)/(X + α)
+      4. β ← q ∗ (X) mod (X + α)
+      5. Qg ← KZG.Com(crsg , h(X))
+      6. Qh ← KZG.Com(crs, St (X) · h(X))
+      7. gb ← KZG.Com(crs, h(X))
+      8. return π := (eg , Qg , Qh , gb, β)
+
+  NIZK.Verify(pp, RPoEEq , (g, u, h, v), crs, crsg , π):
+          g , Qg , Qh , gb, β) ← π
+      1. (e
+      2. α ← H(b   g , g, u, h, v)
+                                              ?
+      3. eq1 := e(Qg , g2τ +α ) · e(g β , g2 ) = e(u, g2 )
+                                                ?
+      4. eq2 := e(Qh , g2τ +α ) · e(hβ , g2 ) = e(v, g2 )
+                                              ?
+                  g , g2τ +α ) · e(g1β , g2 ) = e(e
+      5. eq3 := e(b                               g , g2 )
+      6. return 1 if eq1 ∧ eq2 ∧ eq3
+
+
+
+Fig. 14: A non-interactive zero-knowledge (NIZK) proof system for the relation
+RPoEEq using the Fiat–Shamir heuristic.
+
+
+                         ′
+value ∆ s.t. (g, Acct , πt,x ) = (g ∆ , Acc∆     ′    ∆
+                                           t , (πt,x ) ). Unblinding the blinded RSA
+membership proof update yields
+
+                                                      πt′ ′ ,x
+                                           πt′ ,x =            .
+                                                       Br
+Substituting this into the MemVer algorithm, we have πtx′ ,x = Acct′ as desired.
+Thus, the only way an adversary could produce a valid BlindProofUpd that leads
+to an invalid unblinded proof is by breaking the knowledge soundness of the
+applied NIZK.
+
+
+B.2     RSA Non-membership Proof Delegation
+
+Theorem 6 (The RSA accumulator is privately delegatable for non-
+membership proofs). Our construction in Figure 5 yields a secure, privately
+delegatable non-membership proof update scheme for the RSA accumulator under
+strong RSA and factoring assumptions in the ROM.
+
+Proof. Correctness. For x ∈  / St , we have πt′ ,x ′ = {a, g b }, for (a, b) ← Bezout(s∗ , x·
+q). The unblinded non-membership proof is obtained by B ′ := (g b )q , while the
+Bézout-coefficient a remains unchanged. By construction, as∗ + b(xq) = 1. Due
+to the commutativity of integer multiplication, we also have as∗ + bq(x) = 1.
+Thus, (a, bq) are the Bézout-coefficients of s∗ and x, as required.
+40     Soóki-Tóth et al.
+
+    Weak Blinded Non-Membership Proof Indistinguishability. Let us
+assume that there is an efficient adversary A that on input N := πt,x ′ outputs
+                                   1
+with non-negligible probability poly(λ) to which element x ∈ {0, 1}λ the blinded
+non-membership proof belongs, i.e., N = x · q for some primes x, q ∈ Primes(λ).
+Adversary A can be used by another machine B to break the factoring assump-
+tion. Machine B on any input N should just forward its input to A who factors
+it, by assumption, with non-negligible probability. Adversary B clearly has the
+same time-complexity and success probability as A in its own weak blinded
+non-membership proof indistinguishability game.
+    Delegation soundness. Towards contradiction, assume that there exists an
+adversary A that outputs x ∈  / St and a blinded non-membership proof πt′ ,x ′ =
+{a, B} for the updated accumulator Acct′ such that
+                                         g = Accat′ · B y
+holds in the blinded verification (for some exponent y used in the blinded update
+protocol), but the RSA accumulator’s non-membership proof verification fails for
+the corresponding unblinded proof, i.e.,
+                                       g ̸= Accat′ · (B q )x .
+However, by construction of the blinded update, we have y = q · x. Substituting
+this into the first equation yields
+                             g = Accat′ · B qx = Accat′ · (B q )x ,
+which directly contradicts the inequality above. Hence, both equations cannot
+hold simultaneously with non-negligible probability, and no such adversary A
+can exist.
+
+B.3   Bilinear Membership Proof Delegation
+Theorem 7 (Bilinear accumulator is privately delegatable). The con-
+struction in Figure 6 is a secure, privately delegatable membership proof update
+scheme for the bilinear accumulator under q-SDH in the algebraic group model
+and ROM.
+Proof. Correctness. By the definition of the blinding algorithm, we have that
+crs′j = {KZG.Com(rX i q(X))}ki=1 . Let us denote the polynomial of the newly
+                                                             Qk
+added elements {xi }ki=1 in the monomial bases as q ∗ (X) = i=1 (X − xi ) =
+Qk        j
+  j=0 aj X . Using the homomorphic properties of KZG, in the BlindProofUpd(·)
+algorithm, we have
+                                       k
+                                       Y                  k
+                                                          Y
+                         πt′ ′ ,sj =       (crs′j )aj =         KZG.Com(rX j q(X))aj =
+                                       j=0                j=0
+                                                                  
+          k
+          Y                                       Xk
+                KZG.Com aj · rX j q(X) = KZG.Com    aj · X j rq(X) ,
+                                              
+      =
+          j=0                                                      j=0
+                       Private Delegation of Cryptographic Accumulator Proofs                   41
+
+factoring out the update independent polynomial rq(X) yields the following.
+                                                                 
+                   k
+                   X                                     Xk
+       KZG.Com      aj · X j rq(X) = KZG.Com rq(X) ·      aj X j  =
+                      j=0                                                      j=0
+
+                                                            = KZG.Com (rq(X)q ∗ (X)) .
+
+By the unblinding algorithm, UnBlindProof(·), we have that
+                                                     −r
+   (πt′ ′ ,sj )−r = KZG.Com (rq(X)q ∗ (X))                = KZG.Com (q(X)q ∗ (X)) = πt′ ,sj ,
+
+as desired. Therefore, πt′ ,sj is indeed the KZG commitment to the new quotient
+polynomial q(X)q ∗ (X).
+    Blinded Membership Proof Indistinguishability. In the blinded mem-
+bership proof indistinguishability game, the adversary chooses s0 , s1 and sees a
+crs randomized by the challenger with r ∈R Fp , i.e., crs′ := {KZG.Com(rX i qb (X)}ki=1 ,
+                   f (X)
+where qb (X) = X−s      b
+                          , for b ∈R {0, 1}. Since qb (τ ) ̸= 0, let s := r · qb (τ ). Since
+in both cases s is uniform, i.e., s ∼ U (Fp ), and multiplication by a non-zero
+constant in Fp is a permutation, in both cases, the adversary sees the distri-
+             i
+bution {g sτ }ki=1 for a secret s ∈ Fp . Thus, regardless of which element has
+been chosen by the challenger, A sees perfectly indistinguishable distributions
+     i            ∗ i
+{g sτ }ki=1 ≈ {g s τ }ki=1 for the challenger chosen (s, s∗ ) ∈R F2p .
+    Delegation Soundness. The NIZK proof system applied for the NP-language
+RPoEEq was shown to be knowledge sound in the algebraic group model [66].
+Thus, if aux is verified for the statement of the polynomial exponentiation equal-
+                                                ′
+ity RP oEEq , then for the public instance (πt,s  j
+                                                    , πt′ ′ ,sj , Acct , Acct′ ), there is a poly-
+          ∗          ≤k
+nomial q (X) ∈ Fp [X] s.t.
+                                     ∗                         ∗
+                         ′
+                       (πt,sj
+                              )q (τ ) = πt′ ′ ,sj ∧ (Acct )q (τ ) = Acct′ ,               (B.4)
+
+where τ is the trapdoor of the KZG crs. We see in Equation (B.4) that q ∗ (X)
+                                Qk
+encodes the update polynomial i=1 (X − xi ) between the two accumulator
+digests Acct and Acct′ . Thus,
+
+                                −1
+                                                       ∗
+                                                              r−1   mod p
+                (πt′ ′ ,sj )r        mod p
+                                             = g rq(τ )q (τ )                = πt′ ,sj    (B.5)
+
+is a valid membership proof as required.
+
+
+B.4    Bilinear Non-membership Proof Delegation
+
+Theorem 8 (Bilinear accumulator is privately delegatable for non-
+membership proofs). Our construction in Figure 7 yields a secure, privately
+delegatable non-membership proof update scheme for the bilinear accumulator
+under q-SDH in the ROM.
+42        Soóki-Tóth et al.
+
+Proof. Correctness. First, the client generates a short randomized common ref-
+erence string crs′ := {g r1 qt,sj (τ ) , g r1 τ qt,sj (τ ) } which is used by the server to KZG-
+commit to the polynomial X − sn+1 , i.e., Q′ := KZG.Com(crs′ , X − sn+1 ). Then,
+in the UnBlindNonMemProof(·) algorithm, the client rerandomizes Q′ and ob-
+                     −1
+tains Q = (Q′ )r1 mod p ·g yt,sj = g τ qt,sj (τ )−sn+1 qt,sj (τ )+yt,sj = KZG.Com(crs, (X−
+sn+1 )qt,sj (X)+yt,sj ), which is exactly the desired quotient polynomial for the up-
+dated non-membership proof, cf. Equation (5.3). Similarly, the client blinds yt,sj
+      ′                                                           ′                         ′
+to yt,s  j
+           = r2 · yt,sj . In turn, the server computes yt+1,s           j
+                                                                           = sn+1 · yt,s       j
+                                                                                                 which is de-
+randomized at the end of the protocol by the client in the UnBlindNonMemProof(·)
+                                 ′                                   ′
+algorithm as yt,sj sj − yt+1,s           j
+                                           /r2 = yt,sj sj − sn+1 · yt,s  j
+                                                                           /r2 = yt,sj sj − sn+1 · r2 ·
+yt,sj /r2 = yt,sj sj − sn+1 yt,sj , which is the desired scalar element required by the
+updated non-membership proof recurrence relation, cf. Equation (5.3).
+     Blinded Non-Membership Proof Indistinguishability. Given two blinded
+membership proofs πt,s0 ′ = {crs′0 , r0,2 · yt,s0 } and πt,s1 ′ = {crs′1 , r1,2 · yt,s1 } for
+crs′0 := {g r0,1 qt,s0 (τ ) , g r0,1 τ qt,s0 (τ ) } and crs′1 := {g r1,1 qt,s1 (τ ) , g r1,1 τ qt,s1 (τ ) }, it is
+clear that πt,s0 ′ is information-theoretically indistinguishable from πt,s1 ′ , since,
+first, r0,2 · yt,s0 ≈s r1,2 · yt,s1 for uniformly random (r0,2 , r1,2 ) ← F2p , and second,
+crs′0 ≈s crs′1 , because r0,1 and r1,1 act as random permutations on crs0 and crs1 .
+     Delegation Soundness. Consider any PPT adversary (PSN) that, given
+  ′
+πt,s    and the public update (sn+1 , Acct , Acct+1 ), outputs (πt+1,s            ′         , aux) such that
+     j                                                                                    j
+                                           ′       ′
+VerBlindNonMemProofUpd(πt,sj , πt+1,sj , sn+1 , Acct+1 , aux) = 1. We show that,
+except with negligible probability, the unblinded witness πt+1,sj returned by
+UnBlindNonMemProof is a valid non-membership proof for sj ∈                                   / St+1 under
+Acct+1 . The pairing check can be rewritten, using bilinearity and Acct+1 =
+     τ −s
+Acct n+1 , as an equality of exponents in G1 linking Q′t and Q′t+1 via the
+same factor (τ − sn+1 ). By soundness of the accumulator and binding of KZG
+commitments, any deviation of Q′t+1 from the honest updated value (i.e., the
+commitment to r1 qt+1,sj (τ ), where qt+1,sj (X) = (X − sn+1 )qt,sj (X) + yt,sj )
+would violate this pairing equation except with negligible probability. Finally, in
+UnBlindNonMemProof the client computes
+                                                 −1
+                              Q := (Q′t+1 )r1 · g yt,sj = g qt+1,sj (τ ) ,
+
+so πt+1,sj = (Q, yt+1,sj ) is exactly the standard non-membership witness for sj ∈
+                                                                                 /
+St+1 under Acct+1 . Therefore, the probability that a PPT adversary produces an
+accepting transcript for VerBlindNonMemProofUpd while the resulting unblinded
+witness is invalid is negligible.
+
+
+B.5      Server-side Batching
+
+The following theorem states that asymptotic server-side batching for our mem-
+bership proof delegation protocols (cf. Figures 4 and 6), i.e., O(n): sublinear in
+the number of delegation requests, is impossible in the generic group model.
+Specifically, we assume there are n users trying to update their membership
+proofs for the same transition t → t′ . Then, the membership proof update, at a
+                   Private Delegation of Cryptographic Accumulator Proofs      43
+
+high level, translates to exponentiating n random group {gi }ni=1 with the same
+exponent x. As we show next, this computation needs Ω(n) exponentiation.
+
+Lemma 2 (Linear lower bound for component-wise exponentiation in
+the generic group model). Let G be a cyclic group of prime order p in the
+generic group model. Let g1 , . . . , gn ∈ G be independent random group elements
+and let x ∈ Zp be known. Any generic algorithm that outputs
+
+                                  (g1x , g2x , . . . , gnx )
+
+must perform at least n oracle queries. In particular, the generic complexity of
+this task is Ω(n).
+
+Proof. Fix a generator g of G and write
+
+                                       gi = g αi ,
+                    $
+                         − Znp are independent, uniform random exponents unknown
+where (α1 , . . . , αn ) ←
+to the algorithm. By the standard analysis of generic algorithms [64], every group
+element computed by a generic algorithm can be written as
+
+                                     g L(α1 ,...,αn )
+
+where L is a linear polynomial
+                                                      n
+                                                      X
+                            L(α1 , . . . , αn ) =              aj αj
+                                                      j=1
+
+with coefficients aj ∈ Zp known to the algorithm.
+   Thus, each known group element corresponds to a vector
+
+                             a = (a1 , . . . , an ) ∈ Znp .
+
+   Let Vt ⊆ Znp denote the linear span of all coefficient vectors corresponding to
+elements known by the algorithm after t oracle queries.
+   Initially the algorithm knows g1 , . . . , gn , corresponding to the vectors
+
+                                      e1 , . . . , e n ,
+
+where ei is the i-th standard basis vector. Hence
+
+                             V0 = span{e1 , . . . , en }.
+
+   Each oracle query (group multiplication or inversion) produces at most one
+new group element, whose coefficient vector is a linear combination of previously
+known vectors. Consequently, after t oracle queries the algorithm knows at most
+n + t group elements.
+   The desired outputs are
+                                  gix = g xαi ,
+44      Soóki-Tóth et al.
+
+which correspond to the vectors
+
+                                     xe1 , . . . , xen .
+
+   Since the αi are independent random variables, these elements are inde-
+pendent group elements. Therefore, the algorithm must explicitly produce the
+encoding of each gix .
+   As each oracle query can produce at most one new group element, producing
+n distinct outputs requires at least n oracle queries. Thus, any generic algorithm
+computing (g1x , . . . , gnx ) requires at least n oracle queries, proving the Ω(n) lower
+bound.
+   It would be fascinating to prove lower bounds for the server complexity of
+updating n client non-membership proofs in the standard or even just in the
+generic or algebraic group models. We leave this seemingly harder problem to
+future work.
+
+
+C     Extended Performance Evaluation
+Next, we detail some performance measurements that we did not include in the
+main text due to space constraints.
+
+C.1    Runtime Breakdown of (Non-)Membership Proof Updates
+Figure 15 illustrates what percentage of the runtime is spent on various cryp-
+tographic operations, i.e., hashing, exponentiation (multi-scalar multiplication
+(MSM) in case of the bilinear accumulator), and NIZK proving during pri-
+vate (non-)membership proof updates when updating for a single element (i.e.,
+k = 1). We note that in the case of private membership proof updates, the size
+of the exponent grows linearly in k (cf. Section 7.1), making exponentiation the
+dominant operation. For all instantiations of the RSA accumulator, we expect
+that, as k → ∞, the dominant cost will be the exponentiation costs. Luckily,
+specialized hardware chips that can compute exponentiation in groups of un-
+known order (i.e., in RSA and class groups) extremely fast are already available
+due to verifiable delay function deployments [12]. These hardware chips could
+be leveraged by PSNs for these computational tasks.
+
+C.2    Case Study: PSN for Stateless Blockchains from the RSA
+       Accumulator
+We study the operation and communication costs of deploying a PSN for the
+stateless blockchain use case, whenever the unspent coins are accumulated us-
+ing the trapdoorless RSA accumulator, cf. Figure 16. Observe in Figure 16 that
+the RSA membership proof delegation protocol that we developed can support
+arbitrarily scalable stateless blockchains, since there is no public parameter that
+would limit the desired proof update functionality. However, we also see that the
+                                                                                            Private Delegation of Cryptographic Accumulator Proofs                                                                                                  45
+
+
+
+
+                                                                                                             Exponentiation                                                                  Hashing          NIZK
+
+
+
+
+                              Share of measured update time (%)
+                                                                  100
+
+                                                                       80
+
+                                                                       60
+
+                                                                       40
+
+                                                                       20
+
+                                                                        0
+                                                                                   em r               em            em                                                                       em                    em               em
+                                                                                  M nea              M SA          M lass                                                                n M ar                n M               n M s
+                                                                                                                                                                                               e                    A                 s
+                                                                                     li               R             C                                                                  No ilin               No RS             No Cla
+                                                                                  Bi                                                                                                     B
+
+  Fig. 15: Runtime breakdown in terms of exponentiation, hashing and NIZK prov-
+  ing of (non-)membership proof updates when updating for a single element.
+
+
+
+
+                                                                   00         00      2         1                  103                                                                        00         2       1
+                                   2                              e+         e+      e-0
+                                                                                    1.0
+                                                                                              e-0
+                                                                                             1.8
+                                                                                                        2
+                                                                                                      2.8                                                                               2    e+        e-0
+                                                                                                                                                                                                      5.0
+                                                                                                                                                                                                               e-0
+                                                                                                                                                                                                              8.4
+                                                                                                                                                                                                                        .4
+                                                                                                                                                                                                                        13
+                                                                                                                                                                                                                                 4.1
+                                                                                                                                                                                                                                21
+                                                          0.0               0.0                                                                                                             0.0                                           104
+                                                                                                                   102
+
+
+
+
+Blockchain Throughput (tps)                                                                                                                              Blockchain Throughput (tps)
+                                                                   00         00      2         1                                                                                             2          1
+                                   4                                                                                                                                                    4
+
+
+
+
+                                                                                                                         Communication complexity (PB)
+                                                                                     e-0      e-0      .27                                                                                   e-0       e-0              .7       0.7
+                                                          0.0
+                                                                  e+         e+
+                                                                            0.0     4.0      7.0      11                                                                                    1.0       1.8
+                                                                                                                                                                                                               2.9      45      73        103
+                                                                                                                   101
+
+
+
+
+                                                                                                                                                                                                                                                Server cost (USD)
+                                   8
+                                                                   00
+                                                                  e+
+                                                                              2
+                                                                             e-0      1
+                                                                                     e-0       2       .09                                                                              8
+                                                                                                                                                                                              2
+                                                                                                                                                                                             e-0         1
+                                                                                                                                                                                                       e-0     9.7      5.9       .6
+                                                                                                                                                                                                                                 93       102
+                                                          0.0               1.0     1.8      2.8      45           100                                                                      4.0       6.1               15     24
+                                                                                                                                                                                                                                          101
+                              16
+                                                                   00
+                                                                  e+
+                                                                              2
+                                                                             e-0      1
+                                                                                     e-0      .27      0.3  5      10 1                                                                16
+                                                                                                                                                                                              1
+                                                                                                                                                                                             e-0       2.1      .2      1.9       .7
+                                                                                                                                                                                                                                 09
+                                                          0.0               4.0     7.0      11       18                                                                                    1.3                33       53     85
+                                                                                                                                                                                                                                          100
+                                                                                                                   10 2
+                              32
+                                                                  e-02       e-01     2      45       72
+                                                                                                            9
+                                                                                                                                                                                       32
+                                                                                                                                                                                             e-01      7.1    11      1815     2903
+                                                            1.0             1.8     2.8        .09      1.3                                                                                 4.4                 3.4       .0       9.8
+                                                                                                                                                                                                                                          10 1
+                                                                                                                   10 3
+
+                              64
+                                                                  e-02       e-01   11       18
+                                                                                                5    2885                                                                              64             24      38      6193     9909
+                                                            4.0             7.0       .27      0.3       .56       10 4
+                                                                                                                                                                                             1.5        .2      7.1       .7       9.7    10 2
+
+                                                                   0          1      21       341        1                                                                                    0         1       21      341        1
+                                                                                                      546                                                                                                                       546
+                                                                   PSN server running time (days)                                                                                                 PSN server running time (days)
+                                                        (a) Communication costs (in PB)                                                                                                      (b) Operational costs (in USD)
+
+  Fig. 16: Stateless Blockchain case study. Communication costs (in PB) and oper-
+  ational costs (in USD) of a PSN server for a given stateless blockchain throughput
+  and uptime for the RSA accumulator.
+46     Soóki-Tóth et al.
+
+RSA proof delegation algorithms incur higher communication and operational
+costs to the PSN server compared to the bilinear accumulator case (again, proof
+delegation running times for larger update sizes were approximated from Fig-
+ure 9a using linear regression). We believe that the measured operational costs
+are reasonable for a real-world PSN deployment. For example, running a PSN
+server would cost ≈ 100K USD when updating RSA membership proofs for
+the users of a stateless blockchain with 64 transaction per second for an entire
+year. On the other hand, these numbers translate into ≈ 5.94 × 10−10 USD cost
+for the client for each transaction submitted, which we can consider to be an
+economically negligible cost.
+

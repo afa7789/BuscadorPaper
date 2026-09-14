@@ -1,0 +1,2343 @@
+    Vector Commitments with Efficient Updates
+
+                       Ertem Nusret Tas and Dan Boneh
+
+                                Stanford University
+
+
+
+      Abstract. Dynamic vector commitments that enable local updates of
+      opening proofs have applications ranging from verifiable databases with
+      membership changes to stateless clients on blockchains. In these applica-
+      tions, each user maintains a relevant subset of the committed messages
+      and the corresponding opening proofs with the goal of ensuring a suc-
+      cinct global state. When the messages are updated, users are given some
+      global update information and update their opening proofs to match the
+      new vector commitment. We investigate the relation between the size
+      of the update information and the runtime complexity needed to up-
+      date an individual opening proof. Existing vector commitment schemes
+      require that either the information size or the runtime scale linearly in
+      the number k of updated state elements. We construct a vector commit-
+      ment scheme that asymptotically achieves both length and runtime that
+      is sublinear in k, namely kν and k1−ν for any ν ∈ (0, 1). We prove an
+      information-theoretic lower bound on the relation between the update
+      information size and runtime complexity that shows the asymptotic op-
+      timality of our scheme. For ν = 1/2, our constructions outperform Verkle
+      commitments by about a factor of 2 in terms of both the update infor-
+      mation size and runtime, but makes use of larger public parameters.
+
+
+1   Introduction
+A Vector Commitment (VC) scheme [19,31,18] enables a committer to succinctly
+commit to a vector of elements. Later, the committer can generate an opening
+proof to prove that a particular position in the committed vector is equal to a
+certain value. VCs have found many applications in databases and blockchains
+[34,50] as they enable a storage system to only store a commitment to the vector
+instead of the entire vector. The data itself can be stored elsewhere along with
+opening proofs. In a multiuser system, every user might store only one position
+of the vector along with the opening proof for that position.
+    Dynamic VCs [18] are vector commitments that support updates to the vec-
+tor. Suppose the committed vector is of length N and some k < N positions in
+the vector are updated, so that a new vector commitment is published. Then,
+every user in the system will need to update their local opening proof to match
+the updated commitment, and this is done with the help of some global update
+information U that is broadcast to all users. This information is typically gener-
+ated and published by a manager who maintains the entire vector. Applications
+of dynamic VCs include verifiable databases, zero-knowledge sets with frequent
+updates [18] and stateless clients for blockchains [11]. The challenge is to design
+2       Ertem Nusret Tas and Dan Boneh
+
+a VC scheme that minimizes the size of the update information U as well as the
+computation work by each user to update their local opening proof.
+    For example, consider stateless clients on a blockchain as an important appli-
+cation for dynamic VCs. The state of the chain can be represented as a vector of
+length N , where position i corresponds to the state of account number i. Every
+user will locally maintain its own state (corresponding to some position in the
+vector) along with an opening proof that enables the user to convince a third
+party as to its current state. Whenever a new block is published, the state of the
+chain changes. In particular, suppose k out of the N positions in the vector need
+to be updated. The block proposer will publish the update information U along
+with the new block, and every user will update their opening proof to match
+the new committed state of the chain. Thus, users can ensure that their opening
+proofs are up to date with respect to the latest committed state of the chain.
+    We stress that in this application, the data being updated, namely the up-
+dated positions and diffs, is published as part of the block. The update informa-
+tion U only contains additional information that is needed to update the opening
+proofs. When we refer to the size of U , we refer to its size, excluding the updated
+data (i.e., excluding the updated positions and diffs).
+
+
+                  Vector Commitment             |U |        T       PP
+                    Merkle tree [32]         Θ̃(k) |H|     Õ(1)    N
+                    Verkle tree [13]         Θ̃(k) |G| Õ(1) |H| TG Y
+
+                This work with ν ∈ [0, 1]    Θ̃(kν )|H| Θ̃(k1−ν ) Tf N
+
+                KZG commitments [25]           Õ(1)     Θ̃(k) TG    Y
+           RSA accumulators and VCs [9,10]     Õ(1)     Θ̃(k) TG    N
+             Bilinear accumulators [35,43]     Õ(1)     Θ̃(k) TG    N
+
+Table 1: Comparison of different VCs. |U | denotes the length of the update
+information. T denotes the runtime of a single proof update. |G| and |H| denote
+the size of a single group element and a single hash value, respectively. TG and
+Tf denote the time complexity of a single group operation and a single function
+evaluation for the hash function used by the VC. The last column PP is ‘Y’ if
+the proof update requires pre-processing to generate a global and fixed table of
+auxiliary data needed for proof updates.
+
+
+    In this paper, we investigate the trade-off between the length |U | of the
+update information and the time complexity of proof updates. Dynamic VCs
+can be grouped into two categories in terms of these parameters (Table 1). Tree-
+based VCs [32,42] enable users to update their proofs in time O(polylog N ).
+Each opening proof typically consists of polylog (N ) inner nodes, and the update
+information U contains the changes in the inner nodes affected by the message
+updates. Each user calculates its new opening proof by downloading the relevant
+                               Vector Commitments with Efficient Updates         3
+
+inner nodes published as part of U . When k positions are updated, a total of
+O(k log (N )) inner nodes in the tree are affected in the worst case. Thus, when
+each inner node has length Θ(λ), proportional to the security parameter λ, the
+update information consists of O(k log (N )λ) bits.
+    In contrast, algebraic VCs [25,9,10,35,43] enable users to update their open-
+ing proofs with only knowledge of the updated data. They do not require any
+additional update information U to be published beyond the indices and the
+‘diffs’ of the updated data. Thus, the length of the update information needed
+to update the opening proofs is O(1). However, algebraic VCs typically require
+each user to read all of the changed messages and incorporate the effect of these
+changes on their proofs, resulting in Θ(k) work per proof update.
+    To summarize, while tree-based VCs support efficient calculation of the new
+opening proofs by publishing a large amount of update information, linear in
+k, algebraic VCs do not require any additional update information beyond the
+updated data, but suffer from a large runtime for proof updates, linear in k. We
+formalize the dichotomy of VCs in Section 3.
+
+
+1.1   Our Results
+
+We propose a family of VCs that can support sublinear update, where both
+the length |U | of the update information and the complexity of proof updates
+are sublinear in k. More specifically, our VCs can attain |U | = Θ(k ν λ), ν ∈
+(0, 1), with a proof update complexity of Θ(k 1−ν ) operations. Our candidate
+construction with sublinear update is a homomorphic tree, based on the VCs
+from [47,42], where each inner node can be expressed as a sum of the partial
+digests of the messages underneath the node and its sibling (Section 4). We also
+propose an alternative construction called the homomorphic Merkle tree, first
+formalized by [38,37,41] and based on the VCs from [38,37,41]. The algebraic
+structure of these trees enable each user to calculate the effect of a message
+update on any inner node without reading other inner nodes or messages. The
+homomorphic tree constructions are based on pairings, and the homomorphic
+Merkle tree constructions are based on lattices [38,37,41,47,42].
+    In Sections 4 and 5, we provide update algorithms (Alg. 1 and 2) for homo-
+morphic Merkle trees and VCs based on homomorphic trees, parameterized by
+ν ∈ (0, 1). Our algorithm identifies a special subset of size Θ̃(k ν ) of the inner
+nodes affected by the message updates, and publish their new values as U ; so that
+the users need not calculate these values. These inner nodes are selected care-
+fully to ensure that any inner node outside of U is affected by at most Θ(k 1−ν )
+updated messages. Thus, to modify its opening proof, each user has to calculate
+the partial digests of at most Θ(k 1−ν ) updated messages per inner node within
+its proof (that consists of Θ(log (N )) inner nodes). Moreover, to calculate these
+partial digests, the user only needs the ‘diffs’ of the updated messages. This
+brings the asymptotic complexity of proof updates to Θ̃(k 1−ν ) operations, while
+achieving an update information size of Θ̃(k ν λ) as opposed to Θ̃(kλ) on Merkle
+trees using SHA256.
+4      Ertem Nusret Tas and Dan Boneh
+
+     In Sections 4.4 and 5.4, we give estimates for the update information size
+and the update time of opening proofs for homomorphic tree and homomorphic
+Merkle tree constructions. When the trade-off parameter ν is 1/2, the homo-
+morphic tree construction based on [47] requires an update information size of
+52.53 kBytes and an update time of 0.34 seconds. In contrast, even the most
+efficient homomorphic Merkle tree construction [41] requires an update informa-
+tion size of 110.88 MBytes and an update time of 32.6 seconds when ν = 1/2
+(cf. Section 5.4). The large update information size is due to the lattice-based
+construction of the VCs from [38,37,41] used in the homomorphic Merkle trees.
+Although the homomorphic tree constructions based on [47,42] have the same
+asymptotic performance as homomorphic Merkle trees, they are concretely more
+efficient for real-world parameters. However, unlike homomorphic Merkle trees,
+the homomorphic tree constructions are not secure against quantum computers,
+require trusted setup, and have large public parameter sizes.
+     In Section 7, we prove an information theoretic lower bound on the size
+of the update information given an upper bound on the runtime complexity
+of proof updates. The bound implies the asymptotic optimality of our scheme
+with sublinear update. Its proof is based on the observation that if the runtime
+complexity is bounded by O(k 1−ν ), a user that wants to update its proof cannot
+read beyond O(k 1−ν ) updated messages. Then, to calculate the effect of the
+remaining k − O(k 1−ν ) messages on its opening proof, the user has to download
+parts of the structured update information U . Finally, to obtain the lower bound
+on |U |, we use Shannon entropy and lower bound the number of bits, namely
+O(k ν λ), required to capture the total information that will be downloaded by
+the users; while maintaining the security of the VC with parameter λ.
+
+1.2   Applications
+We identify three main applications for VCs with sublinear update.
+
+Stateless clients for Ethereum Ethereum is the largest decentralized gen-
+eral purpose computation platform by market cap. Ethereum state (e.g., user
+accounts) is currently stored in the form of a Merkle tree [6] and grows approxi-
+mately by half every year [12]. Stateless clients [11,12] were proposed to mitigate
+the problem of state bloat and prevent the state storage and maintenance from
+becoming a bottleneck for decentralization. Stateless clients maintain an opening
+proof to their account balances within the Ethereum state, thus can effortlessly
+prove the inclusion of their accounts within the latest state. This enables the
+other Ethereum clients to verify the transactions that come with opening proofs
+without having to download the full state and check the validity of the claimed
+account balances. Since block verification now requires downloading the proofs
+for the relevant state elements, Verkle trees [26,13,21] were proposed as a re-
+placement for Merkle trees due to their short proof size.
+    Each new Ethereum block contains transactions that update the state ele-
+ments and their opening proofs. Archival nodes and block producers still main-
+tain the full state so that they can inform the stateless clients about their new
+                                  Vector Commitments with Efficient Updates          5
+
+opening proofs [12]. For this purpose, block producers must broadcast enough
+information to the clients over the peer-to-peer gossip network of Ethereum1 .
+As minimizing the proof size was paramount to decentralizing verification for
+blocks, minimizing the update information size becomes necessary for decentral-
+izing the role of the block producer who has to disseminate this information.
+However, reducing the length of the update information must not compromise
+the low overhead of stateless clients by requiring larger number of operations per
+proof update. Therefore, the ideal VC scheme for stateless clients must strike
+a delicate balance between the size of the update information and the runtime
+complexity of proof updates.
+    In Section 6, we provide the update algorithms for Verkle trees given their
+role in supporting stateless clients. We observe that Verkle trees do not sup-
+port sublinear update, and fall under the same category as tree-based VCs with
+update information length Θ̃(kλ). Despite this fact, Verkle trees are highly prac-
+tical in terms of updates. In Section 6.5, we estimate that the update information
+size after a typical Ethereum block does not exceed |U | ≈ 100 kBytes (compared
+to the typical block size of < 125 kBytes). Moreover, each Verkle proof can
+be updated within approximately less than a second on commodity hardware.
+Thus, Verkle trees outperform homomorphic Merkle tree constructions, but fall
+below those based on homomorphic trees. However, they have a smaller public
+parameter size (a few MBytes) compared to homomorphic tree constructions (a
+few GBytes).
+
+Databases with frequent membership changes VCs with sublinear update
+can support databases with frequent membership changes. When a user first
+registers, a message is updated to record the membership of the user. The user
+receives this record and its opening proof, using which it can later anonymously
+prove its membership. When the user leaves the system, the message is once
+again updated to delete the record. In all these steps, membership changes result
+in updates to the opening proofs of other members. When these changes are
+frequent, it becomes infeasible to distribute new proofs after each change. VCs
+with sublinear update offer an alternative and efficient way to update the opening
+proofs of the users in the event of such changes.
+
+1.3    Related Work
+There are many VC constructions, each with different guarantees regarding the
+proof, commitment and public parameter sizes, verification time, updateability
+and support for subvector openings [19,31,18,48,37,30,27,24,23,7,51,10,43,42,25,13]
+(cf [36] for an SoK of VCs). First formalized by [18], almost all VCs allow
+some degree of updatability. Whereas [37,7,10,43] enable updating the com-
+mitment and the opening proofs with only the knowledge of the old and the
+1
+    Block producers can enable the clients to succinctly verify the correctness of this
+    information via SNARK proofs, thus still keeping the verification cost of blocks
+    small.
+6      Ertem Nusret Tas and Dan Boneh
+
+new messages, most VCs require some structured update information beyond
+the messages when the users do not have access to the internal data structures.
+Among the lattice-based accumulators, vector commitments and functional com-
+mitments [24,29,40,37,41,38,49], constructions amenable to sublinear update are
+presented in [38,37,41,40,47,42]. Homomorphic trees are based on [47,42,17]. On
+the other hand, homomorphic Merkle trees were formalized and instantiated by
+[38,37,41] in the context of streaming authenticated data structures and parallel
+online memory checking. The construction presented in [40, Section 3.4] offers
+an alternative VC with sublinear update as it is not a Merkle tree, yet has the
+property that each inner node can be expressed as a sum of the partial digests
+of individual messages.
+    Dynamic vector commitments have found extensive use in the context of au-
+thenticated data structures [44]. For instance, Hasic et al. introduce an RSA
+accumulator construction to achieve a dynamic authenticated dictionary with
+O(nϵ ) update and query time and a constant verification time [22]. On a sim-
+ilar theme, Papamanthou et al. give a tree-based hash table construction that
+can achieve O(nϵ ) update time and constant (O(1/ϵ)) size proofs [39]. Akin to
+Verkle trees, their construction uses RSA accumulators organized in the form of a
+wide tree with degree nϵ . Given the multitude of authenticated data structures,
+Miller et al. developed a language for programming authenticated operations
+(e.g., binary search trees) by simply describing the data structure [33]. Li et
+al. make use of the authenticated multipoint evaluation trees (AMT) from [47]
+to provide authenticated storage for blockchains with significantly reduced I/O
+amplifications.
+    An alternative design to support stateless clients is the agregatable subvec-
+tor commitment (aSVC) scheme [46], which is a VC that enables aggregating
+multiple opening proofs into a succinct subvector proof. In aSVC, each user can
+update its opening proof with the knowledge of the transactions in the blocks,
+and block producers to prove the validity of these transactions succinctly by ag-
+gregating the proofs submitted by the transacting users. As the scheme is based
+on KZG commitments, no update information is needed, yet, the update time
+complexity is linear in the number of transactions per block.
+    In the light of applications such as authenticated data structures and state-
+less clients, Campanelli et al. identify homomorphism, proof aggregation and
+updatability, maintenance of the VC given new updates and reusability of the
+existing trusted setup as desired features for VCs [17]. Inspired by [28], they
+introduce linear-map VCs (LVCs) which can be opened to linear maps of the
+committed vector, with unbounded aggregation and the other aforementioned
+properties, and show two pairing-based LVC constructions for inner products.
+They also provide two schemes, one based on multivariate polynomials and the
+other univariate, that support an arbitrary memory/time trade-off for openings,
+implying a similar trade-off between memory and the time to update the VC data
+structures after changes in the committed vector. The multivariate construction
+generalizes Hyperproofs [42] by supporting trees of any degree with potentially
+shorter opening proofs and by having commitments for any LVC at the leaves in
+                              Vector Commitments with Efficient Updates       7
+
+place of the committed vector elements. The univariate case generalizes [47] and
+enables the setup to be independent of the memory/time trade-off. In contrast,
+our work offers a flexible trade-off between the size of the update information
+and the time to update an individual opening proof that is independent of the
+setup and the degree of the homomorphic (Merkle) tree.
+
+
+    For dynamic accumulators that support additions, deletions and membership
+proofs, Camacho and Hevia proved that after k messages are deleted, Ω(k) bits
+of data must be published to update the proofs of the messages in the initial
+accumulated set [16, Theorem 1]. Their lower bound is information-theoretic and
+follows from a compression argument. Christ and Bonneau subsequently used a
+similar method to prove a lower bound on the global state size of a revocable
+proof system abstraction [20]. As revocable proof systems can be implemented
+by dynamic accumulators and vector commitments, their lower bound general-
+izes to these primitives, i.e., after k messages are updated in a dynamic VC,
+at least Ω(k) bits of data must be published to update the opening proofs (see
+Appendix A for the proof). They conclude that a stateless commitment scheme
+must either have a global state with linear size in the number of accounts, or
+require a near-linear rate of local proof updates. In our work, we already as-
+sume a linear rate of local proof updates, i.e., after every Ethereum block or k
+messages in our parameterization, and that the message updates are publicized
+by the blockchain. We instead focus on the trade-off between the global struc-
+tured update information size (beyond the published messages) and the runtime
+complexity of proof updates.
+
+
+    In terms of lower bounds, Tamassia and Triandopoulos show a Ω(log (n))
+bound on various cost metrics (e.g., proof size, communication and computa-
+tional cost of updates) for hierarchical data processing (HDP) problems with an
+input set of n elements, where the computation can be described by a directed
+acyclic graph (DAG) [45]. Their result follows from an analogy between these
+cost measures and searching an element in an ordered sequence of n elements.
+They also propose a tree DAG construction with nearly optimal cost metrics
+among all key-graph structures. Our lower bound in Section 7 applies to multi-
+ple updates (as opposed to a single update incurring O(log (n)) computational
+cost) and considers the scaling of the update information as a function of the
+number of updates (denoted by k) for any VC, not necessarily restricted to a
+hash-based DAG structure.
+
+
+    Although we assume a trusted operator maintaining the VC in this work,
+there has been extensive research on verifying the consistency of the responses
+obtained from a server for an outsourced computation, in particular for the
+setting of concurrently querying clients [15,14]. Making the update information
+itself verifiable remains as future work.
+8       Ertem Nusret Tas and Dan Boneh
+
+2     Preliminaries
+2.1   Notation
+We denote the security parameter by λ. An event is said to happen with negligible
+probability, if its probability, as a function of λ, is o(1/λd ) for all d > 0. An
+event happens with overwhelming probability if it happens except with negligible
+probability.
+    We denote the set {0, 1, 2, .. , N − 1} by [N ]. When y = O(h(x) polylog (x)),
+we use the shorthand y = Õ(h(x)) (similarly for Θ(.) and Θ̃(.)). The function
+H(.) : M → {0, 1}λ represents a collision-resistant hash function. We denote
+the binary decomposition of an integer x by bin(x), and for c > 2, its base c
+decomposition by binc (x). A vector of N elements (n0 , .. , nN −1 ) is shown as
+(ni )i . The notation x[i:j] denotes the substring starting at the ith index and
+ending at the j th index within the sequence x. The indicator function 1P is
+equal to one if the predicate P is true, otherwise, it is zero. In the subsequent
+sections, k will be used to denote the number of updated messages.
+    For a prime p, let Fp denote a finite field of size p. We use G to denote a
+cyclic group of prime order p with generator g. The Lagrange basis polynomial
+for a given x ∈ Fp is denoted as Lx (X):
+                                         Y X −i
+                              Lx (X) =
+                                                 x−i
+                                         i∈Fp
+                                          i̸=x
+
+    We will use |G| and |H| to denote the maximum size of the bit representation
+of a single group element and a single hash value respectively. We will use TG
+and Tf to denote the time complexity of a single group operation and a single
+function evaluation for the hash functions in Section 5.1.
+
+2.2   Vector Commitments
+A vector commitment (VC) represents a sequence of messages such that each
+message can be proven to be the one at its index via an opening proof. A dy-
+namic vector commitment allows updating the commitment and the opening
+proofs with the help of an update information when the committed messages are
+changed.
+Definition 1 (from [18]). Dynamic (updateable) vector commitments can be
+described by the following algorithms:
+KeyGen(1λ , N ) → pp : Given the security parameter λ and the size N =
+poly(λ) of the committed vector, the key generation algorithm outputs public
+parameters pp, which implicitly define the message space M.
+Commitpp (m0 , .. , mN −1 ) → (C, data) : Given a sequence of N messages in M
+and the public parameters pp, the commitment algorithm outputs a commitment
+string C and the data data required to produce the opening proofs for the mes-
+sages. Here, data contains enough information about the current state of the VC’s
+                                    Vector Commitments with Efficient Updates                9
+
+data structure ( i.e., the current list of committed messages) to help generate the
+opening proofs.
+Openpp (m, i, data) → πi : The opening algorithm is run by the committer to
+produce a proof πi that m is the ith committed message.
+Verifypp (C, m, i, πi ) → {0, 1} : The verification algorithm accepts ( i.e., outputs
+1) or rejects a proof. The security definition will require that πi is accepted only
+if C is a commitment to some (m0 , .. , mN −1 ) such that m = mi .
+Updatepp (C, (i, mi )i∈[N ] , (i, m′i )i∈[N ] , data) → (C ′ , U, data′ ) : The algorithm is
+run by the committer to update the commitment C when the messages (mij )j∈[k]
+at indices (ij )j∈[k] are changed to (m′ij )j∈[k] . The other messages in the vector
+are unchanged. It takes as input the old and the new messages, their indices and
+the data variable data. It outputs a new commitment C ′ , update information U
+and the new data variable data′ .
+ProofUpdatepp (C, p((i, mi )i∈[N ] , (i, m′i )i∈[N ] ), πj , m′ , i, U ) → πj′ : The proof
+update algorithm can be run by any user who holds a proof πj for some message
+at index j and a (possibly) new message m′ at that index. It allows the user
+to compute an updated proof πj′ (and the updated commitment C ′ ) such that πj′
+is valid with respect to C ′ , which contains m′i , i ∈ N , as the new messages at
+the indices i ∈ N (and m′ as the new message at index i). Here, p(.) specifies
+what portion of the old and the new messages is sufficient to update the opening
+proof. For instance, the proof update algorithm often does not need the old and
+the new messages in the open; but can carry out the proof update using only their
+differences. In this case, p((i, mi )i∈[N ] , (i, m′i )i∈[N ] ) = (i, m′i − mi )i∈N .
+
+    Correctness of a VC requires that ∀N = poly(λ), for all honestly generated
+parameters pp ←   − KeyGen(1λ , N ), given a commitment C to a vector of mes-
+sages (m0 , .. , mN −1 ) ∈ MN , generated by Commitpp (and possibly followed by
+a sequence of updates), and an opening proof πi for a message at index i, gen-
+erated by Openpp or ProofUpdatepp , it holds that Verifypp (C, mi , i, πi ) = 1
+with overwhelming probability.
+    Security of a VC is expressed by the position-binding property:
+
+Definition 2 (Definition 4 of [18]). A VC satisfies position-binding if ∀i ∈
+[N ] and for every PPT adversary A, the following probability is negligible in λ:
+                                                    pp←
+                                                      −KeyGen(1λ ,N )
+                 h                                                     i
+                    Verifypp (C,m,i,πi )=1∧
+              Pr Verifypp (C,m ′     ′
+                                 ,i,π )=1∧m̸=m′ :
+                                                  (C,m,m ,π ,π )←
+                                                        ′     ′
+                                                                −A(pp)
+                                      i                         i   i
+
+
+    We relax the succinctness assumption of [18] and denote a value to be succinct
+in x if it is polylog(x).
+    Many VC constructions also satisfy the hiding property: informally, no PPT
+adversary A should be able to distinguish whether the VC was calculated for a
+vector (m0 , .. , mN −1 ) or a vector (m′0 , .. , m′N −1 ) ̸= (m0 , .. , mN −1 ). In this work,
+we do not consider the hiding property since it is not explicitly required by our
+applications, and VCs can be made hiding by combining them with a hiding
+commitment [18].
+10      Ertem Nusret Tas and Dan Boneh
+
+2.3   KZG Polynomial Commitments
+
+The KZG commitment scheme [25] commits to polynomials of degree bounded
+by ℓ using the following algorithms:
+                                                        2         ℓ
+KeyGen(1λ , ℓ) → pp : outputs pp = (g, g τ , g (τ ) , .. , g (τ ) ) as the public pa-
+rameters, where g is the generator of the cyclic group G and τ is a trapdoor
+             i
+(pp[i] = g τ ).
+                 
+Commit pp, ϕ(X) → (C, data) : The commitment to a polynomial ϕ(X) =
+Pℓ−1        i
+                                                                        Qℓ           ai
+  i=0 ai X is denoted by [ϕ(X)], and is computed as [ϕ(X)] =              i=0 (pp[i]) .
+The commitment algorithm outputs C = [ϕ(X)] and data = ϕ(X).
+Openpp (m, i, data) → π : outputs the opening proof πi that ϕ(i) = m, calculated
+as the commitment to the quotient polynomial (ϕ(X) − ϕ(i))/(X − i).
+                                                                               
+Verify(C, m, i, π) accepts if the pairing check e (C/g m , g) = e π, pp[1]/g i
+holds.
+We refer to [25] for the security analysis of this scheme.
+
+
+2.4   Merkle Trees
+
+Merkle Tree is a vector commitment using a collision-resistant hash function.
+In a Merkle tree, hashes of the committed messages constitute the leaves of a
+c-ary tree of height h = logc (N ), where each inner node is found by hashing
+its children. The depth of the root is set to be 0 and the depth of the leaves
+is ⌈logc (N )⌉. The commitment function outputs the Merkle root as the com-
+mitment C and the Merkle tree as data. The opening proof for a message mx
+at some index x is the sequence of h(c − 1) hashes consisting of the siblings of
+the inner nodes on the path from the root to the hash of the message mx . We
+hereafter consider binary Merkle trees (c = 2) and assume N = ch = 2h unless
+stated otherwise. Let ub0 ,b1 ,..,bi−1 , bj ∈ {0, 1}, j ∈ [i], denote an inner node at
+depth i − 1 that is reached from the root by choosing the left child at depth j if
+bj = 0 and the right child at depth j if bj = 1 (b0 = ⊥ and u⊥ is the root). By
+definition, for a message mx at index x, H(mx ) = u⊥,bin(x) .
+
+
+2.5   Verkle Trees
+
+A Verkle tree [13,21] is similar to a Merkle tree except that each inner node is
+calculated as the hash of the KZG polynomial commitment to its children. Let
+bj ∈ [c], j = 1, .. , h, denote the indices of the inner nodes on the path from the
+root to a leaf at index x, binc (x) = (b1 , .. , bh ), relative to their siblings. Define
+fb0 ,..,bj , j ∈ [h], as the polynomials determined by the children of the inner
+nodes on the path from the root to the leaf, where fb0 = f⊥ is the polynomial
+determined by the children of the root. Let Cb0 ,..,bj = [fb0 ,..,bj ], j ∈ [h], denote the
+KZG commitments to these polynomials. By definition, ub0 ,..,bj = H(Cb0 ,..,bj ),
+and the value of the polynomial fb0 ,..,bj at index bj+1 is ub0 ,..,bj+1 for each j ∈ [h].
+Here, ub0 = H(Cb0 ) is the root of the tree, and ub0 ,..,bh equals the hash H(mx ) of
+                                           Vector Commitments with Efficient Updates                    11
+
+the message at index x. For consistency, we define Cb0 ,..,bh as mx . For example,
+given h = 3 and c = 4, the inner nodes from the root to the message m14 have the
+indices b0 = 0, b1 = 3 and b2 = 2, and they are committed by the polynomials
+f⊥ , f⊥,0 and f⊥,0,3 respectively.
+    The commitment function Commitpp (m0 , .. , mN −1 ) outputs the root ub0 as
+the commitment C and the Verkle tree itself as data.
+    The Verkle opening proof for the message mx , bin(x) = (b1 , .. , bh ), consists
+of two parts: (i) the KZG commitments (Cb0 ,b1 , .. , Cb0 ,..,bh−1 ) on the path from
+the root to the message, and (ii) a Verkle multiproof. The goal of the Verkle
+multiproof is to show that the following evaluations hold for the inner nodes
+from the root to the message: fb0 ,..,bj (bj+1 ) = ub0 ,..,bj+1 = H(Cb0 ,..,bj+1 ), j ∈ [h].
+It has two components: (i) the commitment [g(X)] and (ii) the opening proof π ′
+for the polynomial h(X) − g(X) at the point t = H(r, [g(X)]), where
+                  h−1                                                     h−1
+                  X          fb0 ,..,bj (X) − ub0 ,..,bj+1                X          fb0 ,..,bj (X)
+       g(X) =           rj                                 ,     h(X) =         rj                  ,
+                  j=0
+                                       X − bj+1                           j=0
+                                                                                      t − bj+1
+
+and r = H(Cb0 , .., Cb0 ,..,bh−1 , ub0 ,b1 , .., ub0 ,..,bh , b1 , .., bh ). Thus, Openpp (m, i, data)
+outputs ((Cb0 ,b1 , .. , Cb0 ,..,bh−1 ), ([g(X)], π ′ )).
+   To verify a Verkle proof π = ((Cb0 ,b1 , .. , Cb0 ,..,bh ), (D, π ′ )), the verification al-
+gorithm Verifypp (C, m, x, π) first computes r and t using ub0 ,..,bj = H(Cb0 ,..,bj ),
+j ∈ [h], and ub0 ,..,bh = H(m). Then, given the indices bin(x) = (b1 , .. , bh ) and
+the commitments (Cb0 ,b1 , .. , Cb0 ,..,bh ), it calculates
+                        h−1                                    h−1
+                        X           Cb0 ,..,bj                 X      rj
+                  y=           rj                      E=                  Cb ,..,b .
+                        j=0
+                                    t − bj+1                   j=0
+                                                                   t − bj+1 0 j
+
+Finally, it returns true if the pairing check e(E − D − [g(X)], [1]) = e(π ′ , [X − t])
+is satisfied.
+    As the degree c of a Verkle tree increases, size of the opening proofs and
+the runtime of the verification function decreases in proportion to the height
+h = logc N of the tree. This enables Verkle trees to achieve a short opening
+proof size for large number of messages (as in the case of the Ethereum state
+trie) by adopting a large degree (e.g., c = 256). In comparison, each Merkle
+proof consists of (c − 1) logc N inner nodes, which grows linearly as c increases.
+
+3     Formalizing the Dichotomy of VCs
+We first analyze the trade-off between the number of operations required by
+proof updates and the size of the update information U by inspecting different
+types of dynamic VCs. Recall that the number of updated messages is k ≤ N .
+
+3.1    Updating KZG Commitments and Opening Proofs
+In the subsequent sections, we assume that each user has access to a dictionary
+of KZG commitments to the Lagrange basis polynomials Li (X), i ∈ Fp , and for
+12      Ertem Nusret Tas and Dan Boneh
+
+each polynomial, its opening proofs at each point j ∈ Fp , j < N . With the help
+of this table, one can instantiate a KZG based VC to the messages (mi )i∈[N ] , by
+treating them as the values of the degree N polynomial ϕ(X) at inputs i ∈ Fp ,
+i < N . We next analyze the complexity of the update information and the proof
+updates in this VC. The update and proof update algorithms are described by
+Alg. 6 in Appendix F.
+
+Update Information Suppose the vector (i, mi )i∈[N ] is updated at some index
+i such that m′i ←
+                − mi +δ for some δ ∈ Fp . Then, the polynomial ϕ(X) representing
+the vector is replaced by ϕ′ (X) such that ϕ′ (X) = ϕ(X) if X ̸= i, and ϕ′ (i) =
+ϕ(i) + δ at X = i. Thus, the new KZG commitment C ′ to ϕ′ (X) is constructed
+from the commitment C to ϕ(X) as follows:
+                                                                                   ′
+[ϕ′ (X)] = [ϕ(X) + δLi (X)] = [ϕ(X)][Li (X)]δ = C · [Li (X)]δ = C · [Li (X)]mi −mi
+If the vector is modified at k different indices i1 , ..., ik from message mij to m′ij ,
+j ∈ [k], then the new commitment C ′ = [ϕ′ (X)] becomes
+                                          
+                   k                                        k
+                                                                        (m′ −m )
+                  X                                        Y
+        ϕ(X) +      (m′ij − mij )Lxij (X) = [ϕ(X)]           [Lij (X)] ij ij
+                  j=1                                    j=1
+                                                   k
+                                                                (m′i −mij )
+                                                   Y
+                                              =C       [Lij (X)]   j          .
+                                                   j=1
+
+Thus, the commitment can updated given only the old and the new messages at
+the updated indices, besides the table.
+
+Proof Update Let πx denote the opening proof of a polynomial ϕ(X) at a point
+(x, mx ). When k messages are updated, the new opening proof πx′ can be found as
+a function of the old proof πx and the opening proofs πij ,x of the Lagrange basis
+                                                         Pk
+polynomials Lij (X), j ∈ [k], at the index x (m′x = mx + j=1 (m′ij − mij ) · 1x=ij
+is the new value of mx after the k updates):
+                 "                Pk              #
+             ′
+                   ϕ′ (X) − mx − j=1 δj · 1x=ij
+           πx =
+                               X −x
+                                             ′
+                    Y Lij (X) − Lij (x) mij −mij
+                      k                                   k
+                                                         Y m′i −mij
+               = πx                                 = πx      πij ,xj
+                    j=1
+                              X   − x                    j=1
+
+Thus, the proof can updated given only the old and the new messages at the
+updated indices, besides the table. The update information is set to be the empty
+set, i.e., U = ∅.
+
+Complexity The size of the update information is constant, i.e., Θ̃(1). Each
+user can update its proof after k accesses to the dictionary, and in the worst
+case, Θ(k log |M|) = Θ̃(k) group operations as log (m′i − mi ) ≤ log |M| for all
+i ∈ [N ].
+                                       Vector Commitments with Efficient Updates               13
+
+3.2    Updating Merkle Trees and Opening Proofs
+
+We next consider a Merkle tree and analyze the complexity of the update infor-
+mation size and the runtime for proof updates. A simple update scheme would
+be recalculating the new Merkle tree given all of the old messages or the old
+inner nodes of the Merkle tree, and the message updates. However, this implies
+a large complexity for the runtime of the proof update algorithm that scales as
+Ω(k) when users keep track of the inner nodes, and as Ω(N ) when the users
+recalculate the tree from scratch at each batch of updates. Moreover, in many
+applications, the users do not have access to any messages or inner nodes be-
+sides those that are part of the Merkle proof held by the user. Hence, in the
+following sections, we describe update and proof update algorithms that reduce
+the runtime complexity of the proof updates at the expanse of larger update
+information (Alg. 7 in Appendix F).
+
+
+Update Information Suppose the vector (i, mi )i∈[N ] is updated at some in-
+dex x, (b1 , .. , bh ) = bin(x), to m′x . Then, the root C = ub0 and the inner nodes
+(ub0 ,b1 , .. , ub0 ,b1 ,..,bh ), (b1 , .. , bh ) = bin(i), must be updated to reflect the change
+at that index. Given the old inner nodes, the new values for the root and these
+inner nodes, denoted by C ′ = u′b0 and (u′b0 ,b1 , .. , u′b0 ,b1 ,..,bh ), are calculated re-
+cursively as follows:
+
+           u′b0 ,b1 ,..,bh ←
+                           − H(m′x ),
+                             (
+             ′                 H(u′b0 ,b1 ,..,bj ,0 , ub0 ,b1 ,..,bj ,1 ) if bj+1 = 0, j < h
+           ub0 ,b1 ,..,bj ←−
+                               H(ub0 ,b1 ,..,bj ,0 , u′b0 ,b1 ,..,bj ,1 ) if bj+1 = 1, j < h
+
+When the messages are modified at k different points ij , j ∈ [k], the calculation
+above is repeated k times for each update.
+   As the updated inner nodes are parts of the Merkle proofs, the update in-
+formation consists of the new values at the inner nodes listed from the smallest
+to the largest depth in the canonical left to right order. For instance, U =
+((⊥, u′⊥ ), (⊥0, u′0 ), (⊥1, u′1 ), (⊥00, u′00 ), (⊥10, u′10 ), ..) implies that the root u⊥
+and the inner nodes u⊥0 , u⊥1 , u⊥00 and u⊥10 were updated after k messages
+were modified at the leaves of the Merkle tree. We reference the updated inner
+nodes using their indices (e.g., U [b0 , b1 .. bj ] = v, when (b1 .. bj , v) ∈ U ).
+
+
+Proof Update The Merkle proof πx for a message at index x, (b1 , .. , bh ) =
+bin(x), is the sequence (ub1 , ub1 ,b2 , .. , ub1 ,b2 ,..,bh ). When k messages are updated,
+some of the inner nodes within the proof might have changed. A user holding
+the Merkle proof for index x can find the new values of these inner nodes by
+querying the update information with their indices.
+
+
+Complexity Upon receiving the update information U , each user can update
+its proof in Θ(log2 (N ) + |H| log (N )) = Θ̃(1) time by running a binary search
+14      Ertem Nusret Tas and Dan Boneh
+
+algorithm to find the updated inner nodes within U that are part of its Merkle
+proof, and reading the new values at these nodes. Since modifying each new mes-
+sage results in h = log (N ) updates at the inner nodes and some of the updates
+overlap, |U | = Θ(k log (N/k)(log (N ) + |H|)) = Θ̃(k)|H|, as each updated inner
+node is represented by its index of size Θ(log (N )) and its new value of size |H|
+in U .
+
+
+3.3   Dichotomy of VCs
+
+In the case of KZG commitments, |U | = Θ̃(1), and there is no information
+overhead on top of the message updates. For Merkle trees with an efficient
+proof update algorithm, |U | = Θ̃(k)|H|, thus there is an extra term scaling
+in Θ̃(k)|H| = Θ̃(k)λ, since |H| = Ω(λ) for collision-resistant hash functions.
+In contrast, for KZG commitments, each user has to do Θ̃(k) group operations
+to update its opening proof; whereas in Merkle trees, each user can update its
+proof in Θ̃(1) time, which does not depend on k. Hence, KZG commitments out-
+perform Merkle trees in terms of the update information size, whereas Merkle
+trees outperform KZG commitments in terms of the time complexity of proof
+updates. Table 1 generalizes this observation to a dichotomy between algebraic
+VC schemes and tree-based ones favoring shorter runtimes for proof updates.
+The algebraic and tree-based ones outperform each other in terms of the update
+information size and runtime complexity respectively.
+
+
+4     Vector Commitments with Sublinear Update
+
+We would like to resolve the separation in Table 1 and obtain a vector com-
+mitment, where both the size of the update information and the complexity of
+proof updates have a sublinear dependence on k. In particular, |U | = Θ̃(g1 (k)λ)
+in the worst case, and the proof update algorithm requires at most Θ̃(g2 (k)) op-
+erations, where both g1 (k) and g2 (k) are o(k). We say that such a VC supports
+sublinear update.
+    In this section, we describe a family of VCs with sublinear update,parameterized
+by the values ν ∈ (0, 1) and characterized by the functions (g1 , g2 ) = (k ν , k 1−ν ).
+
+
+4.1   Homomorphic Trees
+
+We first introduce homomorphic trees where messages placed in the leaves take
+values in a set M, and those at the inner nodes take value in a set D. Here, M
+is a finite field Fq of size q, and D is a cyclic group G of prime order q. Define
+bin(i)[0 : −p] as the empty string ϵ for p ∈ Z+ . The homomorphic property of
+these trees refers to the fact that there are efficiently computable functions
+
+        hi,j,c : M → D       for i ∈ [N ] and j ∈ [h] and c ∈ {0, .. , 2p − 1}
+                                     Vector Commitments with Efficient Updates                   15
+
+parameterized by some p ∈ Z+ , such that every inner node ub0 ,..,bj ∈ D can be
+expressed as
+                                         X
+      for the root:      ub0     =             hi,0,ϵ (mi )
+                                                   i∈[N ]
+                                                       X
+       for the inner nodes: ub0 ,..,bj =                          hi,j,(bj−p+1 ,..,bj ) (mi ).
+                                         i : bin(i)[0:j−p−1]=(b1 ,..,bj−p )
+
+Here, the parameter p determines the dependence of the inner nodes on the
+underlying messages. When p = 0, each inner node is a homomorphic function
+of the messages under the node. When p = 1, each inner node is a homomorphic
+function of the messages under its parent, i.e., under both the node itself and
+its sibling. We refer to the function hi,j,(bj−p+1 ,..,bj ) (.) as a partial digest function
+and refer to hi,j,(bj−p+1 ,..,bj ) (mi ) as the partial digest of mi on the (bj−p+1 , .. , bj )-
+th descendant at depth j (measured from the root) of the node at depth j − p
+that is on the path from mi to the root. In other words, hi,j,(bj−p+1 ,..,bj ) (mi )
+denotes the effect of the message mi on the sibling and ‘cousins’ of the node at
+depth j that lay on the path from mi to the root. Let h denote the height of
+the homomorphic tree. (Note that the equations above use the additive notation
+for the group operation. When applied to group elements, ‘+’ denotes the group
+operation, and when applied to field elements, it denotes the field’s addition
+operation.)
+    As an example, consider a homomorphic tree for a VC that commits to four
+messages m0 , m1 , m2 , m3 . Suppose p = 0. Then, its root u⊥ and inner nodes
+u⊥,0 , u⊥,1 , u⊥,0,0 , u⊥,0,1 , u⊥,1,0 , u⊥,1,1 can be calculated as follows:
+ u⊥ = h0,0,ϵ (m0 ) + h1,0,ϵ (m1 ) + h2,0,ϵ (m2 ) + h3,0,ϵ (m3 ) ;             u⊥,0,0 = h0,2,ϵ (m0 )
+u⊥,0 = h0,1,ϵ (m0 ) + h1,1,ϵ (m1 ) ;                                          u⊥,0,1 = h1,2,ϵ (m1 )
+u⊥,1 = h2,1,ϵ (m2 ) + h3,1,ϵ (m3 ) ;                                          u⊥,1,0 = h2,2,ϵ (m2 )
+                                                                              u⊥,1,1 = h3,2,ϵ (m3 )
+On the other hand, when p = 1, the root u⊥ and inner nodes u⊥,0 , u⊥,1 , u⊥,0,0 ,
+u⊥,0,1 , u⊥,1,0 , u⊥,1,1 can be calculated as follows:
+               u⊥ = h0,0,ϵ (m0 ) + h1,0,ϵ (m1 ) + h2,0,ϵ (m2 ) + h3,0,ϵ (m3 )
+              u⊥,0 = h0,1,0 (m0 ) + h1,1,0 (m1 ) + h2,1,0 (m2 ) + h3,1,0 (m3 )
+              u⊥,1 = h0,1,1 (m0 ) + h1,1,1 (m1 ) + h2,1,1 (m2 ) + h3,1,1 (m3 )
+
+       u⊥,0,0 = h0,2,0 (m0 ) + h1,2,0 (m1 ) ;     u⊥,0,1 = h0,2,1 (m0 ) + h1,2,1 (m1 )
+       u⊥,1,0 = h2,2,0 (m2 ) + h3,2,0 (m3 ) ;     u⊥,1,1 = h2,2,1 (m2 ) + h3,2,1 (m3 )
+It now follows that when a message mx is updated to m′x , each inner node
+ub0 ,..,bj such that bin(x)[0:j − p − 1] = (b1 , .. , bj−p ) can be updated from ub0 ,..,bj
+to u′b0 ,..,bj using the functions hi,j as follows:
+                                                       X
+          u′b0 ,..,bj = hi,j,(bj−p+1 ,..,bj ) (m′x ) +         hi,j,(bj−p+1 ,..,bj ) (mi )
+                                                        i̸=x :
+                                         i : bin(i)[0:j−p−1]=(b1 ,..,bj−p )
+16         Ertem Nusret Tas and Dan Boneh
+
+                   = ub0 ,..,bj + hi,j,(bj−p+1 ,..,bj ) (m′x ) − hi,j,(bj−p+1 ,..,bj ) (mx )
+When the partial digest functions are homomorphic in their input, the expression
+above can be written as
+      hi,j,(bj−p+1 ,..,bj ) (m′x ) − hi,j,(bj−p+1 ,..,bj ) (mx ) = hi,j,(bj−p+1 ,..,bj ) (m′x − mx ).
+This lets us calculate the updated internal node using only the knowledge of the
+message diff m′i − mi . We provide examples of homomorphic tree constructions
+in Section 4.3 with homomorphic partial digest functions. In our general formu-
+lation, we assume that the opening proof πi for each message mi at index i is a
+function of the inner nodes (and/or their siblings) on the path from the message
+to the root.
+    Unlike in Section 3.2, homomorphic trees enable calculating the new inner
+nodes after message updates using only the new and the old updated messages,
+in particular using only their difference. Hence, we can construct a tree that
+achieves the same complexity for the update information size as algebraic VCs,
+albeit at the expanse of the proof update complexity, without requiring the users
+to keep track of the old messages or to calculate the tree from scratch given all
+messages (see Appendix C for further discussion). This is in contrast to Merkle
+treess based on SHA256. The update and proof update algorithms of such a ho-
+momorphic tree with no structured update information and the same asymptotic
+complexity as algebraic VCs is described in Appendix B. Since the homomorphic
+trees can achieve both extremes in terms of update information size and update
+runtime (Table 1), with a smart structuring of the update information, they can
+support sublinear update. We show how in the next subsection.
+
+4.2     Structuring the Update Information
+We next describe the update and proof update algorithms that enable VCs
+based on homomorphic trees to achieve sublinear complexity as a function of
+the parameter ν (Alg. 1). These algorithms are parameterized by p that denotes
+the dependence of the inner nodes on the messages under other nodes.
+
+Update Information When the messages (ij , mij )j∈[k] change to (ij , m′ij )j∈[k] ,
+the update information U is generated recursively using the following algorithm:
+ 1. Start at the root ub0 . Terminate the recursion at an inner node if there are
+    k 1−ν or less updated messages under the p-th parent of that node (or under
+    the root if the node is at a depth less than p measured from the root). Here,
+    the 0-th parent refers to the node itself, the 1-st parent is the node’s direct
+    parent, the 2-nd parent is its parent’s parent and so on.
+ 2. If the recursion is not terminated at a node, then publish the new value of
+    the node as part of U , and apply the same algorithm to the left and the right
+    children of the node.
+The new values of the inner nodes included in U are listed from the smallest to
+the largest depth in the canonical left to right order.
+                                       Vector Commitments with Efficient Updates                   17
+
+Algorithm 1 Algorithms for updating a homomorphic tree. Each user knows the
+total number of leaves N . The recursive algorithm UpdateNode, parameterized by
+ν ∈ [0, 1] and p, takes an index as input, and checks if the new value of the node at
+that index is to be published as part of the update information U . If so, it appends the
+new value to U , and recursively calls itself on the children of the node. Not all of U and
+(i, m′i − mi )i∈[N ] are passed to the proof update algorithm and its relevant parts are
+read selectively to keep the runtime at a minimum. Here, p denotes the dependency of
+the inner node on the messages underlying its parents. For instance, p = 0 means that
+the inner nodes depends only on the messages under itself, whereas p = 1 means that
+it depends on the messages under its parent.
+ 1: algorithm Update(C, (i, m′i − mi )i∈[N ] , T , p)
+ 2:    U ← Empty()
+ 3:    algorithm UpdateNode(idx, p)
+ 4:         b0 , .. , bd ← idx
+ 5:         S ← {j ∈ [k] : bin(ij )[0 : d − p − 1] = (b1 , .. , bd−p )}
+ 6:         if |S| > k1−ν
+                   T [b0 , .. , bd ] ← T [b0 , .. , bd ] · j∈S hij ,d,(bd−p+1 ,bd ) (m′ij − mij )
+                                                           Q
+ 7:
+ 8:                U [b0 , b1 , .. , bd ] ← T [b0 , b1 , .. , bd ]
+ 9:                UpdateNode((b0 , .. , bd , 0))
+10:                 UpdateNode((b0 , .. , bd , 1))
+11:          end if
+12:    end algorithm
+13:    UpdateNode((b0 ))
+14:    C ′ ← new VC                                ▷ Commitment need not be the same as the root.
+15:    return (C ′ , U, T )
+16: end algorithm
+17: algorithm ProofUpdate(C, πx , m′x , x, U, p)
+18:     πx′ ← {}
+19:     (b1 , .. , bh ) ← bin(x)
+20:     for d = h, .. , 1
+21:          if (b0 , b1 .. bd ) ∈ U
+22:                 πx′ [b0 , b1 , .. , bd ] ← U [b0 , b1 , .. , bd ]
+23:          else
+24:                 S ← {j ∈ [k] : bin(ij )[0 : d −Q            p − 1] = (b1 , .. , bd−p )}
+25:                 πx′ [b0 , .. , bd ] ← πx [b0 , .. , bd ] · j∈S hij ,d,(bd−p+1 ,bd ) (m′ij − mij )
+26:          end if
+27:     end for
+28:     return πx′
+29: end algorithm
+
+
+
+
+Proof Update When the messages (ij , mij )j∈[k] are updated to (ij , m′ij )j∈[k] , a
+user first retrieves the inner nodes within its opening proof that are published as
+part of the update information. It then calculates the non-published inner nodes
+within the proof using the partial digests. For instance, consider a user with the
+proof πx = (N, x, ub0 , ub0 ,b1 , .. , ub0 ,b1 ,..,bh ) for some message mx , (b1 , .. , bh ) =
+bin(x). To update the proof, the user first replaces the inner nodes whose new
+values are provided by U : u′b0 ,..,bd ←     − U [b0 , .. , bd ], d ∈ [h], if U [b0 , .. , bd ] ̸= ⊥.
+18      Ertem Nusret Tas and Dan Boneh
+
+Otherwise, the user finds the new values at the nodes ub0 ,..,bd , d ∈ [h], using the
+functions hx,d,c :
+
+                S         = {j : bin(ij )[0 : d − p − 1] = (b1 , .. , bd−p )}
+                                      Y
+                u′b0 ,..,bd = ub0 ,..,bd · hij ,d,(bd−p+1 ,..,bd ) (m′ij − mij )
+                                             j∈S
+
+
+Complexity Finally, we prove bounds on the size and time complexity for proof
+updates.
+Theorem 1. Complexity of the update information size and the runtime of proof
+updates are as follows: g1 (k) = k ν and g2 (k) = k 1−ν .
+Proof. Consider the set P consisting of the p-th parents of the nodes in U such
+that no child of a node in P is the p-th parent of a node in U . By definition, there
+are over k 1−ν updated messages within the subtree rooted at the p-th parent of
+each node u ∈ U . Since there are k updated messages in total, and by definition
+of P, the subtrees rooted at the nodes in P do not intersect at any node, there
+must be less than k/k 1−ν = k ν inner nodes in P. Since the total number of
+published inner nodes is given by the nodes in P, the nodes on the path from
+the root to each node in P and the descendants of the nodes in P up to the p-th
+descendants, this number is bounded by 2p k ν log (N ) = Θ̃(k ν ). Hence, |U | =
+Θ(2p k ν log (N )(log (N ) + |G|)) = Θ̃(k ν )|G| = Θ̃(k ν )λ, which implies g1 (k) = k ν .
+    For each inner node in its opening proof, the user can check if a new value
+for the node was provided as part of U , and replace the node if that is the case,
+in at most Θ(log (N ) + |G|) time by running a binary search algorithm over U .
+On the other hand, if the new value of a node in the proof is not given by U , the
+user can calculate the new value by adding the partial digests of k 1−ν message
+updates to the old value of the node. This is because there can be at most k 1−ν
+updated messages within the subtree rooted at the p-th parent of an inner node,
+whose new value was not published as part of U . Assuming that each partial
+digest can be calculated and added to each inner node on an opening proof in
+constant time TG , the total time complexity of a proof update becomes at most
+
+               Θ(log (N )(log (N ) + |G| + k 1−ν TG )) = Θ̃(k 1−ν )TG ,
+
+which implies g2 (k) = k 1−ν .
+    To illustrate the proof above, consider the homomorphic tree in Figure 1
+where k messages are updated. Suppose p = 0, i.e., each inner node depends
+only on the nodes within its subtree. Suppose there are k 1−ν /2 updated mes-
+sages among the first N/2k ν messages m0 , .. , mN/2kν −1 , another k 1−ν /2 updated
+messages among the second N/2k ν messages mN/2kν , .. m2N/2kν −1 and so on. In
+this case, the algorithm identifies the inner nodes within the subtree at the top
+of the tree (whose nodes are denoted in solid blue) and publishes their new val-
+ues as part of the update information (when p = 1, the algorithm identifies and
+publishes the children of the solid blue nodes). This is because there are k 1−ν
+                                     Vector Commitments with Efficient Updates                19
+
+
+
+
+Fig. 1: Homomorphic tree example for p = 0. The new values of the inner nodes with
+solid blue color are published as part of the updated information.
+
+
+
+updated messages under each inner node and leaf of this subtree, denoted by
+u′i , i = 1, .. , k ν , whereas under the children of these leaf nodes there are less
+than k 1−ν updated messages. Thus, each user can update its opening proof by
+downloading the new values of the top log k ν inner nodes within its proof from
+the update information. There are at most k 1−ν /2 updated messages under each
+of the remaining log N/k ν nodes in the proof; hence, the user can find their up-
+dated values in Θ(log (N )k 1−ν ) time. Note that in this example, and in general
+when the updated messages are distributed uniformly among the leaves, the size
+of the update information becomes Θ(k ν )λ rather than Θ(k ν log N )λ.
+
+
+4.3    Constructions for Homomorphic Trees
+
+Homomorphic tree constructions are based on Authenticated Multipoint Evalu-
+ation Trees (AMTs) [47] and Hyperproofs [42], both of which use pairings. We
+next describe a homomorphic tree construction based on AMTs. In an AMT,
+each inner node is a KZG commitment to a quotient polynomial. Let ϕ(X) denote
+the degree N − 1 polynomial such that ϕ(i) = mi . We define the range operation
+rng(b0 , .. , bj ) as the set of integers i such that for each i, there exists a (potentially
+empty) binary sequence bi1 , .. , bih−j that satisfies bin(i) = b1 , .. , bj , bi1 , .. , bih−j .
+Given the rng(.) operation, for each j ∈ [h], we recursively define the quotient
+and remainder polynomials qb0 ,..,bj and rb0 ,..,bj as follows:
+                                                       Y
+for the root:           ϕ(X)            = qb0 (X)            (X − i) + rb0 (X)
+                                                    i∈rng(b0 )
+                                                                 Y
+for internal nodes: rb0 ,..,bj−1 (X) = qb0 ,..,bj (X)                   (X − i) + rb0 ,..,bj (X)
+                                                        i∈rng(b0 ,..,bj )
+
+
+For the leaves at indices i ∈ [N ], it holds that rb0 ,bin(i) = mi .
+20        Ertem Nusret Tas and Dan Boneh
+
+   The inner nodes of the AMT are KZG commitments to the quotient polyno-
+mials at the corresponding positions:
+
+                                      ub0 ,..,bj = [qb0 ,..,bj (X)].
+
+The vector commitment to the messages (mi )i∈N is the KZG commitment C =
+[ϕ(X)] to the polynomial ϕ(X) (thus, the VC can be updated at Line 14 of
+Alg. 1 in the same way as in Section 3.1). The opening proof πi for the message
+mi at index i, bin(i) = b1 , .. , bh , consists of the inner nodes on the path from
+the message to the root: πi = (N, i, (ub0 ,..,bj )j=0,..,h ). To verify an opening proof
+(N, i, (ub0 ,..,bj )j=0,..,h ) for a message mi with respect to the commitment C, the
+verifier checks if the following pairing relation holds:
+                                                                         
+                                      Yh                    Y
+             e(C, g) = e(g mi , g) ·      e ub0 ,..,bj ,         (X − i)
+                                        j=0                     i∈rng(b0 ,..,bj )
+
+
+(Although the verification above requires theQ                public parameters to include com-
+mitments to O(N ) polynomials of the form [ i∈rng(b0 ,..,bj ) (X − i)], [47] reduces
+the size of the public parameters needed to calculate these commitments to
+O(log (N )) by restricting the evaluation points to roots of unity.)
+    Let (uib0 ,..,bj )(b1 ,..,bj )∈2{0,1}n and (qbi 0 ,..,bj (X))(b1 ,..,bj )∈2{0,1}n denote respec-
+tively the inner nodes of the AMT of the Lagrange basis polynomial Li (X)
+and the corresponding quotient polynomials at those inner nodes. By the ho-
+momorphism of AMTs, each inner node of an AMT for a polynomial ϕ(X) can
+be expressed as a weighted product of the corresponding inner nodes of the
+AMTs of the Lagrange basis polynomials Li (X), i ∈ [N ]. Moreover, we observe
+that each remainder polynomial rb0 ,..,bj depends only on the messages mi , i ∈
+rng(b0 , .. , bj ), i.e., the messages that are under its node. As Q           qi (b0 , .. , bj )(X) is the
+quotient polynomial obtained by dividing rb0 ,..,bj−1 (X) by i∈rng(b0 ,..,bj ) (X − i),
+it holds that
+                                                          N
+                                                          X
+             for the root:             qb0 (X)        =         mi qbi 0 (X)
+                                                          i=1
+                                                          N
+                                                          Y
+             for the root:             ub0            =       (uib0 )mi
+                                                          i=1
+                                                                 X
+             for internal nodes: qb0 ,..,bj (X) =                               mi qbi 0 ,..bj (X)
+                                                          i∈rng(b0 ,..,bj−1 )
+                                                                  Y
+             for internal nodes: ub0 ,..,bj           =                         (uib0 ,..,bj )mi
+                                                          i∈rng(b0 ,..,bj−1 )
+
+
+Therefore, AMTs are homomorphic trees, and their partial digest function is
+characterized by p = 1:
+
+                                hi,j,c (mi ) = (uib0 ,bin(i)[0:j−2],c )mi
+                                          Vector Commitments with Efficient Updates                       21
+
+   When a message at index i, bin(i) = (b1 , .. , bh ), is updated, the new values
+(denoted by u′ ) of the inner nodes u⊥ , u0,1 , u1,0 and ub′0 ,..,b′j , j ≥ 2, such that
+bin(i)[0:j − 2] = (b′1 , .. , b′j−1 ) (i.e., b′ℓ = bℓ for ℓ ∈ [j − 1]), can be found using
+the inner nodes of the AMTs of Lagrange basis polynomials as shown below:
+                                                    ′
+         u′b′0 ,..,b′j = ub′0 ,..,b′j · (uib′0 ,..,b′j )mi −mi = ub′0 ,..,b′j · hi,j,(b′j ) (m′i − mi )
+
+Therefore, updating inner nodes requires access to the AMTs of the Lagrange
+basis polynomials Li (X), i ∈ [N ], which must thus be published as public pa-
+rameters for updateability.
+
+4.4   A Concrete Evaluation
+We next estimate the size of the update information and the proof update time
+after observing an Ethereum block with ERC20 token transfers. Suppose the
+block has the target size of 15 million gas [4], and each token transfer updates
+the balance of two distinct accounts stored at separate leaves of the homomor-
+phic tree. Since each ERC20 token transfer consumes approximately 65, 000 gas,
+there are ∼ 230 such transactions in the block, and the block updates k = 460
+accounts.
+    We consider a binary AMT with degree 2 that commits to N = 2563 = 224
+accounts. For comparison, 2563 ≈ 16.7 million, matching in magnitude the total
+number of cumulative unique Ethereum addresses, which is 200 million as of
+2023 [3]. Thus, the AMT has height log2 (N ) = h = 24, and each opening
+proof consists of 25 KZG commitments, ub0 , .. , ub0 ,..,bh , which are elements of
+the pairing-friendly elliptic curve BLS12 381 and have size |G| = 48 bytes [13].
+This implies a proof size of (log2 (N ) + 1)|G| = 1.20 kBytes.
+    When ν = 1/2 and 460 accounts are updated, in the worst case, the update
+information consists of 2⌈k ν ⌉ log (N ) = 1030 inner nodes. This implies an update
+information size of |U | = 2⌈k ν ⌉ log (N )(log (N ) + |G|) = 52.53 kBytes. This is
+comparable to the size of the Ethereum blocks, which are typically below 125
+kBytes [2].
+    As for the update time, in the worst case, each user has to add the partial
+digests of up to ⌈k 1−ν ⌉ = 22 updated messages to each inner node appearing
+within its opening proof, one from each height of the homomorphic tree. Follow-
+ing the benchmarks published in [1] for the specified curve, these operations can
+take up to k 1−ν log2 (N ) 0.000665471 s = 0.34 seconds on commodity hardware,
+given a runtime of 665471 nanoseconds per exponentiation of a group element
+with a message value. This is again comparable to the 12 second inter-arrival
+time of Ethereum blocks.
+    Table 2 compares the number of published inner nodes 2⌈k ν ⌉ log (N ), the
+total update information size 2⌈k ν ⌉ log2 (N ))(log2 (N ) + |G|), the number of
+group exponentiations per proof update k 1−ν log2 (N ) and the proof update
+time k 1−ν log2 (N ) 0.000665471 s at ν = 0, 0.25, 0.5, 0.75, 1. The degree of the
+homomorphic Merkle tree and the opening proof size are fixed at 2 and 25 inner
+nodes (|π| = 1.20 kBytes) respectively.
+22      Ertem Nusret Tas and Dan Boneh
+
+               ν     # inner nodes |U | (kBytes) # group exp. Time (s)
+                0           1         0.048        11040       7.35
+              0.25         223        11.37        2384        1.59
+              0.50        1030        52.53         515        0.34
+              0.75        4768       243.17         112        0.075
+                1        22080       1126.08         0          ∼0
+
+Table 2: For different trade-off points between the update information size
+and proof update complexity, parameterized by ν, the table shows the (worst
+case) number of published inner nodes 2⌈k ν ⌉ log (N ), the total update infor-
+mation size 2⌈k ν ⌉ log (N )(log (N ) + |G|), the number of group exponentiations
+per proof update k 1−ν log (N ) and the estimated time for a single proof update
+k 1−ν log (N ) 0.000665471 s. There are N = 224 accounts in total, k = 460 up-
+dates at the accounts, the inner nodes have size |G| = 48 Bytes, and each group
+exponentiation takes TG = 0.000665471 s.
+
+
+    We also calculate the size of the public parameters needed for the update op-
+eration. For this purpose, we find the total size of the AMTs of the N Langrange
+basis polynomials. Each AMT of a Lagrange basis polynomial contains at most
+2 log (N )+1 inner nodes that are not equal to the identity group element. Hence,
+the total size of the public parameters becomes (2N log (N ) + N )|G|, which is
+equal to 36.46 GBytes.
+    We compare the numbers from the concrete evaluation of homomorphic trees
+to those for Verkle trees in Section 6.5.
+
+
+5     Post-Quantum Secure Vector Commitments with
+      Sublinear Update
+
+In this section, we describe a different family of VCs with sublinear update, pa-
+rameterized by the values ν ∈ (0, 1) and characterized by the functions (g1 , g2 ) =
+(k ν , k 1−ν ). They are based on homomorphic Merkle trees. These VCs do not re-
+quire any trusted setup and are secure against quantum computers. However,
+they are less performant compared to the homomorphic tree constructions of
+Section 4.
+
+
+5.1   Homomorphic Merkle Trees
+
+We first introduce homomorphic Merkle trees where messages placed in the
+leaves take values in a set M. We will use two collision-resistant hash functions
+f˜: D×D → R and f : M → R, where both M and D are vector spaces over some
+field F, and R is an arbitrary finite set. We will also need an injective mapping
+g : R → D, which need not be efficiently computable. We use g −1 : D → R to
+denote the inverse of g, meaning that g −1 (g(x)) = x for all x ∈ R. We require
+that g −1 be efficiently computable.
+                                       Vector Commitments with Efficient Updates             23
+
+   Now, for j ∈ [h], where h is the height of the tree, every node ub0 ,..,bj ∈ D of
+the homomorphic Merkle tree is characterized by the following expressions:
+
+       a leaf node:           g −1 (ub0 ,bin(i) ) = f (mi )
+       an internal node:      g −1 (ub ,..,b ) = f˜(ub ,..,b ,0 , ub ,..,b ,1 ) for j < h
+                                        0       j               0       j       0       j
+
+
+
+   The homomorphic property of the Merkle tree refers to the fact that there
+are efficiently computable functions
+
+                       hi,j : D → D                 for i ∈ [N ] and j ∈ [h],
+
+such that every inner node ub0 ,..,bj ∈ D can be expressed as
+                                                        X
+                                  ub0 =                         hi,0 (mi )
+                                                       i∈[N ]
+                                                        X
+                             ub0 ,..,bj =                       hi,j (mi ).
+                                        i : bin(i)[0:j−1]=(b1 ,..,bj )
+
+
+We refer to the function hi,j as a partial digest function and refer to hi,j (mi )
+as the partial digest of mi . In a homomorphic Merkle tree, every internal node
+is the sum of the partial digests of the leaves under that node. We will show in
+Section 5.3 that each function hi,j can be expressed as an iterated composition
+of the functions f and f˜. Evaluating hi,j requires evaluating the functions f and
+f˜ exactly h − j times. In the notation of Section 4.1, homomorphic Merkle trees
+correspond to a homomorphic tree with p = 0. Since when p = 0, hi,j,c (mi ) =
+hi,j,∅ (mi ) for all i, j ∈ [N ] × [h] in the notation of Section 5.1, we omit the index
+c and denote the partial digest functions above by hi,j (mi ).
+    Opening proof for a message consists of both children of the internal nodes
+on the path from the message to the root (as opposed to Merkle opening proofs
+that contain only the siblings of the internal nodes on the path). For instance,
+the opening proof for the message mi at leaf index i, with bin(i) = (b1 , .. , bh ), is
+(N, i, (ub0 ,..,bj ,0 , ub0 ,..,bj ,1 )j=0,..,h−1 ). Opening proofs are verified using the func-
+tions f and f˜ (not by using the functions hi,j ). To verify an opening proof
+(N, i, (ub0 ,..,bj ,0 , ub0 ,..,bj ,1 )j=0,..,h−1 ) for a message mi with respect to the root
+ub0 , the verifier checks if the following equalities hold:
+
+for the leaf:           g −1 (ub0 ,bin(i) ) = f (mi )
+for the internal nodes: g −1 (ub ,..,b ) = f˜(ub ,..,b ,0 , ub ,..,b ,1 ) for j = h − 1, .. , 0.
+                                   0        j               0       j       0       j
+
+
+
+If so, it accepts the proof, and otherwise it outputs reject.
+    As in Section 4.1, consider a homomorphic Merkle tree that commits to four
+messsages m0 , m1 , m2 , m3 . Since p = 0 for homomorphic Merkle trees, its root
+u⊥ and inner nodes u⊥,0 , u⊥,1 , u⊥,0,0 , u⊥,0,1 , u⊥,1,0 , u⊥,1,1 can be calculated as
+24         Ertem Nusret Tas and Dan Boneh
+
+follows:
+      u⊥ = h0,0 (m0 ) + h1,0 (m1 ) + h2,0 (m2 ) + h3,0 (m3 ) ;                   u⊥,0,0 = h0,2 (m0 )
+     u⊥,0 = h0,1 (m0 ) + h1,1 (m1 ) ;                                            u⊥,0,1 = h1,2 (m1 )
+     u⊥,1 = h2,1 (m2 ) + h3,1 (m3 ) ;                                            u⊥,1,0 = h2,2 (m2 )
+                                                                                 u⊥,1,1 = h3,2 (m3 )
+The opening proof for m3 is given by (4, 3, ((u⊥,0 , u⊥,1 ), (u⊥,1,0 , u⊥,1,1 ))), and
+verified by checking the following equations:
+                           for u⊥,1,1 : g −1 (u⊥,1,1 ) = f (mi )
+                           for u⊥,1 :   g −1 (u⊥,1 ) = f˜(u⊥,1,0 , u⊥,1,1 )
+                           for u⊥ :        g −1 (u⊥ )       = f˜(u⊥,0 , u⊥,1 )
+    It now follows that when a message mi is updated to m′i , each inner node on
+the path from the leaf to the root can be updated from ub0 ,..,bj to u′b0 ,..,bj using
+the functions hi,j as follows:
+                               X
+  u′b0 ,..,bj = hi,j (m′i ) +     hx,j (mx ) = ub0 ,..,bj + hi,j (m′i ) − hi,j (mi )
+                                        x̸=i :
+                               bin(x)[0:j−1]=(b1 ,..,bj )
+
+When the partial digest functions are linear in their input, the expression hi,j (m′i )−
+hi,j (mi ) can be written as hi,j (m′i ) − hi,j (mi ) = sign(m′i − mi )hi,j (|m′i − mi |).
+This lets us calculate the updated internal node using only the knowledge of the
+message diff m′i − mi . We provide examples of homomorphic Merkle tree con-
+structions in Section 5.3 with linear partial digest functions hi,j . Homomorphic
+Merkle proofs in these constructions consist of the two siblings of the inner nodes
+on the path from the proven message to the root and the vector commitment
+itself is given by g −1 (b⊥ ) (Section 5.3).
+
+5.2       Structuring the Update Information
+Update and proof update algorithms that enable homomorphic Merkle trees
+to achieve sublinear complexity are described by Alg. 2. Update information is
+generated using the same algorithm as in Section 4.2 for p = 0.
+    When the messages (ij , mij )j∈[k] are updated to (ij , m′ij )j∈[k] , a user first
+retrieves the inner nodes within its Merkle proof that are published as part of
+the update information. It then calculates the non-published inner nodes within
+the proof using the partial digests. For instance, consider a user with the proof
+(ub0 ,b1 , ub0 ,b1 ,b2 , .. , ub0 ,b1 ,b2 ,..,bh ) for some message mx , (b1 , .. , bh ) = bin(x). To
+update the proof, the user first checks the update information U and replaces
+the inner nodes whose new values are provided by U : u′b ,b ,..,b ←                   − U [b0 , b1 .. bd ],
+                                                                         0 1        d
+d ∈ [h], if U [b0 , b1 .. bd ] ̸= ⊥. Otherwise, the user finds the new values at the
+nodes ub0 ,b1 ,..,bd , d ∈ [h], using the functions hx,d :
+
+  u′b ,..,b          = ub0 ,..,bd−1 ,bd
+      0    d−1 ,bd
+                                          Vector Commitments with Efficient Updates                    25
+
+Algorithm 2 Algorithms for a homomorphic Merkle tree. Each user knows the total
+number of leaves N . The recursive algorithm UpdateNode, parameterized by ν ∈
+[0, 1], takes an index as input, and checks if the new value of the node at that index
+is to be published as part of the update information U . If so, it appends the new
+value to U , and recursively calls itself on the children of the node. Not all of U and
+(i, m′i − mi )i∈[N ] are passed to the proof update algorithm and its relevant parts are
+read selectively to keep the runtime at a minimum.
+ 1: algorithm Update(C, (i, m′i − mi )i∈[N ] , T )
+ 2:    U ← Empty()
+ 3:    algorithm UpdateNode(idx)
+ 4:         b0 , .. , bd ← idx
+ 5:         S ← {j ∈ [k] : bin(ij )[0 : d − 1] = (b1 , .. , bd )}
+ 6:         if |S| > k1−ν
+                   T [b0 , .. , bd ] ← T [b0 , .. , bd ] + j∈S sign(m′ij − mij )hij ,d (|m′ij − mij |)
+                                                             P
+ 7:
+ 8:                U [b0 , b1 , .. , bd ] ← T [b0 , b1 , .. , bd ]
+ 9:                UpdateNode((b0 , .. , bd , 0))
+10:                 UpdateNode((b0 , .. , bd , 1))
+11:          end if
+12:    end algorithm
+13:    UpdateNode((b0 ))
+14:    C ′ ← T [b0 ]
+15:    return (C ′ , U, T )
+16: end algorithm
+17: algorithm ProofUpdate(C, πx , m′x , x, U )
+18:     πx′ ← {}
+19:     (b1 , .. , bh ) ← bin(x)
+20:     for d = h, .. , 1
+21:          if (b0 , b1 .. bd ) ∈ U
+22:                 πx′ [b0 , b1 .. bd ] ← U [b0 , b1 .. bd ]
+23:          else
+24:                 S ← {j ∈ [k] : bin(ij )[0 : d − 1]P= (b1 , .. , bd )}
+25:                 πx′ [b0 , .. , bd ] ← πx [b0 , .. , bd ] + j∈S sign(m′ij − mij )hij ,d (|m′ij − mij |)
+26:          end if
+27:     end for
+28:     return πx′
+29: end algorithm
+
+
+                          X                                                                        
+                      +           1bin(ij )[:d]=(b1 ,..,bd ) sign(m′ij − mij )hij ,d (|m′ij − mij |)
+                          j∈[k]
+
+    Theorem 1 also holds for homomorphic Merkle trees:
+
+Theorem 2. Complexity of the update information size and the runtime of proof
+updates are as follows: g1 (k) = k ν and g2 (k) = k 1−ν .
+
+Proof. Let U denote the subset of the inner nodes published by the algorithm as
+part of U such that no child of a node u ∈ U is published. Then, there must be
+over k 1−ν updated messages within the subtree rooted at each node u ∈ U. Since
+26      Ertem Nusret Tas and Dan Boneh
+
+there are k updated messages, and by definition of U, the subtrees rooted at the
+nodes in U do not intersect at any node, there must be less than k/k 1−ν = k ν
+inner nodes in U. Since the total number of published inner nodes is given by
+U and the nodes on the path from the root to each node u ∈ U, this number is
+bounded by k ν log (N ) = Θ̃(k ν ). Hence, |U | = Θ(k ν log (N )(log (N ) + |H|)) =
+Θ̃(k ν )|H| = Θ̃(k ν )λ, which implies g1 (k) = k ν .
+    For each inner node in its Merkle proof, the user can check if a new value for
+the node was provided as part of U , and replace the node if that is the case, in
+at most Θ(log (N ) + |H|) time by running a binary search algorithm over U . On
+the other hand, if the new value of a node in the proof is not given by U , the
+user can calculate the new value after at most k 1−ν log (N ) function evaluations.
+This is because there can be at most k 1−ν updated messages within the subtree
+rooted at an inner node, whose new value was not published as part of U . This
+makes the total time complexity of a proof update at most
+
+           Θ(log (N )(log (N ) + |H| + k 1−ν log (N )Tf )) = Θ̃(k 1−ν )Tf ,
+
+which implies g2 (k) = k 1−ν .
+
+
+5.3   Constructions for Homomorphic Merkle Trees
+
+Homomorphic Merkle trees were proposed by [38,37,41]. They use lattice-based
+hash functions, and their collision-resistance is proven by reduction to the hard-
+ness of the gap version of the shortest vector problem (GAPSVPγ ), which itself
+follows from the hardness of the small integer solution problem. We next de-
+scribe the construction introduced by [38], which is similar to those proposed by
+later works [37,41] (an alternative construction is provided in Appendix D). Its
+correctness and security follow from [38, Theorem 4].
+     Let L(M) denote the lattice defined by the basis vectors M ⊂ Zk×m       q     for
+appropriately selected parameters k, m, q, where m = 2k log q. Consider vectors
+u ∈ {0, .. , t}k log q , where t is a small integer. The (homomorphic) hash functions
+f : Zk log q → L(M) and f˜: Zk log q × Zk log q → L(M) used by [38] are defined
+as f (x) = Mx and f˜(x, y) = MUx + MDy respectively. Here, U and D are
+special matrices that double the dimension of the multiplied vector and shift it
+up or down respectively. The remaining entries are set to zero. For convenience,
+we define L = MU and R = MD.
+     Since the domain and range of the hash functions are different, to ensure the
+Merkle tree’s homomorphism, authors define a special mapping g : Zkq → Zkq log q
+from the range of the hash functions to their domain. Here, g(.) takes a vector
+v ∈ Zq as input and outputs a radix-2 representation for v. However, as there
+can be many radix-2 representations of a vector, to help choose a representation
+that yields itself to homomorphism, authors prove the following result: for any
+x1 , x2 , .. , xt ∈ Zq , there exists a short radix-2 representation g(.) such that
+g(x1 + x2 + .. + xt mod q) = b(x1 ) + b(x2 ) + .. + b(xt ) mod q ∈ {0, .. , t}k log q ,
+where the function b : Zkq → {0, 1}k log q returns the binary representation of
+the input vector. This equality enables the mapping g(.) to preserve the hash
+                                    Vector Commitments with Efficient Updates               27
+
+functions’ original homomorphic property. Then, given an inner node ub0 ,..,bj
+as input, the homomorphic Merkle tree uses the short radix-2 representation
+g(.) that enforces the following equality: ub0 ,..,bj = g(Lub0 ,..,bj ,0 + Rub0 ,..,bj ,1
+mod q) = b(Lub0 ,..,bj ,0 ) + b(Rub0 ,..,bj ,1 ) mod q. Finally, this enables calculating
+the value of each inner node as a sum of the partial digests hi,j (.) of the messages
+mi under the node ub0 ,..,bj (i.e., (mi )bin(i)[0:j]=(b0 ,..,bj ) ) as outlined in Section 5.1,
+i.e.,
+                                               X
+                     ub0 ,..,bj =                             hi,j (mi ),
+                                   i : bin(i)[0:j−1]=(b1 ,..,bj )
+
+where hi,j (.) is expressed in terms of the bits bin(i)[j:h − 1] = (b′1 , .. , b′h−j ):
+
+                        hi,j (mi ) = fb′1 (fb′2 (.. fb′h−j (b(f (mi )))))
+
+Here, f0 (.) and f1 (.) are defined as b(L.) and b(R.) respectively. Since b(.), binary
+expansion, is a linear operation and matrix multiplication is linear, hi,j (.) is
+linear in its input.
+    Opening proof of a message m consists of its index and αi and βi , i ∈ [h],
+h = log (N ), where αi and βi are the children of the inner nodes on the path from
+m to the root. The proof can be verified in log (N ) time by iteratively checking
+if f (m) = g −1 (αh ) (or = g −1 (βh )) and f˜(αi , βi ) = g −1 (αi−1 ) (or = g −1 (βi−1 )
+depending on the message index), where g −1 returns a number given its radix-2
+representation [38].
+    Note that both f and f˜ are homomorphic hash functions [8]. Other examples
+of homomorphic hash functions include Pedersen hashes and KZG commitments.
+However, the homomorphic property of the hash function is not sufficient for
+constructing a homomorphic Merkle tree when the function is combined with
+the output of other functions in a serial manner as in Merkle trees. For the
+lattice-based function, this was possible because of repeated linearity [38], which
+refers to the existence of a linear mapping g(.) from the range to the domain of
+the hash function. This mapping enabled the iterative hashing within the Merkle
+tree to preserve the linearity of the hash function. Such repeated linearity does
+not exist for Pedersen hashes and KZG commitments as a linear mapping from
+the range to the domain would imply the violation of the discrete log assumption.
+That is why Verkle trees based on KZG commitments are not homomorphic and
+cannot support sublinear update.
+
+
+5.4    A Concrete Evaluation
+
+We now estimate the size of the update information and the number of opera-
+tions to update an opening proof after observing an Ethereum block consisting
+of ERC20 token transfers. Suppose the Ethereum state is persisted using the
+homomorphic Merkle tree construction built with the more performant hash
+function in [41, Section 4]. As in Section 4.4, suppose the block has the target
+size of 15 million gas [4], and each token transfer updates the balance of two
+28      Ertem Nusret Tas and Dan Boneh
+
+distinct accounts stored at separate leaves of the Verkle tree. Then, there are
+∼ 230 such transactions in the block, and the block updates k = 460 accounts.
+We assume that the homomorphic Merkle tree has degree 2 and commits to 2563
+accounts as in Section 4.4. Each opening proof consists of 2 log (N ) = 48 inner
+nodes.
+    When ν = 1/2 and 460      √ accounts are updated, in the worst case, the update
+information consists of ⌈ k⌉ log (N ) = 528 inner nodes. Our evaluation takes
+the size of an inner node as given in [41] for the more performant hash function,
+namely |H| = 0.21 MB (which is equal to the key size in [41]). This implies an
+update information size of |U | = 110.88 MBytes and an opening proof size of
+|π| = 10.08 MBytes.
+    As for the update time, in the worst case, each user has to calculate the par-
+tial digests of 44 updated messages at each height of the homomorphic Merkle
+tree, i.e., the effect of these updated messages on each inner node of its opening
+proof. Calculating the partial digest of a message at height h measured from the
+leaves requires hPevaluations of √   the hash function. This implies a proof update
+                     log N −1
+complexity of 2 i=0           i min(⌈ k⌉, 2i ) = 11, 900 hash evaluations. To find nu-
+merical upper bounds for the update time, we use the hash function evaluation
+time Tf = 2.74 ms, published by [41] for the more performant function (this is
+for commodity hardware; cf. [41] for the details). This gives an upper bound of
+32.6 seconds for the update time.
+    Based on the benchmarks in [41], Table 3 compares the number of published
+inner nodes ⌈k ν ⌉ log (N ), the total update information size ⌈k ν ⌉ log (N )|H| (as-
+suming that the size of each inner node is |H| upper bounded by 0.21 MBytes),
+                                                              Plog N −1
+the number of hash evaluations per proof update 2 i=0                   i min(⌈k 1−ν ⌉, 2i )
+                                  Plog N −1           1−ν     i
+and the proof update time 2 i=0             i min(⌈k      ⌉, 2 )Tf (assuming that each
+hash evaluation takes less than Tf = 2.74 ms) at ν = 0, 0.25, 0.5, 0.75, 1. The
+degree of the homomorphic Merkle tree and the opening proof size are fixed at
+2 and 48 inner nodes (|π| = 10.08 MBytes) respectively. Homomorphic Merkle
+trees do not require any public parameters.
+    We compare the numbers from the concrete evaluation of homomorphic
+Merkle trees to those for Verkle trees in Section 6.5.
+
+
+
+6    Updating Verkle Trees and Opening Proofs
+
+
+We now describe the update and proof update functions for Verkle trees (Algs. 3
+and 4 respectively). Since Verkle trees were proposed to support stateless clients,
+we describe an update scheme that minimizes the runtime complexity of proof
+updates and does not require the users to download the updated messages or
+have access to old inner nodes. As Verkle trees do not support sublinear update,
+we numerically estimate the size of the update information and the complexity
+of proof updates in Section 6.5.
+                                             Vector Commitments with Efficient Updates                            29
+
+                 ν    # inner nodes |U | (MBytes) # hash evaluations Time (s)
+                 0           1                  0.21                 227, 972                    624.6
+               0.25         120                25.20                  52, 284                    143.3
+               0.50         528               110.88                  11, 900                     32.6
+               0.75         2400              504.00                   2750                       7.54
+                 1         11040              2318.40                    0                        ∼0
+
+Table 3: For different trade-off points between the update information
+size and proof update complexity, parameterized by ν, the table shows
+the number of published inner nodes ⌈k ν ⌉ log (N ), the total update in-
+formation size ⌈k ν ⌉ log (N )|H|, the number of hash function evaluations
+                        Plog N −1
+per proof update 2 i=0              i min(⌈k 1−ν ⌉, 2i ) and the proof update time
+  Plog (N )−1          1−ν
+2 i=0         i min(⌈k     ⌉, 2 )Tf . There are N = 224 accounts in total, k = 460
+                               i
+
+updates at the accounts, the inner nodes have size |H| = 0.21 Mbytes, and a
+hash function evaluation takes Tf = 2.74 ms.
+
+Algorithm 3 Update algorithm for a Verkle tree. It takes message updates as input,
+updates the Verkle tree, i.e. the KZG commitments therein, and returns the new Verkle
+root and the update information. The data structure T holds the KZG commitments
+at the inner nodes of the Verkle tree indexed by their positions.
+ 1: algorithm Update(C, (i, mi )i∈[N ] , (i, m′i )i∈[N ] , T )
+ 2:    U ← Empty()
+ 3:    T′ ←T
+ 4:    for j ∈ [k]
+ 5:         (b1 , .. , bh ) ← bin(ij )
+ 6:         T ′ [b0 , .. , bh ] ← m′ij
+ 7:         for ℓ = h − 1, .. , 0
+                                                                    ′
+ 8:               T ′ [b0 , .. , bℓ ] ← T [b0 , .. , bℓ ][Lbℓ+1 ]H(T [b0 ,..,bℓ+1 ])−H(T [b0 ,..,bℓ+1 ])
+ 9:               U [b0 , .. , bℓ ] ← T ′ [b0 , .. , bℓ ]
+10:          end for
+11:     end for
+12:     C ′ ← h(T [b0 ])
+13:     T ←T′
+14:     return (C ′ , U, T )
+15: end algorithm
+
+
+
+6.1     Update Information
+
+Suppose the vector (i, mi )i∈[N ] is modified at some index x, (b1 , .. , bh ) = bin(x)
+to be m′x . Since each inner node is the hash of a KZG commitment, the new
+inner nodes u′b0 ,..,bj = H(Cb′ 0 ,..,bj ), j ∈ [h], can be found as a function of the old
+commitments at the nodes and the powers of the Lagrange basis polynomials as
+described in Section 3.1:
+                                                                             (u′b ,..,b         −ub0 ,..,bj+1 )
+           Cb′ 0 ,..,bh ←
+                        − m′x ,         Cb′ 0 ,..,bj ←
+                                                     − Cb0 ,..,bj [Lbj+1 ]       0        j+1
+30         Ertem Nusret Tas and Dan Boneh
+
+Algorithm 4 Proof update algorithm for a Verkle tree. It takes the old Verkle proof
+πx , the KZG commitments C at the children of the inner nodes from the root to the
+message, the relevant opening proofs Π ′ held by the user in memory and the update
+information. It then updates the Verkle proof πx to πx′ . Here, C and Π are organized as
+dictionaries indexed by the positions of the maintained KZG commitments and KZG
+opening proofs.
+ 1: algorithm ProofUpdate(πx , m′x , x, Π, C, U )
+ 2:    (b1 , .. , bh ) ← bin(x)
+ 3:    −, (G′ , π ′ ) ← πx
+ 4:    Π′ ← Π
+ 5:    C′ ← C
+ 6:    for d = h − 1, .. , 0
+ 7:         for i = 0, .. , c − 1
+ 8:                if (b0 , .. , bd , i) ∈ U
+ 9:                     C ′ [b0 , .. , bd , i] ← U [b0 , .. , bd , i]
+10:                 end if
+11:          end for
+12:     end for
+13:     for d = h − 1, .. , 0
+                                                                                            ′                       ′
+                                                                    L (X)−Li (bd+1 ) H(C [b0 ,..,bd ,i])−H(C [b0 ,..,bd ,i])
+                                                                  h                  i
+             Π ′ [b0 , .. , bd ] ← Π ′ [b0 , .. , bd ] i∈[c] i X−bd+1
+                                                       Q
+14:
+15:     end for
+16:     r′ ← H(C ′ [b0 , b1 ], .. , C ′ [b0 , .. , bh−1 ], H(C ′ [b0 , b1 ]), .. , H(C ′ [b0 , .. , bh ]), b1 , .. , bh )
+                                                ′j
+        G′ ← j∈[h] Π ′ [b0 , .. , bj ]r
+                  Q
+17:
+         ′            ′     ′
+18:     t ← H(r , G )
+                                                  r ′j
+                                               ′
+        π ′ ← j∈[h] Π ′ [b0 , .. , bj ] t −bj+1
+                 Q
+19:
+20:     return ((C ′ [b0 ], .. , C ′ [b0 , .. , bh−1 ]), (G′ , π ′ ))
+21: end algorithm
+
+
+
+When k messages are updated, the above calculation is repeated k times for each
+update.
+    Update information U consists of the new values of the KZG commitments
+on the path from the updated messages to the Verkle root akin to the Merkle
+trees, ordered in the canonical top-to-bottom and left-to-right order.
+
+6.2     Verkle Proofs
+Let πx denote the Verkle proof of some message mx at index x, (b1 , .. , bh ) =
+bin(x): πx = ((Cb0 ,b1 , .. , Cb0 ,..,bh−1 ), ([g(X)], π)). We define πxf as the open-
+ing proof for index x within polynomial f . We observe that the commitment
+[g(X)] and the proof π can be expressed as functions of the opening proofs of
+the inner nodes ub0 ,b1 , .. , ub0 ,..,bh at the indices b1 , .. , bh within the polynomials
+fb0 , .. , fb0 ,..,bh−1 , respectively. Namely, [g(X)] is
+                                             
+             h−1
+             X fb0 ,..,bj (X) − ub0 ,..,bj+1       h−1                                rj
+                      j
+                                                   Y     fb0 ,..,bj (X) − ub0 ,..,bj+1
+                   r                           =
+             j=0
+                              X − bj+1             j=0
+                                                                   X − bj+1
+                                         Vector Commitments with Efficient Updates                       31
+
+                                                           h−1                  r j
+                                                           Y       fb ,..,bj
+                                                                     0
+                                                       =          πbj+1
+                                                           j=0
+
+                                             (h−g)
+Similarly, the opening proof π = πt    for index t within the polynomial h(X)−
+g(X) can be expressed as follows (see Appendix E for details):
+                                       h−1                                    rj
+      
+          h(X) − g(X) − (h(t) − g(t))    Y  fb0 ,..,bj (X) − ub0 ,..,bj+1  t−bj+1
+                                       =
+                    X −t                 j=0
+                                                       X − bj+1
+                                                       h−1
+                                                       Y        fb ,..,bj
+                                                                              t−brj
+                                                                  0               j+1
+                                                   =           πbj+1
+                                                       j=0
+
+     We assume that each user holding the Verkle proof πx for some index x,
+                                                         fb0 ,..,bj
+(b1 , .. , bh ) = bin(x), also holds the opening proofs πbj+1       , j ∈ [h], in memory.
+As we will see in the next section, the user also holds the KZG commitments at
+the children of the inner nodes on the path from the root to the message mx , i.e.
+Cb0 ,..,bj ,i for all j ∈ [h] and i ∈ [c] in memory. These opening proofs and KZG
+commitments are not broadcast as part of any proof; however, they are needed
+for the user to locally update its Verkle proof after message updates.
+
+6.3     Proof Update
+When the messages (ij , mij )j∈[k] are updated to (ij , m′ij )j∈[k] , to calculate the
+new Verkle proof πx′ , the user must obtain the new commitments Cb′ 0 , .. , Cb′ 0 ,..,bh−1
+on the path from the root to message mx , the new commitment [g ′ (X)] and
+the new opening proof π ′ for the polynomial h′ (X) − g ′ (X) at index t′ =
+H(r′ , [g ′ (X)]). Message updates change the commitments at the inner nodes,
+which in turn results in new polynomials fb0 ,..,bj , j ∈ [h]. Suppose each polyno-
+mial fb0 ,..,bj , j ∈ [h], is updated so that
+                                                   c−1
+                                                   X
+              fb′0 ,..,bj (X) = fb0 ,..,bj (X) +         (fb′0 ,..,bj (i) − fb0 ,..,bj (i))Li (X),
+                                                   i=0
+
+where, by definition, fb′0 ,..,bj (i)−fb0 ,..,bj (i) = u′b0 ,..,bj ,i −ub0 ,..,bj ,i = H(Cb′ 0 ,..,bj ,i )−
+H(Cb0 ,..,bj ,i ). Then, given the new and the old commitments (Cb0 ,..,bj ,i , Cb′ 0 ,..,bj ,i )
+for i ∈ [c] and j ∈ [h], the table of Lagrange basis polynomials, and using the
+                                                      fb0 ,..,bj
+technique in Section 3.1, the new opening proofs π̃bj+1          after the message
+updates can be computed as follows for j ∈ [h]:
+                                   c−1                  (H(Cb′ ,..,b ,i )−H(Cb0 ,..,bj ,i ))
+          fb ,..,bj
+          0
+                         fb ,..,bj Y Li (X) − Li (bj+1 )
+                           0
+                                                                0     j
+      π̃bj+1          = πbj+1                                                                        ,
+                                 i=0
+                                            X − bj+1
+       h                   i
+         Li (X)−Li (bj+1 )
+where        X−bj+1          is the opening proof of the Lagrange basis polynomial
+Li (X) at index bj+1 . Once the new opening proofs are found, the new commit-
+32        Ertem Nusret Tas and Dan Boneh
+
+ment [g ′ (X)] and the new proof π ′ become
+                        h−1 
+                        Y                  ′j
+                                fb0 ,..,bj r
+                                                                    h−1 
+                                                                    Y                  r′ j
+                                                                            fb0 ,..,bj t′ −bj+1
+                ′                                                    ′
+              [g (X)] =       π̃bj+1           ,                π =       π̃bj+1
+                             j=0                                         j=0
+
+
+where r′ = H(Cb′ 0 ,b1 , .., Cb′ 0 ,..,bh−1 , u′b0 ,b1 , .., u′b0 ,..,bh , b1 , .., bh ) and t′ = H(r′ , [g ′ (X)]).
+Note that both r′ and t′ can be calculated by the user given the new KZG com-
+mitments Cb′ 0 ,..,bj ,i for all i ∈ [c] and j ∈ [h].
+    Finally, to retrieve the new KZG commitments Cb′ 0 ,..,bj ,i for all i ∈ [c] and
+j ∈ [h], the user inspects the commitments published as part of the update
+information U : Cb′ 0 ,b1 ,..,bj−1 ,i ←  − U [b0 , b1 , .. , bj−1 , i] if U [b0 , b1 , .. , bj−1 , i] ̸= ⊥ and
+  ′
+Cb0 ,b1 ,..,bj−1 ,i ←
+                    − Cb0 ,b1 ,..,bj−1 ,i otherwise, for all i ∈ [c] and j ∈ [h].
+    In Verkle trees, the user cannot calculate the effect of an updated message on
+an arbitrary inner node without the knowledge of the inner nodes on the path
+from the message to the target node. For instance, suppose U [b0 , b1 , .. , bj−1 , i] =
+⊥ for some i ∈ [c] and j ∈ [h], and the user wants to calculate the effect of an
+update from mx to m′x on Cb′ ,..,b ,i,b̃ ,..,b̃ , bin(x) = (b1 , .. , bj−1 , i, b̃j+1 , .. , b̃h )
+                                         0     j−1     j+1       h
+
+and b̃j = i. Then, for each ℓ ∈ {j, .. , h − 1}, the user have to find
+
+             Cb′ ,..,b̃ ,..,b̃ ←
+                               − m′x
+                 0    j     h
+                                                               (u′                  −u                   )
+             Cb′ ,..,b̃ ,..,b̃ ←− Cb0 ,..,b̃j ,..,b̃ℓ [Lb̃ℓ+1 ] b0 ,..,b̃j ,..,b̃ℓ+1 b0 ,..,b̃j ,..,b̃ℓ+1 ,
+                0      j      ℓ
+
+
+
+where Cb′ ,..,b̃ ,..,b̃ are the commitments on the path from the target commit-
+          0     j      ℓ
+ment Cb0 ,b1 ,..,bj−1 ,i to the message mx . Hence, the user has to know the original
+commitments on the path from the message to the target commitment, i.e., keep
+track of inner nodes, which contradicts with the idea of stateless clients. This
+shows the necessity of publishing all of the updated inner nodes as part of the
+update information.
+
+
+6.4     Complexity
+
+Suppose each KZG commitment is of size |G| and each hash H(C) of a KZG
+commitment, i.e. each inner node, has size |H|. Then, updating a single message
+results in one update at each level of the Verkle tree and requires Θ(h|H|) group
+operations. Thus, when k messages are updated, the new Verkle root can be
+found after Θ(kh|H|) group operations. As U consists of the published KZG
+commitments at the inner nodes and their indices, |U | = Θ(k logc (N )(log (N ) +
+|G|)) = Θ̃(k)|G|, which implies g1 (k) = k.
+    The user can replace each KZG commitment at the children of the inner nodes
+from the root to its message in Θ(log (N ) + |G|) time by running a binary search
+algorithm over U . Since there are ch such commitments to be updated, i.e.,
+Cb0 ,..,bj ,i , i ∈ [c] and j ∈ [h], updating these commitments takes Θ(ch(log (N ) +
+|G|)) = Θ̃(1) time.
+                                  Vector Commitments with Efficient Updates           33
+
+     Upon obtaining the new commitments Cb′ 0 ,..,bj−1 ,i , i ∈ [c], j ∈ [h], with access
+to the table of Lagrange basis polynomials, the user can update each opening
+proof πbj+1 (for the function fb0 ,..,bj ), j ∈ [h], with Θ(c|H|) group operations.
+Since there are h such proofs, updating them all requires Θ(ch|H|) group opera-
+tions. Given the new proofs, computing the new commitment [g ′ (X)] and proof
+π ′ requires Θ(h|H|) group operations. This makes the total complexity of up-
+dating a Verkle proof Θ(ch + 2h)|H|TG + Θ(ch(logc (N ) + |G|)). For a constant
+c and h = logc (N ), this implies a worst-case time complexity of Θ̃(1)|H|TG for
+Verkle proof updates, i.e., g2 (k) = 1.
+
+6.5   A Concrete Evaluation
+We now estimate the size of the update information and the number of group
+operations to update a Verkle opening proof after observing an Ethereum block
+consisting of ERC20 token transfers. As in Sections 4.4 and 5.4, suppose the
+block has the target size of 15 million gas [4], and each token transfer updates
+the balance of two distinct accounts stored at separate leaves of the Verkle tree.
+Then, there are ∼ 230 such transactions in the block, and the block updates
+k = 460 accounts. We assume that the Verkle tree has degree 256 (cf. [13])
+and commits to 2563 accounts as in Section 4.4. Then, each proof consists of
+2 KZG commitments, C⊥,b1 and C⊥,b1 ,b2 and a multiproof consisting of the
+commitment [g(X)] and proof π ′ . These components are elements of the pairing-
+friendly elliptic curve BLS12 381 and consist of |G| = 48 bytes [13]. This implies
+a proof size of (logc (N ) + 1)|G| = 192 bytes (excluding the message at the leaf
+and its hash value; adding those makes it 272 bytes).
+    When 460 accounts are updated, in the worst-case, the update information
+has to contain k logc (N )(log(N ) + |G|) = 460 × 3 × (24 + 48) Bytes, i.e., 99.4
+kBytes. This is comparable to the size of the Ethereum blocks, which are typically
+below 125 kBytes [2]. Hence, even though the update information of Verkle trees
+is linear in k, it does not introduce a large overhead beyond the block data.
+Note that the runtime of the proof updates are constant and do not scale in the
+number of updated messages k, or the Ethereum block size.
+    On the other hand, in the worst case, an opening proof can be updated after
+c log (c) + 2 logc (N ) group exponentiations. Following the benchmarks published
+in [1] for the specified curve, these operations take (c+2) logc (N ) 0.000665471 s =
+0.52 seconds on commodity hardware, given a runtime of 665471 nanoseconds
+per exponentiation of a group element with a message hash value. This is again
+comparable to the 12 second inter-arrival time of Ethereum blocks.
+    Table 4 compares the Verkle proof size |π| = (logc (N ) + 1)|G|, update in-
+formation size |U | = k logc (N )(logc N + |G|), the upper bound (c + 2) logc N on
+the number of group exponentiations needed for a single proof update and the
+estimated time it takes to do these operations on a commodity hardware for dif-
+ferent values of c, the Verkle tree degree, while keeping the number of accounts
+and the updated accounts fixed at 224 and 460 respectively. The table shows the
+trade-off between the Verkle proof and update information size on one size and
+update complexity on the other.
+34      Ertem Nusret Tas and Dan Boneh
+
+                c |π| (Bytes) |U | (kBytes) # Group Exp. Time (s)
+                 2    1200        794.9           96        0.064
+                 4     628        397.4           72        0.048
+                16     336        198.7          108        0.072
+                64     240        132.5          264         0.18
+               256     192         99.4          774         0.52
+
+Table 4: For different values of the tree degree c, the table shows the Verkle
+proof size which is |π| = (logc (N ) + 1)|G|; the update information size which is
+|U | = k logc (N )(log (N ) + |G|); the number of group exponentiations for a single
+proof update which is (c + 2) logc (N ); and the estimated time for a single proof
+update. We use N = 224 accounts in total, k = 460 updates at the accounts,
+and a group element size of |G| = 48 bytes.
+
+
+    Finally, we calculate the total size of the public parameters required for up-
+dating Verkle trees. For this purpose, we find the total size of the KZG commit-
+ments of Lagrange basis polynomials and the opening proofs for each Lagrange
+basis polynomial at each index i ∈ [c]. Hence, the total size of the public param-
+eters becomes (c + c2 )|G|, which is equal to 3.16 MBytes.
+    Comparing Tables 4 and 2 shows that the update information size and
+the proof update time of Verkle trees at c = 256, the parameter used by the
+Ethereum implementation [5], are outperformed by the homomorphic tree con-
+struction using ν = 1/2. Despite this, Verkle trees with a large degree c = 256
+have small opening proofs of size 192 Bytes, whereas the proof size of the AMT
+construction stands at 1.2 kBytes. In terms of the public parameter size, Verkle
+trees also outperform homomorphic tree constructions by around a factor of
+10000. Whereas the proof size of AMTs scale as O(log (N )) in the number N of
+messages, proof size of Verkle trees remain constant at size O(1/ϵ), when their
+degree grows as Θ(N ϵ ) for some fixed ϵ > 0. However, as N grows, larger degree
+implies larger public parameters for Verkle trees.
+    Comparing Table 4 with Table 3 shows that a Verkle tree with any given de-
+gree c, 1 < c ≤ 256, significantly outperforms the existing homomorphic Merkle
+trees in terms of almost all of proof size, update information size and proof
+update time. However, unlike Verkle trees, homomorphic Merkle trees are post-
+quantum secure, and do not require trusted setup or public parameters.
+
+
+7    Lower Bound
+
+Finally, we prove the optimality of our VC scheme with sublinear update by
+proving a lower bound on the size of the update information given an upper
+bound on the complexity of proof updates. The lower bound is shown for VCs
+that satisfy the following proof-binding property. It formalizes the observation
+that for many dynamic VCs (e.g., Merkle trees [32], Verkle trees [13], KZG
+commitments [25], RSA based VCs [10]) including homomorphic Merkle trees,
+                                       Vector Commitments with Efficient Updates                        35
+
+the opening proof for a message at some index can often act as a commitment
+to the vector of the remaining messages.
+Definition 3. A VC scheme is said to be proof-binding if the following proba-
+bility is negligible in λ for all PPT adversaries A:
+                                                     pp←
+                                                       −KeyGen(1λ ,N );
+          
+                                                     π,mi∗ ,(m0 ,..,mi∗ −1 ,mi∗ +1 ,..,mN −1 ),
+                                                   (m′0 ,..,m′i∗ −1 ,m′i∗ +1 ,..,m′N −1 )←
+                                                                                         −A(pp);
+        
+         Verifypp (C,mi∗ ,i∗ ,π)=1                                                                 
+        ∧Verifypp (C ′ ,mi∗ ,i∗ ,π)=1 :
+     Pr                                                        (m0 ,..,mi∗ −1 ,mi∗ +1 ,..,mN −1 )
+                                                                  ′      ′        ′         ′
+                                                             ̸=(m0 ,..,mi∗ −1 ,mi∗ +1 ,..,mN −1 );
+                                                                                                    
+        
+                                           Commitpp (m0 ,..,mi∗ −1 ,mi∗ ,mi∗ +1 ,..,mN −1 )=C;
+                                           Commitpp (m′0 ,..,m′i∗ −1 ,mi∗ ,m′i∗ +1 ,..,m′N −1 )=C ′
+
+    In the definition above, the opening proof while committing to the vector
+of remaining messages, need not be of the same format as the original VC. For
+instance, for RSA accummulators, the opening proof is itself an RSA accum-
+mulator, whereas for Merkle trees, the opening proof is not a Merkle tree root,
+but contains a sequence of inner nodes and the index of the opened message.
+Nevertheless, the proof and the message together act as a commitment to the
+vector of remaining messages.
+    The proof-binding property is distinct from the position-binding (security)
+property of VCs: whereaas position-binding states the difficulty of opening the
+VC to two different messages at the same index, proof-binding implies the diffi-
+culty of creating two VCs with different messages that open to the same message
+at some index i with the exact same proof.
+    We next state the main lower bound for proof-binding VCs.
+Theorem 3. Consider a dynamic and proof-binding VC such that for every
+PPT adversary A, it holds that
+                                                pp←
+                                                  −KeyGen(1λ ,N ) ≤ e−Ω(λ) .
+         h                                                             i
+             Verifypp (C,m,i,πi )=1∧
+      Pr Verifypp (C,m ′
+                         ,i,π ′ )=1 ∧ m̸=m′
+                                            : (C,m,m ′
+                                                       ,π ,π ′ )←
+                                                                −A(pp)
+                                  i                               i   i
+
+
+Then, for this VC, if g2 (k) = O(k 1−ν ), then g1 = Ω(k ν ) for all ν ∈ (0, 1).
+     To prove the lower bound, we first show that proof-binding implies that
+(i∗ , mi∗ , π) is a binding commitment to the rest of the vector.
+Lemma 1. Consider a dynamic and proof-binding VC, where π is the correctly
+generated opening proof for the message mi at some index i. Then, for any
+i ∈ [N ], it holds that the tuple (i, mi , π) is a binding commitment to the vector
+of messages mj , j ∈ [N ], j ̸= i.
+Proof. Since the VC is proof-binding, with overwhelming probability, no PPT
+adversary A can find an opening proof π ∗ , an index i∗ , a message m∗ and two
+sequences of messages such that
+
+       (m1 , .. , mi∗ −1 , mi∗ +1 , .. , mN −1 ) ̸= (m′1 , .. , m′i∗ −1 , m′i∗ +1 , .. , m′N −1 )
+
+and Verifypp (C, mi∗ , i∗ , π) = Verifypp (C ′ , mi∗ , i∗ , π) = 1, where C and C ′
+are commitments to the message sequences (m1 , .. , mi∗ −1 , mi∗ , mi∗ +1 , .. , mN −1 )
+36       Ertem Nusret Tas and Dan Boneh
+
+and (m′1 , .. , m′i∗ −1 , mi∗ , m′i∗ +1 , .. , m′N −1 ). Thus, it holds that the tuple (i, mi , π)
+is a binding commitment to the vector of messages mj , j ∈ [N ], j ̸= i, with the
+following new commitment function:
+
+           NewCommitpp ((mj )j∈[N ],j̸=i ) = (i, mi , Openpp (mi , i, data)),
+
+where data = Commitpp (m0 , .. , mN −1 ).data.
+
+    The following lemma shows that all randomized VCs can be derandomized
+to obtain a deterministic and secure VC as we do not use hiding commitments
+in this work.
+Lemma 2. Consider a VC Π, where the commitment is a random function of
+the public parameters pp and the committed messages. Let Π ′ denote the VC
+that is the same as Π, except that the randomness is fixed. Then, Π ′ is a correct
+and secure VC with at most the same upper bound on the error probability.
+
+Proof. Let R denote the sequence of bits sampled uniformly at random from the
+set R to instantiate the VC Π. Since Π is binding, no PPT adversary A can find
+two different sequences of messages m and m′ such that Π(m, R) = Π(m′ , R′ )
+for some R, R′ ∈ R, except with negligible probability. This implies that for any
+fixed R∗ ∈ R, no PPT adversary A can find two different sequences of messages
+m and m′ such that Π(m, R∗ ) = Π(m′ , R∗ ), except with negligible probability.
+Hence, the commitment scheme Π ′ (.) = Π(., R∗ ) is a position-binding, i.e.,
+secure VC. Its correctness follows from the correctness of Π.
+
+   Finally, equipped with these lemmas, we can prove Theorem 3 for dynamic
+and proof-binding VCs.
+
+Proof of Theorem 3. Suppose the messages mij , j ∈ [k], are updated to m′ij .
+Define S as the sequence (m′ij )j∈[k] , and let m′i = mi for i ∈    / {ij : j ∈ [k]}. Let
+Pi , i ∈ [N ], denote the user that holds the opening proof πi for the message mi
+at index i, and aims to calculate the new proof πi′ for the message m′i using πi ,
+the update information U and the old and the new sequences of messages mi , m′i ,
+i ∈ [N ]. Suppose g2 = O(k 1−ν ). Then, there exists a constant α such that each
+user can read at most αk 1−ν of the updated messages while updating its opening
+proof. Let Si ⊆ (m′ij )j∈[k] denote the sequence of updated messages and their
+indices, which were not observed by Pi , and S i = S \ Si denote the sequence
+read by Pi . Here, |S| denotes the number of messages within the sequence S.
+Since Pi is assumed to know m′i , it must be that m′i ∈ S i .
+     We next show that each user Pi that successfully updates its opening proof
+must download enough bits of U to generate a binding, deterministic commit-
+ment to the set Si . By Lemma 1, the tuple (i, m′i , πi′ ) is a binding commitment to
+the sequence of messages (m′j )j∈[N ],j̸=i . This implies that the tuple (i, S i , πi′ ) is a
+binding commitment to the sequence Si . By Lemma 2, the commitment (i, S i , πi′ )
+can be de-randomized to obtain a deterministic commitment Ci to the sequence
+Si (with at most the same upper bound on the error probability). Let Π denote
+                                      Vector Commitments with Efficient Updates       37
+
+the deterministic VC scheme such that Ci = Π(Si ). Since Π is a deterministic
+function given the public parameters, and the updated messages are sampled
+independently and uniformly at random, then I(Si ; {mi }i∈N , S i |pp) = 0, where
+I(.; .) is the mutual information. Moreover, as πi is a function of the old mes-
+sages {mi }i∈N and the randomness of the original VC, I(Ci ; πi |pp) = 0. Hence,
+Ci = f (U, i, {mi }i∈N , π) is a deterministic function of the update information
+U.
+    For all i ∈ [k], it holds that |Si | ≥ k − αk 1−ν and m′i ∈ / Si . Given these
+                                                                            ν
+constraints, the minimum number of distinct sequences Si is αkk1−ν = kα . For
+an appropriately selected β that will be defined later, without loss of generality,
+let S0 , .. , SM −1 denote the first
+                                    ν                 ν
+                                     k    α       λ       k
+                        M = min         − −        1−ν
+                                                        ,
+                                     β    β     βk        α
+
+distinct sequences. Since Ci is a deterministic function of U for all i ∈ N , it
+holds that the Shannon entropy H(.) of U satisfies the following expression:
+                                                      M
+                                                      X −1
+          H(U ) ≥ H(C0 , .. , CM −1 ) ≥ H(C0 ) +             H(Ci |C0 , .. , Ci−1 )
+                                                       i=1
+
+
+As g2 (k) = O(k 1−ν ), there exists a constant β such that each user can download
+at most βk 1−ν bits of data from U . Then, for all i ∈ [k], it must be that H(Ci ) ≤
+H(U ) ≤ βk 1−ν since Ci is a deterministic function of U for each i ∈ [N ].
+    Finally, we show that H(C0 ), H(Ci |C0 , .. , Ci−1 ) = Ω(λ) for all i = 1, .. , M −
+1. Towards contradiction, suppose ∃i∗ : H(Ci∗ |C0 , .. , Ci∗ −1 ) = o(λ). Note that
+
+                            M
+                            X −1
+   H(C0 , .. , Ci∗ −1 ) ≤          H(Ci )
+                            i=0
+                             ν
+                                            kν
+                                               
+                             k   α    λ
+                      ≤ min     − −       ,      βk 1−ν ≤ k − αk 1−ν − λ.
+                             β   β  βk 1−ν α
+
+Now, consider an adversary A that tries to break the binding property of the
+VC scheme Π. Due to the upper bound on the entropy of (C0 , .. , Ci∗ −1 ), it holds
+that H(Si∗ |C0 , .. , Ci∗ −1 ) ≥ λ; since H(Si∗ ) ≥ k − αk 1−ν , and
+
+             H(Si∗ ) − H(Si∗ |C0 , .. , Ci∗ −1 )
+          = I(Si∗ ; (C0 , .. , Ci∗ −1 )) ≤ H(C0 , .. , Ci∗ −1 ) ≤ k − αk 1−ν − λ.
+
+   However, when H(Ci∗ |C0 , .. , Ci∗ −1 ) = o(λ), for sufficiently large λ, given
+(C0 , .. , Ci∗ −1 ), the adversary can find a collision such that Π(Si∗ ) = Π(Si′∗ ) for
+two Si∗ ̸= Si′∗ , with probability 2−o(λ) . As this is a contradiction, it must be that
+H(C0 ) and H(Ci |C0 , .. , Ci−1 ) = Ω(λ) for all i < M , and thus, H(U ) = Ω(k ν λ)
+and g1 (k) = Ω(k ν ).
+38       Ertem Nusret Tas and Dan Boneh
+
+Remark 1. Theorem 3 shows that the update information length scales as Θ̃(k ν λ)
+when the runtime complexity for proof updates is Θ̃(k 1−ν ) and the error proba-
+bility for the security of the VC is e−Ω(λ) for a PPT adversary. When the error
+probability is just stated to be negligible in λ, then the same proof can be used
+to show that the update information length must scale as Ω(k ν polylog(λ)) for
+any polynomial function of log(λ).
+
+    To demonstrate the optimality of homomorphic Merkle trees, we show that,
+like many other VCs, they satisfy the proof-binding property:
+Theorem 4. The proof-binding property is satisfied by secure homomorphic Merkle
+trees.
+
+Proof. Consider an adversary A that finds an opening proof π, an index i∗ ,
+a message mi∗ , and sequences of messages (m0 , .. , mi∗ −1 , mi∗ +1 , .. , mN −1 ) ̸=
+(m′0 , .. , m′i∗ −1 , m′i∗ +1 , .. , m′N −1 ) such that Verifypp (C, mi∗ , i∗ , π) = 1 as well as
+Verifypp (C ′ , mi∗ , i∗ , π) = 1 for the commmitments C and C ′ to the sequences
+(m0 , .. , mi∗ −1 , mi∗ , mi∗ +1 , .. , mN −1 ) and (m′0 , .. , m′i∗ −1 , mi∗ , m′i∗ +1 , .. , m′N −1 ).
+We show how it can break the position-binding property with this knowledge.
+The adversary first constructs the two homomorphic Merkle trees committing
+to these sequences. It then finds the first inner node u′ within the proof π on
+the path from the message mi∗ to the root such that the subtrees under this
+inner node contain different sequences of messages (ma , .. , mb ) ̸= (m′a , .. , m′b )
+at the leaves. By definition g −1 (b′ ) is the homomorphic Merkle tree commit-
+ment to the sequence of messages under the node b′ on both trees. Thus, the
+adversary has created two homomorphic Merkle trees committing to different
+sequences of messages but with the same homomorphic Merkle tree commit-
+ment C = g −1 (b′ ). This implies that the adversary can find a tuple (C, mi ∈
+(ma , .. , mb ), m′i ∈ (m′a , .. , m′b ), πi , πi′ ) such that Verifypp (C, mi , i, πi ) = 1 and
+Verifypp (C, m′i , i, πi′ ) = 1 and m ̸= m′ . Since for all adversaries A, the prob-
+ability that A finds such a tuple is negligible in the security parameter λ,
+for all adversaries A, the probability that A finds an opening proof π, index
+i∗ , message mi∗ and sequences of messages (m0 , .. , mi∗ −1 , mi∗ +1 , .. , mN −1 ) ̸=
+(m′0 , .. , m′i∗ −1 , m′i∗ +1 , .. , m′N −1 ) with the above qualities is negligible in λ, im-
+plying that homomorphic Merkle trees are proof-binding.
+
+
+8     Conclusion
+
+Dynamic VCs with sublinear update are the key to reducing the size of the global
+update information while minimizing the runtime of clients synchronizing with
+the latest commitment. In this work, we propose a construction that can achieve
+an update information size of Θ(k ν ) and a proof update time of Θ(k 1−ν ) in
+the number of changed messages k. Our construction combines a novel update
+algorithm (Alg. 1) with homomorphic trees and homomorphic Merkle trees that
+allow each inner node to be expressed as a homomorphic or linear function
+of the underlying messages. It achieves the smallest asymptotic complexity for
+                                Vector Commitments with Efficient Updates         39
+
+the update information size and proof update time. We also provide update
+algorithms for the Verkle trees proposed for stateless clients on Ethereum.
+    The existing instantiations of homomorphic Merkle trees are based on lat-
+tices and require relatively large parameters for security. In contrast, the existing
+instantiations of homomorphic trees are based on pairings, and despite outper-
+forming Verkle trees, require trusted setup and relatively large public parameters
+and opening proofs. As such, designing post-quantum secure, asymptotically op-
+timal and practically efficient dynamic VCs without trusted setup and with small
+opening proofs remains an open problem.
+
+   Acknowledgments. This work was partially funded by NSF, DARPA, the
+Simons Foundation, and NTT Research. Additional support was provided by the
+Stanford Center for Blockchain Research. Opinions, findings, and conclusions or
+recommendations expressed in this material are those of the authors and do not
+necessarily reflect the views of DARPA.
+
+
+References
+ 1. benchmarks-bls-libs. URL: https://github.com/AlexiaChen/benchmarks-bls-
+    libs.
+ 2. Ethereum average block size chart.           URL: https://etherscan.io/chart/
+    blocksize.
+ 3. Ethereum cumulative unique addresses. URL: https://ycharts.com/indicators/
+    ethereum_cumulative_unique_addresses.
+ 4. Gas and fees. URL: https://ethereum.org/en/developers/docs/gas/.
+ 5. go-verkle. https://github.com/ethereum/go-verkle. Accessed: 2023-11-18.
+ 6. State trie.     URL: https://ethereum.github.io/execution-specs/autoapi/
+    ethereum/frontier/trie/index.html.
+ 7. Shashank Agrawal and Srinivasan Raghuraman. Kvac: Key-value commitments
+    for blockchains and beyond. In ASIACRYPT (3), volume 12493 of Lecture Notes
+    in Computer Science, pages 839–869. Springer, 2020.
+ 8. Mihir Bellare, Oded Goldreich, and Shafi Goldwasser. Incremental cryptography:
+    The case of hashing and signing. In CRYPTO, volume 839 of Lecture Notes in
+    Computer Science, pages 216–233. Springer, 1994.
+ 9. Josh Cohen Benaloh and Michael de Mare. One-way accumulators: A decentralized
+    alternative to digital sinatures (extended abstract). In EUROCRYPT, volume 765
+    of Lecture Notes in Computer Science, pages 274–285. Springer, 1993.
+10. Dan Boneh, Benedikt Bünz, and Ben Fisch. Batching techniques for accumulators
+    with applications to iops and stateless blockchains. In CRYPTO (1), volume 11692
+    of Lecture Notes in Computer Science, pages 561–586. Springer, 2019.
+11. Vitalik Buterin. The stateless client concept, 2017. URL: https://ethresear.ch/
+    t/the-stateless-client-concept/172.
+12. Vitalik Buterin. A state expiry and statelessness roadmap, 2021. URL: https:
+    //notes.ethereum.org/@vbuterin/verkle_and_state_expiry_proposal.
+13. Vitalik Buterin. Verkle trees, 2021. URL: https://vitalik.ca/general/2021/
+    06/18/verkle.html.
+14. Christian Cachin and Olga Ohrimenko. Verifying the consistency of remote un-
+    trusted services with conflict-free operations. Inf. Comput., 260:72–88, 2018.
+40      Ertem Nusret Tas and Dan Boneh
+
+15. Christian Cachin, Abhi Shelat, and Alexander Shraer. Efficient fork-linearizable
+    access to untrusted shared memory. In PODC, pages 129–138. ACM, 2007.
+16. Philippe Camacho and Alejandro Hevia. On the impossibility of batch update for
+    cryptographic accumulators. In LATINCRYPT, volume 6212 of Lecture Notes in
+    Computer Science, pages 178–188. Springer, 2010.
+17. Matteo Campanelli, Anca Nitulescu, Carla Ràfols, Alexandros Zacharakis, and
+    Arantxa Zapico. Linear-map vector commitments and their practical applications.
+    In ASIACRYPT (4), volume 13794 of Lecture Notes in Computer Science, pages
+    189–219. Springer, 2022.
+18. Dario Catalano and Dario Fiore. Vector commitments and their applications.
+    In Public Key Cryptography, volume 7778 of Lecture Notes in Computer Science,
+    pages 55–72. Springer, 2013.
+19. Dario Catalano, Dario Fiore, and Mariagrazia Messina. Zero-knowledge sets with
+    short proofs. In EUROCRYPT, volume 4965 of Lecture Notes in Computer Science,
+    pages 433–450. Springer, 2008.
+20. Miranda Christ and Joseph Bonneau. Limits on revocable proof systems, with
+    applications to stateless blockchains. IACR Cryptol. ePrint Arch., page 1478,
+    2022. Appeared in the International Conference on Financial Cryptography and
+    Data Security 2023.
+21. Dankrad Feist. Pcs multiproofs using random evaluation, 2021. URL: https:
+    //dankradfeist.de/ethereum/2021/06/18/pcs-multiproofs.html.
+22. Michael T. Goodrich, Roberto Tamassia, and Jasminka Hasic. An efficient dynamic
+    and distributed cryptographic accumulator. In ISC, volume 2433 of Lecture Notes
+    in Computer Science, pages 372–388. Springer, 2002.
+23. Sergey Gorbunov, Leonid Reyzin, Hoeteck Wee, and Zhenfei Zhang. Pointproofs:
+    Aggregating proofs for multiple vector commitments. In CCS, pages 2007–2023.
+    ACM, 2020.
+24. Mahabir Prasad Jhanwar and Reihaneh Safavi-Naini. Compact accumulator using
+    lattices. In SPACE, volume 9354 of Lecture Notes in Computer Science, pages
+    347–358. Springer, 2015.
+25. Aniket Kate, Gregory M. Zaverucha, and Ian Goldberg. Constant-size commit-
+    ments to polynomials and their applications. In ASIACRYPT, volume 6477 of
+    Lecture Notes in Computer Science, pages 177–194. Springer, 2010.
+26. John Kuszmaul. Verkle trees. 2018. URL: https://math.mit.edu/research/
+    highschool/primes/materials/2018/Kuszmaul.pdf.
+27. Russell W. F. Lai and Giulio Malavolta. Subvector commitments with applica-
+    tion to succinct arguments. In CRYPTO (1), volume 11692 of Lecture Notes in
+    Computer Science, pages 530–560. Springer, 2019.
+28. Russell W. F. Lai and Giulio Malavolta. Subvector commitments with applica-
+    tion to succinct arguments. In CRYPTO (1), volume 11692 of Lecture Notes in
+    Computer Science, pages 530–560. Springer, 2019.
+29. Benoı̂t Libert, San Ling, Khoa Nguyen, and Huaxiong Wang. Zero-knowledge argu-
+    ments for lattice-based accumulators: Logarithmic-size ring signatures and group
+    signatures without trapdoors. In EUROCRYPT (2), volume 9666 of Lecture Notes
+    in Computer Science, pages 1–31. Springer, 2016.
+30. Benoı̂t Libert, Somindu C. Ramanna, and Moti Yung. Functional commitment
+    schemes: From polynomial commitments to pairing-based accumulators from sim-
+    ple assumptions. In ICALP, volume 55 of LIPIcs, pages 30:1–30:14. Schloss
+    Dagstuhl - Leibniz-Zentrum für Informatik, 2016.
+                                Vector Commitments with Efficient Updates         41
+
+31. Benoı̂t Libert and Moti Yung. Concise mercurial vector commitments and inde-
+    pendent zero-knowledge sets with short proofs. In TCC, volume 5978 of Lecture
+    Notes in Computer Science, pages 499–517. Springer, 2010.
+32. Ralph C. Merkle. A digital signature based on a conventional encryption function.
+    In CRYPTO, volume 293 of Lecture Notes in Computer Science, pages 369–378.
+    Springer, 1987.
+33. Andrew Miller, Michael Hicks, Jonathan Katz, and Elaine Shi. Authenticated data
+    structures, generically. In POPL, pages 411–424. ACM, 2014.
+34. Satoshi Nakamoto. Bitcoin: A peer-to-peer electronic cash system. 2008. https:
+    //bitcoin.org/bitcoin.pdf.
+35. Lan Nguyen. Accumulators from bilinear pairings and applications. In CT-RSA,
+    volume 3376 of Lecture Notes in Computer Science, pages 275–292. Springer, 2005.
+36. Anca Nitulescu. Sok: Vector commitments. URL: https://www.di.ens.fr/
+    ~nitulesc/files/vc-sok.pdf.
+37. Charalampos Papamanthou, Elaine Shi, Roberto Tamassia, and Ke Yi. Streaming
+    authenticated data structures. In EUROCRYPT, volume 7881 of Lecture Notes in
+    Computer Science, pages 353–370. Springer, 2013.
+38. Charalampos Papamanthou and Roberto Tamassia. Cryptography for efficiency:
+    Authenticated data structures based on lattices and parallel online memory check-
+    ing. IACR Cryptol. ePrint Arch., page 102, 2011.
+39. Charalampos Papamanthou, Roberto Tamassia, and Nikos Triandopoulos. Authen-
+    ticated hash tables based on cryptographic accumulators. Algorithmica, 74(2):664–
+    712, 2016.
+40. Chris Peikert, Zachary Pepin, and Chad Sharp. Vector and functional commitments
+    from lattices. In TCC (3), volume 13044 of Lecture Notes in Computer Science,
+    pages 480–511. Springer, 2021.
+41. Yi Qian, Yupeng Zhang, Xi Chen, and Charalampos Papamanthou. Streaming
+    authenticated data structures: Abstraction and implementation. In CCSW, pages
+    129–139. ACM, 2014.
+42. Shravan Srinivasan, Alexander Chepurnoy, Charalampos Papamanthou, Alin
+    Tomescu, and Yupeng Zhang. Hyperproofs: Aggregating and maintaining proofs in
+    vector commitments. In USENIX Security Symposium, pages 3001–3018. USENIX
+    Association, 2022.
+43. Shravan Srinivasan, Ioanna Karantaidou, Foteini Baldimtsi, and Charalampos Pa-
+    pamanthou. Batching, aggregation, and zero-knowledge proofs in bilinear accumu-
+    lators. In CCS, pages 2719–2733. ACM, 2022.
+44. Roberto Tamassia. Authenticated data structures. In ESA, volume 2832 of Lecture
+    Notes in Computer Science, pages 2–5. Springer, 2003.
+45. Roberto Tamassia and Nikos Triandopoulos. Computational bounds on hierarchi-
+    cal data processing with applications to information security. In ICALP, volume
+    3580 of Lecture Notes in Computer Science, pages 153–165. Springer, 2005.
+46. Alin Tomescu, Ittai Abraham, Vitalik Buterin, Justin Drake, Dankrad Feist, and
+    Dmitry Khovratovich. Aggregatable subvector commitments for stateless cryp-
+    tocurrencies. In SCN, volume 12238 of Lecture Notes in Computer Science, pages
+    45–64. Springer, 2020.
+47. Alin Tomescu, Robert Chen, Yiming Zheng, Ittai Abraham, Benny Pinkas, Guy
+    Golan-Gueta, and Srinivas Devadas. Towards scalable threshold cryptosystems. In
+    SP, pages 877–893. IEEE, 2020.
+48. Alin Tomescu, Yu Xia, and Zachary Newman. Authenticated dictionaries with
+    cross-incremental proof (dis)aggregation. IACR Cryptol. ePrint Arch., page 1239,
+    2020.
+42      Ertem Nusret Tas and Dan Boneh
+
+49. Hoeteck Wee and David J. Wu. Succinct vector, polynomial, and functional com-
+    mitments from lattices. IACR Cryptol. ePrint Arch., page 1515, 2022.
+50. Gavin Wood. Ethereum: A secure decentralised generalised transaction ledger.
+    2014. URL: https://files.gitter.im/ethereum/yellowpaper/VIyt/Paper.pdf.
+51. Thomas Yurek, Licheng Luo, Jaiden Fairoze, Aniket Kate, and Andrew K. Miller.
+    hbACSS: How to Robustly Share Many Secrets. In NDSS. The Internet Society,
+    2022.
+
+
+A     Lower Bound on the Size of the Update Information
+Theorem 5. Consider a dynamic accumulator, where k out of N messages mij
+are updated to m′ij ̸= mij , j ∈ [k]. Suppose |M | = poly(λ). Then, Ω(k log (N |M|))
+bits of information must be published to enable updating the opening proofs after
+these k updates.
+Proof. The proof idea is very similar to those presented in [16,20]. Namely, the
+update information must contain a minimum amount of bits for the VC to remain
+correct and secure after the update.
+    Consider a game between a platform P maintaining the data structures of
+the VC and an adversary A. The platform P updates k out of N messages
+mi,j to m′i,j ̸= mij , j ∈ [k], in a way not known to user A, and publishes the
+update information U along with the new commitment value C ′ (let m′i = mi
+for i ∈
+      / {ij : j ∈ [k]}). Before receiving the update information, A knows the old
+sequence of messages mi , i ∈ [N ], and their opening proofs πi . Upon receiving
+the update information, A updates the opening proofs for each message to πi′ .
+Then, it must be that for all j ∈ [k], Verifypp (C ′ , m′ij , ij , πi′j ) = 1, and for
+      / {ij : j ∈ [k]}, Verifypp (C ′ , mi , i, πi′ ) = 1. Otherwise there would be
+all i ∈
+messages among m′i , i ∈ [N ], for which an updated witness cannot be computed,
+violating correctness. Similarly, for all j ∈ [k], Verifypp (C ′ , m̃, ij , πi′j ) = 0 for
+any m̃ ̸= m′ij ; as otherwise the position binding property, thus security, would be
+violated. Hence, by calling the function Verifypp (C ′ , mi , i, πi′j ) for each index, A
+can figure out the indices ij , j ∈ [k], where the messages were updated. Similarly,
+by evaluating the function Verifypp (C ′ , m̃, ij , πi′j ) for the |M| possible messages
+m̃ for each j ∈ [k], A can identify the new value m′ij of the message at each such
+index ij . Hence, the adversary can recover the sequence (ij , m′ij )j∈[k] .
+    As there are (NN−k)!!
+                            logk |M| possible sequences (ij , m′ij )j∈[k] , it holds that
+                                            
+                              N!        k
+              |U | ≥ log            log |M| = Ω(k(log N + log |M|)).
+                           (N − k)!
+
+
+Remark 2. When |M | = Ω(poly(λ)), the minimum number of bits to be pub-
+lished depends on the error probability for the security of the PPT adversary. As
+in Remark 1, if |M| = Θ(2λ ) and the error probability is e−Ω(λ) , then the same
+proof can be used to show that Ω̃(kλ) bits of information must be published.
+When the error probability is just stated to be negligible in λ, then the number
+of bits must scale as Ω̃(k polylog λ) for any polynomial function of log (λ).
+                                     Vector Commitments with Efficient Updates                 43
+
+B     Homomorphic Trees with No Update Information
+
+
+Algorithm 5 Algorithms for a homomorphic tree. Each user knows the total number
+of leaves N .
+ 1: algorithm Update(C, (i, m′i − mi )i∈[N ] , T )
+ 2:     C ′ ← new VC                                ▷ Commitment need not be the same as the root.
+ 3:     return (C ′ , ∅, T )
+ 4: end algorithm
+ 5: algorithm ProofUpdate((ij , m′ij − mij )j∈[k] , πx , m′x , x, U )
+ 6:     πx′ ← {}
+ 7:     (b1 , .. , bh ) ← bin(x)
+ 8:     for d = h, .. , 1
+ 9:          S ← {j ∈ [k] : bin(ij )[0 : d − Q          p − 1] = (b1 , .. , bd−p )}
+10:           πx′ [b0 , .. , bd ] ← πx [b0 , .. , bd ] · j∈S hij ,d,(bd−p+1 ,bd ) (m′ij − mij )
+11:      end for
+12:      return πx′
+13: end algorithm
+
+
+
+
+B.1     Update Information
+When k messages are updated, the update algorithm merely calculates the new
+value of the vector commitment. As in KZG commitments, the update informa-
+tion is U = ∅.
+
+B.2     Proof Update
+When the messages are modified at k points, each user holding an opening proof
+πx for index x can calculate the new values of the inner nodes within the proof
+using the old and the new messages and modify the proof respectively.
+
+B.3     Complexity
+Calculating each partial digest hx,j,c takes constant time. Then, each user can
+update each inner node within its opening proof after at most k operations,
+making the total number of operations Θ(k log (N )) = Θ̃(k) in the worst case.
+The size of the update information U is Θ̃(1). Hence, this scheme matches the
+algebraic VCs in terms of complexity.
+
+
+C     Why Are Homomorphic Merkle Trees Needed?
+Merkle trees based on SHA256 can also achieve complexity sublinear in k, for
+both the update information and the runtime of proof updates, if the users
+44       Ertem Nusret Tas and Dan Boneh
+
+have access to the old messages and inner nodes of the Merkle tree. In this
+case, homomorphism is not needed since the nodes can find the effect of the
+updated messages on the inner nodes within their Merkle proofs by hashing these
+messages together with the old inner nodes. However, this is possible for only a
+single batch of updates. Indeed, if this scheme is to be repeated, the assumption
+of having access to the old inner nodes requires the users to keep track of changes
+throughout the Merkle tree, by calculating the effect of all updated messages on
+all inner nodes. This implies a runtime linear in k per proof updates. In contrast,
+homomorphic Merkle trees can maintain a sublinear complexity for future proof
+updates since they do not require access to the old messages and inner nodes for
+finding the partial digests of the updated messages.
+
+
+D       An Alternative Construction
+An alternative tree-based VC is proposed by [40], where each inner node is itself
+a lattice-based VC to its children (akin to Verkle trees [13]). Opening proof for a
+message consists of the inner nodes (commitments) on the path from the message
+to the root, along with the opening proofs for these inner nodes with respect to
+their parent nodes. The construction again enables expressing each inner node as
+a sum of partial digests of the messages underneath. Using the public parameters
+and the updated inner nodes, users can then derive their updated opening proofs
+at different heights of the tree. This construction supports trees of large degrees
+c without a linear increase in the proof size as would be the case for Merkle trees;
+this however comes at the cost of a larger runtime complexity for proof updates,
+proportional to the degree. Section 6 describes similar steps in the context of
+Verkle trees, and exposes the dependence of the runtime complexity of proof
+updates on the tree degree c.
+
+                                                                    (h−g)
+E    Derivation of the Opening Proof πt
+Since
+                           h−1
+                                             fb0 ,..,bj (X) fb0 ,..,bj (X) − ub0 ,..,bj+1
+                           X                                                               
+                                     j
+          h(X) − g(X) =          r                         −
+                           j=0
+                                              t − bj+1                X − bj+1
+                           h−1
+                           X             (X − t)fb0 ,..,bj (X) + ub0 ,..,bj+1 (t − bj+1 )
+                       =         rj                                                       ,
+                           j=0
+                                                  (t − bj+1 )(X − bj+1 )
+
+                           (h−g)
+the opening proof π = πt     for index t within the polynomial h(X) − g(X) is
+                                       
+        h(X) − g(X) − (h(t) − g(t))
+                   X −t
+                                                                                  
+        h−1
+        X rj        (X − t)fb0 ,..,bj (X) + ub0 ,..,bj+1 (t − bj+1 ) ub0 ,..,bj+1
+                                                                                 
+    =                                                              −              
+        j=0
+            X − t            (t   −  b j+1 )(X −  b j+1 )             t −  b j+1
+                                       Vector Commitments with Efficient Updates            45
+                                                  
+         h−1    j
+         X    r      fb0 ,..,bj (X) − ub0 ,..,bj+1
+    =                                             
+       j=0
+           t − b j+1           X  − b j+1
+
+        h−1                                     t−brj        h−1                 t−brj
+        Y     fb0 ,..,bj (X) − ub0 ,..,bj+1        j+1       Y     fb ,..,bj
+                                                                       0              j+1
+    =                                                     =         πbj+1
+        j=0
+                         X − bj+1                             j=0
+
+
+
+F    Update and Proof Update Algorithms for KZG
+     Commitments and Merkle Trees
+
+
+Algorithm 6 Update and proof update algorithms for KZG commitments. Each user
+knows the value N and has access to a table of commitments and opening proofs
+of Lagrange basis polynomials Li (X) at each point j ∈ Fp , j < N . The parameter
+πij ,x denotes the opening proof of Li (X) at index ij . The update and proof update
+algorithms only need the difference of the updated messages.
+1: algorithm Update(C, (ij , m′ij − mij )j∈[k] , ∅)
+                              (m′i −mij )
+      C′ ← C m
+              Q
+                j=1 [Lij (X)]
+2:                                j
+
+3:    U ←∅
+4:    return (C ′ , U, ∅)
+5: end algorithm
+6: algorithm ProofUpdate(C, (ij , m′ij − mij )j∈[k] , πx , m′x , x, U )
+                        m′i −mij
+      πx′ ← πx kj=1 πij ,xj
+              Q
+7:
+8:    return πx′
+9: end algorithm
+46         Ertem Nusret Tas and Dan Boneh
+
+
+
+
+Algorithm 7 Update and proof update algorithms for a Merkle tree. Each user knows
+the total number of leaves N . The variable T denotes the dictionary of the old Merkle
+tree nodes, prior to the message updates, and πx denotes the Merkle proof for index x,
+whose components are organized as a dictionary. The algorithm Empty(.) initializes
+a dictionary with the indices of the Merkle tree nodes as keys and ⊥ as their values.
+Not all of U is passed to the proof update algorithm and its relevant parts are read
+selectively to keep the runtime at a minimum.
+ 1: algorithm Update(C, (i, mi )i∈[N ] , (i, m′i )i∈[N ] , T )
+ 2:    b0 ← ⊥
+ 3:    U ← Empty()
+ 4:    for j ∈ [k]
+ 5:         (b1 , .. , bh ) ← bin(ij )
+ 6:         T [b0 , b1 , .. , bh ] ← H(m′ij )
+ 7:         U [b0 , b1 , .. , bh ] ← T [b0 , b1 , .. , bh ]
+ 8:         for d = h − 1, .. , 0
+ 9:                T [b0 , .. , bd ] ← H(T [b0 , .. , bd , bd+1 ], T [b0 , .. , bd , bd+1 ])
+10:                 U [b0 , .. , bd ] ← T [b0 , .. , bd ]
+11:          end for
+12:     end for
+13:     C ′ ← T [b0 ]
+14:     return (C ′ , U, T )
+15: end algorithm
+16: algorithm ProofUpdate(C, πx , m′x , x, U )
+17:     πx′ ← {}
+18:     (b1 , .. , bh ) ← bin(x)
+19:     for d = h, .. , 1
+20:          if (b0 , b1 .. bd ) ∈ U
+21:                 πx′ [b0 , b1 .. bd ] ← U [b0 , b1 .. bd ]
+22:          else
+23:                 πx′ [b0 , b1 .. bd ] ← πx [b0 , b1 .. bd ]
+24:          end if
+25:     end for
+26:     return πx′
+27: end algorithm
+

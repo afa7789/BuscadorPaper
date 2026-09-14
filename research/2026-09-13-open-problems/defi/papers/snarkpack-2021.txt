@@ -1,0 +1,1647 @@
+        SnarkPack: Practical SNARK Aggregation
+
+                 Nicolas Gailly1 , Mary Maller2 , and Anca Nitulescu1
+                                      1
+                                  Protocol Labs.
+                                  2
+                               Ethereum Fondation.
+       nikkolasg@protocol.ai, mary.maller@ethereum.org, anca@protocol.ai
+
+
+
+Abstract. Zero-knowledge SNARKs (zk-SNARKs) are non-interactive proof systems with
+short and efficiently verifiable proofs that do not reveal anything more than the correctness
+of the statement. zk-SNARKs are widely used in decentralised systems to address privacy
+and scalability concerns.
+A major drawback of such proof systems in practice is the requirement to run a trusted
+setup for the public parameters. Moreover, these parameters set an upper bound to the size
+of the computations or statements to be proven, which results in new scalability problems.
+We design and implement SnarkPack, a new argument that further reduces the size of
+SNARK proofs by means of aggregation. Our goal is to provide an off-the-shelf solution
+that is practical in the following sense: (1) it is compatible with existing deployed SNARK
+systems, (2) it does not require any extra trusted setup.
+SnarkPack is designed to work with Groth16 scheme and has logarithmic size proofs and
+a verifier that runs in logarithmic time in the number of proofs to be aggregated. Most
+importantly, SnarkPack reuses the public parameters from Groth16 system.
+SnarkPack can aggregate 8192 proofs in 8.7s and verify them in 163ms, yielding a verifica-
+tion mechanism that is exponentially faster than other solutions. SnarkPack can be used in
+blockchain applications that rely on many SNARK proofs such as Proof-of-Space or roll-up
+solutions.
+
+Keywords: public-key cryptography, SNARKs, proof aggregation, bilinear pairings
+                                                       Table of Contents
+
+
+SnarkPack: Practical SNARK Aggregation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                           1
+   Nicolas Gailly, Mary Maller, and Anca Nitulescu
+1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    3
+2 Preliminaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     6
+   2.1 Notations and General Background . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                             6
+   2.2 Cryptographic Primitives . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                   8
+   2.3 KZG Polynomial Commitment . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                           10
+   2.4 Assumptions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .         11
+3 Overview of our Techniques . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                 11
+   3.1 Background on Groth16 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                   11
+   3.2 Building Blocks for Aggregation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                       12
+   3.3 Framework for Aggregation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                     13
+4 Pair Group Commitment Schemes . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                          13
+   4.1 Single group version CMs . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                  14
+   4.2 Double group version CMd . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                    14
+5 MT-IPP Scheme . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .          15
+   5.1 Final Commitment Keys . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                     18
+6 SnarkPack: Aggregation Scheme . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                    20
+7 Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       22
+A Assumptions in GGM . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .               26
+   A.1 ASSGP Assumption in GGM . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                           26
+   A.2 ASDGP Assumption in GGM . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                           27
+B Groth16 Scheme . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .         29
+1     Introduction
+Arguments of Knowledge. Decentralised systems make extensive use of protocols that enable
+a prover to post a statement together with a short proof, such that any verifier can publicly
+check that the statement (e.g., correctness of a computation, claims of storage etc.) is true while
+expending fewer resources, e.g. less time than would be required to re-execute the computation.
+    SNARKs are such proofs that allow to demonstrate knowledge of a satisfying witness to some
+NP statement and have verification time and proof size independent of the size of this witness.
+If these proofs also conceal anything else about the witness we refer to them as zk-SNARKs. In
+the last decade, there has been a series of works on constructing SNARKs [BCI+ 13, GGPR13,
+PHGR13, BCTV14, Gro16] with constant-size proofs that rely on trusted setups.
+    SNARKs are becoming very popular in real-world applications such as delegated computation
+or blockchain systems: As examples of early practical use case, Zerocash [BCG+ 14] showed how
+to use zk-SNARKs in distributed ledgers to achieve payment systems with strong privacy guar-
+antees. The Zerocash protocol, with some modifications, is now commercially deployed in several
+cryptocurrencies, e.g. Zcash.
+    More recent zk-SNARK use cases are Aztec and zkSync, two projects boosting the scalability
+and privacy of Ethereum smart contracts3 . Another example of SNARK application is the Filecoin
+System4 that implements a decentralized storage solution for the internet.
+    Due to their rapid and massive adoption, the SNARKs schemes used today start facing new
+challenges: the generation of trusted setups requires complicated ceremonies, proving large state-
+ments has significant overhead, verifying multiple proofs is expensive even with batching, so many
+blockchain systems have therefore scalability issues.
+Trusted Setup Ceremony. All the constant-size zk-SNARK schemes have a common major disad-
+vantage in practice: they rely on some public parameters, the structured reference string (SRS),
+that are generated by a trusted setup. In theory, this setup is run by a trusted-third party, while
+in practice, such a string can be generated by a so called ”ceremony”, a multi-party computation
+between participants who are believed not to collude as shown in [ABL+ 19, BGM17, BCG+ 15].
+Generating such trusted setup is a cumbersome task. These ceremonies are expensive in terms
+of resources, they must follow specific rules and are generally hard to organise: hundreds of par-
+ticipants with powerful machines need to join efforts to perform a multi-party computation over
+multiple months.
+Groth16. The construction by Groth [Gro16] is the state-of-the-art for pairing-based zk-SNARKs.
+Groth16 requires to express the computation as an arithmetic circuit and relies on some trusted
+setup to prove the circuit satisfiability. Due to its short proof size (3 group elements) and verifier’s
+efficiency, Groth16 has become a de facto standard in blockchain projects. This results in a great
+number of available implementations, code auditing and multiple trusted setup ceremonies run by
+independent institutions.
+
+Motivation. Importantly, the trusted setup in SNARK schemes sets an upper bound on the size
+of computations that can be proven (number of constrains in the circuit description). Because
+modern applications have an increased demand for the size of circuits, Groth16 starts to face
+scalability problems. A simple solution would be to split the computation in different pieces, and
+prove them independently in smaller circuits, but this increases the number of proofs to be added
+to a single statement and the verification time.
+    We address this problem by showing a method to reduce the overhead in communication and
+verification time for multiple proofs without the need of further larger trusted setup ceremonies.
+3
+    Aztec, https://zk.money; zksync, https://zksync.io; https://ethereum.org
+4
+    Filecoin, https://filecoin.io
+
+
+                                                   3
+Filecoin System. One example is Filecoin [Lab18] proof-of-space blockchain. To onboard storage in
+the network, Filecoin miners post a Groth16 proof that they correctly computed a Proof-of-Space
+[Fis19]. Each proof guarantees that the miner correctly “reserves” 32GB of storage to the network
+and consists in 10 different SNARKs. The chain currently processes a large number of proofs each
+day: approximately 500,000 Groth16 proofs, representing 15 PiB of storage.
+
+
+Contribution. We look into reducing proof size and verifier time for SNARKs even further by
+exploring techniques to aggregate proofs without the requirement for additional trusted setups.
+    We design SnarkPack, an argument that allows to aggregate n Groth16 zkSNARKs with a
+O(log n) proof size and verifier time. Our scheme is based on a trusted setup that can be constructed
+from two different existing ceremonies (e.g. the ”powers of tau” for Zcash [zca18] and Filecoin
+[Fil20]).
+    Being able to rely on the security of well-known trusted setups for which the ceremonies have
+been largely publicly advertised is a great advantage in practice and makes SnarkPack immediately
+useful in real-world applications.
+    Our techniques are generic and can also apply to other pairing-based SNARKs. However, we
+chose to focus on Groth16 proofs and tailor optimisations for this case, since it is the most popular
+scheme among practitioners. Therefore, SnarkPack is the first practical system that can be used
+in blockchains applications to reduce the on-chain work by employing verifiable outsourcing to
+process a large number of proofs off-chain. This applies broadly to any system that needs to
+delegate batches of state updates to an untrusted server.
+
+
+Related Work. Prior works have built similar schemes for recursion or aggregation of proofs, but
+they all have critical shortcomings when it comes to implementing them in real-world systems.
+    Bünz et al. [BMM+ 19] presented a scheme for aggregating Groth16 proofs that requires a
+specific trusted setup to construct the structured reference string (SRS) necessary to verify such
+aggregated proofs. Our result is conceptually similar with the Bünz et al. while it benefits from
+many optimizations. We focus specifically on aggregating proofs generated using the same Groth16
+SRS which is the common use case, as opposed to the generic result in [BMM+ 19] that allow
+aggregation of proofs from different SRSes. Our result can be extended to support this later case
+as well.
+    While our techniques built on top of inner pairing arguments with logarithmic verifier already
+introduced by [DRZ20], we build new such schemes that avoid the need of a different trusted setup
+ceremony (other than the existing SNARK setup). Our approach for aggregation is preferable to
+[BMM+ 19] in practical use cases.
+    Other approach to aggregation rely on recursive composition. In more detail, [BCG+ 20] propose
+a new SNARK for the circuit that contains n copies of the Groth16 verifier’s circuit. However,
+constructing arithmetic circuits for pairings is expensive (e.g., computing a pairing on the BLS12-
+377 curve requires ≈ 15000 constraints as shown in [BCG+ 20]). The advantage of using such
+expensive schemes for aggregation is their transparent setup.
+    However, the costs are significant compared with our scheme: they compute FFTs, which require
+time O(n log n), the verifier performs O(n) cryptographic operations as opposed to O(n) field
+operations in our scheme and they require special cycles of curves.
+    SnarkPack has the advantages of both worlds: it benefits from the power of structured public
+parameters to avoid expensive computations, while it has the advantage of avoiding additional
+trust assumptions as it relies on already available trusted setup transcripts for the underlying
+Groth16 scheme.
+
+
+                                                 4
+Our Techniques and Roadmap. To explain how SnarkPack works, we need to consider 3
+multiplicative cyclic groups G1 , G2 , GT of order p equipped with the bilinear map, also called
+”pairing” e : G1 × G2 → GT such that ∀a, b ∈ Zp : e(g a , hb ) = e(g, h)ab .
+     Groth16 proofs π for statements statement u = a consist in 3 group elements π = (A, B, C),
+where A, C ∈ G1 and B ∈ G2 . The high-level idea of Groth16 aggregation is quite simple:
+Since Groth16 verification consists in checking a pairing equation between the proof elements
+π = (A, B, C), instead of checking that n different pairing equations are simultaneously satisfied,
+it is sufficient to prove that only one inner pairing product of a random linear combination of these
+initial equations defined by a verifier’s random challenge r ∈ Zp holds. In a bit more detail, Groth16
+verification asks to check an equation of the type e(Ai , Bi ) = Yi · e(Ci , D) for Yi ∈ GT , D ∈ G2
+where Yi is a value computed from each statement ui = ai and πi = (Ai , Bi , Ci )n−1    i=0 are proof
+triples.
+     The aggregation will instead check a single randomized equation:
+                             n−1                       n−1             n−1
+                             Y                  i      Y        i      Y        i
+                                      e(Ai , Bi )r =         Yir · e         Cir , D .
+                                                                                    
+                                i=0                    i=0             i=0
+
+               0
+                        Qn−1
+We denote by Yprod :=     i=0    so this can be rewritten as:
+
+                                                               n−1                            n−1
+                                                               Y                 i            Y        i
+                   0
+           ZAB = Yprod · e(ZC , D), where ZAB :=                     e(Ai , Bi )r and ZC :=         Cir .
+                                                               i=0                            i=0
+
+    What is left after checking that this unified equation holds is to verify that the elements
+ZAB , ZC are consistent with the initial proof triples in the sense that they compute the required
+inner product. This is done by applying an argument that proves two different inner pairing product
+relations:
+                          pairing product takes some initial committed vectors A ∈ G1 , B ∈ G2
+ – TIPP: the target inner Q
+                            n−1
+   and shows that ZAB = i=0 e(Ai , Bi );
+ – MIPP: the multi-exponentiation  inner product takes a committed vector C ∈ G1 and a vector
+                                Qn−1    i
+   r ∈ Zp and shows that ZC = i=0 Cir .
+New Commitment Schemes. The key ingredient for SnarkPack is the efficient realisation of the
+two specialised inner pairing product arguments following the ideas initially proposed by [DRZ20]
+and generalised to other inner products by [BMM+ 19]. These require a special commitment scheme
+that allows to commit to vectors of group elements in both source groups G1 and G2 with further
+homomorphic and collapsing properties. In order to obtain logarithmic size proof for inner product
+relations of committed values, we apply the Bulletproofs strategy [BCC+ 16] to ”split and collapse”
+the vectors in half-sized ones at each step. The same is applied to the commitments and the com-
+mitments keys. The problem is that the verification cost for such inner pairing product arguments
+is linear in the size of vectors. A way to improve the efficiency of the verification is to rely on
+a structured trusted setup for the commitment keys and delegate the ”split and collapse” task
+for the commitments to the prover, while enabling an efficient check that the task was performed
+correctly. This allows for log-time verification costs.
+    We therefore introduce two new Pair Group Commitment schemes described in Section 4 that
+allow to commit to vectors A, C ∈ G1 , B ∈ G2 . Our commitments are doubly-homomorphic with
+respect to the message space and key space and they have a collapsing property. Both schemes have
+constant size commitments and are proved to be binding based on assumptions that hold in the
+generic group model. Our second scheme has the advantage that allows to commit to two vectors
+from two different groups with no size overhead. We think these schemes can be of independent
+interest in protocols that need to commit to source group elements.
+
+
+                                                         5
+Reusing Groth16 Trusted Setup. The advantage of our commitment schemes is that they can
+reuse existing public setups for Groth16 to generate their structured commitment keys.
+     The public parameters required for the generation of the commitment keys can be extracted
+from two compatible copies of Groth16 SRS.
+     For a given bilinear group (p, G1 , G2 , GT ), Groth16 SRS consist amoung others in consecutive
+                                                                                              i            i
+powers of some random evaluation point τ in both groups G1 and G2 : {g τ }i ∈ Gd1 , {hτ }i ∈ Gd2 .
+We will call these ”powers of tau”.
+     The generation of SnarkPack public parameters (the commitment keys) comes naturally from
+two ceremonies for Groth16 setup (also known as ”powers of tau”) for the same generators g and
+                                                                   n                   n
+h and different powers a = τ1 and b = τ2 : g, h, g τ1 , . . . , g τ1 , hτ1 , . . . , hτ1 , one up to n and the other
+                m                   m
+g τ2 . . . , g τ2 , hτ2 , . . . , hτ2 up to m ≥ n.
+     Our assumptions rely on the fact that cross powers (e.g. g τ1 τ2 ) are not known to the prover.
+Since the two SRS we use are the result of two independent ceremonies, it is unlikely that such
+terms can be learned since τ1 and τ2 were destroyed after the SRS generation.
+     In practice, we fortunately have at least two ceremonies that satisfy the requirements for same
+group generators and different powers: Such values can be obtained from the powers of tau tran-
+script of Zcash [zca18] and Filecoin [Lab18]. The SRS created goes up to n = 219 for τ1 and
+m = 2127 for τ2 .
+MT-Inner Pairing Product Argument: In Section 5 we design an efficient argument that
+proves together a multi-exponentiation inner product (MIPP) and a target inner pairing product
+(TIPP) with minimal overhead. The key ingredients in the MT-IPP scheme are our new pair group
+commitments. Therefore, this makes our MT-IPP argument compatible with existing Groth16 setup
+ceremonies. We further add some important optimisations that make our scheme more efficient than
+the combination of the two different schemes proposed by [BMM+ 19].
+
+Implementation. In Section 7 we provide benchmarks, optimisation details for our implementa-
+tion in Rust, and evaluate its efficiency against batching. SnarkPack is exponentially more efficient
+than aggregation via batching: it takes 163ms to verify an aggregated proof for 8192 proofs (in-
+cluding unserialization) versus 621ms when doing batch verification. The former is of 40kB in size.
+The aggregator can aggregate 8192 proofs in 8.7s.
+
+
+2     Preliminaries
+2.1    Notations and General Background
+Bilinear Groups. A bilinear group is given by a description gk = (p, G1 , G2 , GT ) such that
+ – p is prime, so Zp = F is a field.
+ – G1 = hgi, G2 = hhi are cyclic groups of prime order p.
+ – e : G1 × G2 → GT is a bilinear asymmetric map (pairing), which means that ∀a, b ∈ Zp :
+    e(g a , hb ) = e(g, h)ab .
+ – Then we implicitly have that e(g, h) generates GT .
+ – Membership in G1 , G2 , GT can be efficiently decided, group operations and the pairing e(·, ·)
+    are efficiently computable, generators can be sampled efficiently, and the descriptions of the
+    groups and group elements each have linear size.
+
+Vectors. For n-dimensional vectors a ∈ Znp , A ∈ Gn1 , B ∈ Gn2 , we denote the i-th entry by ai ∈ Zp ,
+Ai ∈ G1 , Bi ∈ G2 respectively.
+   Let AkA0 = (A0 , . . . , An−1 , A00 , . . . , A0n−1 ) be the concatenation of vectors A, A0 ∈ Gn1 .
+   We write A[:`] = (A0 , . . . , A`−1 ) ∈ G`1 and A[`:] = (A` , . . . , An−1 ) ∈ Gn−`
+                                                                                     1    to denote slices of
+vectors A ∈ Gn1 for 0 ≤ ` < n − 1.
+
+
+                                                         6
+Inner pairing product. We write group operations as multiplications. We define:
+ – Ax = (Ax0 , . . . , Axn−1 ) ∈ Gn1 for x ∈ Zp and a vector A ∈ Gn1 .
+                          xn−1
+ – Ax = (Ax0 0 , . . . , An−1  ) ∈ Gn1 for vectors x ∈ Znp , A ∈ Gn1 .
+           Qn−1 xi
+ – A ∗ x = i=0 Ai for vectors x ∈ Znp , A ∈ Gn1 .
+            Qn−1
+ – A ∗ B := i=0 e(Ai , Bi ) for group vectors A ∈ Gn1 , B ∈ Gn2 .
+ – A ◦ A0 := (A0 A00 , . . . , An−1 A0n−1 ) for vectors A, A0 ∈ Gn1 .
+
+Relations. We use the notation R to denote an efficiently decidable binary relation. For pairs
+(u, w) ∈ R we call u the statement and w the witness. We write R = {(u; w) : p(u, w)} to describe
+an NP relation. Let LR be the language consisting of statements u for which there exist matching
+witnesses in R.
+
+Polynomial-Time Algorithms. Unless otherwise specified, all the algorithms defined throughout this
+work are assumed to be probabilistic Turing machines with running time bounded by a polynomial
+in their input size, where the expectation is taken over the random coins of the algorithm - i.e.,
+PPT.
+    If A is a randomized algorithm, we use y ←$ A(x) to denote that y is the output of A on x. We
+write x ←$ X to mean sampling a value x uniformly from the set X.
+    By writing AkχA (σ) we denote the execution of A followed by the execution of χA on the same
+input σ and with the same random coins. The output of the two are separated by a semicolon.
+
+Security Parameter. We denote the computational security parameter with λ ∈ N: A cryptosystem
+provides λ bits of security if it requires 2λ elementary operations to be broken.
+    We say that a function is negligible in λ, and we denote it by negl(λ), if it is a f (λ) = O(λ−c )
+for any fixed constant c.
+
+Adversaries. Adversaries are PPT algorithms denoted with calligraphic letters (e.g.A, B). They
+will be usually be modeled as efficient algorithms taking 1λ as input.
+We define the adversary’s advantage as a function of parameters to be Pr[A wins]. For a system
+to be secure, we require that for any efficient adversary A, the advantage of A is negligible in the
+security parameter.
+
+Common and Structured Reference String. The common reference string (CRS) model, introduced
+by Damgård [Dam00], captures the assumption that a trusted setup exists. Schemes proven se-
+cure in the CRS model are secure given that the setup was performed correctly. We will use the
+terminology “Structured Reference String” (SRS) since all our crs strings are structured.
+
+Generic Group Model. The generic group model [Sho97, Mau05] is an idealised cryptographic
+model, where algorithms do not exploit any special structure of the representation of the group
+elements and can thus be applied in any cyclic group.
+    In this model, the adversary is only given access to a randomly chosen encoding of a group,
+instead of efficient encodings, such as those used by the finite field or elliptic curve groups used in
+practice.
+    One of the primary uses of the generic group model is to analyse computational hardness
+assumptions. An analysis in the generic group model can answer the question: “What is the fastest
+generic algorithm for breaking a cryptographic hardness assumption”. A generic algorithm is an
+algorithm that only makes use of the group operation, and does not consider the encoding of the
+group.
+
+
+                                                    7
+2.2     Cryptographic Primitives
+
+SNARKs. Let R be an efficiently computable binary relation which consists of pairs of the form
+(u, w). A Proof or Argument System for R consists in a triple of PPT algorithms Π = (Setup, Prove,
+Verify) defined as follows:
+
+Setup(1λ , R) → crs: takes a security parameter λ and a binary relation R and outputs a common
+    (structured) reference string crs.
+Prove(crs, u, w) → π: on input crs, a statement u and the witness w, outputs an argument π.
+Verify(crs, u, π) → 1/0: on input crs, a statement u, and a proof π, it outputs either 1 indicating
+    accepting the argument or 0 for rejecting it.
+
+    We call Π a Succinct Non-interactive ARgument of Knowledge (SNARK) if further it is com-
+plete, succinct and satisfies Knowledge Soundness (also called Proof of Knowledge).
+
+Non-black-box Extraction. The notion of Knowledge Soundness requires the existence of an extrac-
+tor that can compute a witness whenever the prover A produces a valid argument. The extractor
+we defined bellow is non-black-box and gets full access to the prover’s state, including any random
+coins. More formally, a SNARK satisfies the following definition:
+
+Definition 1 (SNARK). Π = (Setup, Prove, Verify) is a SNARK for an NP language LR with
+corresponding relation R, if the following properties are satisfied.
+
+Completeness. For all (x, w) ∈ R, the following holds:
+
+                                                crs ← Setup(1λ , R)
+                                                                   
+                       Pr Verify(crs, u, π) = 1                       =1
+                                                π ← Prove(crs, u, w)
+
+Knowledge Soundness. For any PPT adversary A, there exists a PPT extractor ExtA such that
+  the following probability is negligible in λ:
+
+                                                    crs ← Setup(1λ , R)
+                                                                       
+                              Verify(crs, u, π) = 1
+                        Pr                                                = negl(λ).
+                                ∧ R(u, w) = 0 ((u, π); w) ← AkχA (crs)
+
+Succinctness. For any u and w, the length of the proof π is given by |π| = poly(λ) · polylog(|u| +
+   |w|).
+
+Zero-Knowledge. A SNARK is zero-knowledge if it does not leak any information besides the
+truth of the statement. More formally:
+
+Definition 2 (zk-SNARK). A SNARK for a relation R is a zk-SNARK if there exists a PPT
+simulator (S1 , S2 ) such that S1 outputs a simulated common reference string crs and trapdoor td;
+S2 takes as input crs, a statement u and td, and outputs a simulated proof π; and, for all PPT
+(stateful) adversaries (A1 , A2 ), for a state st, the following is negligible in λ:
+
+                             crs ← Setup(1λ )
+                                                  
+           (u, w) ∈ R ∧
+      Pr                (u, w, st) ← A1 (1λ , crs) −
+          A2 (π, st) = 1
+                          π ← Prove(crs, u, w)
+                                                                     (crs, td) ← S1 (1λ )
+                                                                                           
+                                                   (u, w) ∈ R ∧
+                                             Pr                  (u, w, st) ← A1 (1λ , crs) = negl(λ).
+                                                   A2 (π, st) = 1
+                                                                     π ← S2 (crs, td, u)
+
+                                                     8
+Commitment Schemes. A non-interactive commitment scheme allows a sender to create a
+commitment to a secret value. It may later open the commitment and reveal the value or some
+information about the value in a verifiable manner. More formally:
+
+Definition 3 (Non-Interactive Commitment). A non-interactive commitment scheme is a
+pair of algorithms Com = (KG, CM):
+
+KG(1λ ) → ck: given a security parameter λ, it generates a commitment public key ck. This ck im-
+   plicitly specifies a message space Mck , a commitment space Cck and (optionally) a randomness
+   space Rck ,. This algorithm is run by a trusted or distributed authority.
+CM(ck; m) → C: given ck and a message m, outputs a commitment C. This algorithm specifies a
+   function Comck : Mck × Rck → Cck . Given a message m ∈ Mck , the sender (optionally) picks a
+   randomness ρ ∈ Rck and computes the commitment C = Comck (m, ρ)
+
+For deterministic commitments we simply use the notation C = CM(ck; m) := Comck (m), while for
+randomised ones we write C ←$ CM(ck; m) := Comck (m, ρ).
+
+   A commitment scheme is asked to satisfy one or more of the following properties:
+
+Binding Definition. It is computationally hard, for any PPT adversary A, to come up with two
+different openings m 6= m∗ ∈ Mck for the same commitment C. More formally:
+
+Definition 4 (Computationally Binding Commitment). A commitment scheme Com =
+(KG, CM) is computationally binding if for any PPT adversary A, the following probability is neg-
+ligible:
+                                  m 6= m∗                    ck ← KG(1λ )
+                                                                          
+                 Pr
+                      ∧ CM(ck; m) = CM(ck; m∗ ) = C (C; m, m∗ ) ← A(ck)
+
+Hiding Definition. A commitment can be hiding in the sense that it does not reveal the secret
+value that was committed.
+
+Definition 5 (Statistically Hiding Commitment). A commitment scheme Com = (KG, CM)
+is statistically hiding if it is statistically hard, for any PPT adversary A = (A0 , A1 ), to first generate
+two messages A0 (ck) → m0 , m1 ∈ Mck such that A1 can distinguish between their corresponding
+commitments C0 and C1 where C0 ←$ CM(ck; m0 ) and C1 ←$ CM(ck; m1 ).
+
+                                                       ck ← KG(1λ )
+                                                                    
+                                0              (m0 , m1 ) ← A0 (ck) 
+                           b = b
+                        Pr                                           = negl(λ).
+                                     b ← {0, 1}, Cb ←$ CM(ck; mb ) 
+                                                   b0 ← A1 (ck, Cb )
+
+Homomorphic Commitment Scheme. A commitment scheme can also be homomorphic, either in
+the space of messages or in the space of keys or in both. We call the later doubly-homomorphic
+commitments.
+
+ – Message Homomorphism. For a group law + on the message space Mck and ⊕ on the commit-
+   ment space Cck , we have that from C0 = CM(ck; m0 ) and C1 = CM(ck; m1 ), one can efficiently
+   generate C = CM(ck; m0 + m1 ) by computing C = C0 ⊕ C1 = CM(ck; m0 + m1 ).
+ – Key Homomorphism. For a group law ? on the key space Kck , and ⊕ on the commitment space
+   Cck , we have that from C0 = CM(ck0 ; m) and C1 = CM(ck1 ; m), one can efficiently generate C
+   so that C = C0 ⊕ C1 = CM(ck0 ? ck1 ; m).
+
+
+                                                     9
+Polynomial Commitments. Polynomial commitments (PCs) first introduced by [KZG10] are
+commitments for the message space F≤d [X], the ring of polynomials in X with maximum degree
+d ∈ N and coefficients in the field F = Zp , that support an interactive argument of knowledge
+(KG, Open, Check) for proving the correct evaluation of a committed polynomial at a given point
+without revealing any other information about the committed polynomial.
+   A polynomial commitment scheme over a field family F consists in 4 algorithms PC = (KG, CM,
+Open, Check) defined as follows:
+
+KG(1λ , d) → (ck, vk): given a security parameter λ fixing a field Fλ family and a maximal degree
+   d samples a group description gk containing a description of a field F ∈ Fλ , and commitment
+   and verification keys (ck, vk). We implicitly assume ck and vk each contain gk.
+CM(ck; f (X)) → C: given ck and a polynomial f (X) ∈ F≤d [X] outputs a commitment C.
+Open(ck; C, x, y; f (X)) → π: given a commitment C, an evaluation point x, a value y and the
+   polynomial f (X) ∈ F[X], it output a prove π for the relation:
+                                                                            
+                                                        C = CM (ck; f (X)) 
+                          Rkzg := (ck, C, x, y; f (X)) : ∧ deg(f (X)) ≤ d
+                                                                 ∧ y = f (x)
+                                                                            
+
+ Check(vk, C, x, y, π) → 1/0: Outputs 1 if the proof π verifies and 0 if π is not a valid proof for the
+   opening (C, x, y).
+
+      A polynomial commitment satisfy an extractable version of binding stated as follows:
+
+Definition 6 (Computational Knowledge Binding). For every PPT adversary A that pro-
+duces a valid proof π for statement C, x, y, i.e. such that Check(vk, C, x, y, π) = 1, there is an
+extractor ExtA that is able to output a pre-image polynomial f (X) with overwhelming probability:
+
+                                                         ck ← KG(1λ , d)
+                                                                        
+              Check(vk, C, x, y, π) = 1
+         Pr                                                                = 1 − negl(λ).
+               ∧ C = CM(ck; f (X)) (C, x, y, π; f (X)) ← (AkExtA )(ck)
+
+
+2.3     KZG Polynomial Commitment
+
+We describe the KZG Polynomial Commitment from [KZG10] which allows to check correctness
+of evaluation openings.
+We recall the scheme KZG.PC = (KZG.KG, KZG.CM, KZG.Open, KZG.Check) defined over bilinear
+groups gk = (p, G1 , G2 , GT ) with G1 = hgi, G2 = hhi:
+                                                  i
+KZG.KG(1λ , n) → (ck, vkh ): Set keys ckg = {g α }n−1 , vkh = hα .
+                                         Pn−1 i=0                    Qn−1      i
+KZG.CM(ckg ; f (X)) → Cf : For f (X) = i=0 fi X i , computes Cf = i=0 g fi α = g f (α) .
+KZG.Open(ckg ; Cf , x, y; f (X)) → π: For an evaluation point x, a value y, compute the quotient
+   polynomial
+                                                   f (X) − y
+                                           q(X) =
+                                                     X −x
+   and output prove π := Cq = KZG.CM(ckg ; q(X)).
+KZG.Check(vkh = hα , Cf , x, y, π) → 1/0: Check if
+
+                                    e(Cf · g −y , h) = e(Cq , vkh · h−x ).
+                                                                                  i
+The KZG.PC scheme works similarly for a pair of keys of the form ckh = {hα }n−1              α
+                                                                                i=0 , vkg = g , by
+just swapping the values in the final pairing equation check to match the correct basis.
+
+
+                                                   10
+2.4     Assumptions
+ASSGP - Auxiliary Structured Single Group Pairing Informally, we assume that a PPT
+adversary cannot find a vector of group elements A ∈ Gq1 such that:
+1. ∃Ai 6= 1G1
+                                         q−1
+2. e(A0 , h)e(A1 , ha ) . . . e(Aq−1 , ha ) = 1GT
+                                         q−1
+3. e(A0 , h)e(A1 , hb ) . . . e(Aq−1 , hb ) = 1GT
+   Formally, (q, m)-Auxiliary Structured Single Group Pairing ((q, m)-ASSGP) assumption can
+be stated as:
+Assumption 1 (ASSGP) The (q, m)-Auxiliary Structured Single Group Pairing assumption holds
+for the bilinear group generator G if for all PPT adversaries A we have, on the probability space
+gk = (p, G1 , G2 , GT ) ← G(1λ ), g ←$ G1 , h ←$ G2 and a, b ←$ Zp the following holds:
+
+                                                 g ←$ G1 , h ←$ G2 , a, b ←$ Zp
+                                                                                  
+                            A 6= 1G1                        i     i    i    i 2q−1
+                   Qq−1             ai            σ ← [g a , g b , ha , hb ]i=0 
+              Pr   ∧   i=0 e(A i , h    ) = 1G             i     i    i    i
+                                                                                    = negl(λ)
+                   Qq−1
+                                      bi
+                                               T
+                                                  aux ← [g a , g b , ha , hb ]m
+                                                                              i=2q
+                                                                                   
+                    ∧ i=0 e(Ai , h ) = 1GT
+                                                            A ← A(gk, σ, aux)
+
+Lemma 1. The (q, m)-ASSGP assumption holds in the generic group model.
+      The proof of the lemma can be find in Appendix A.1.
+
+ASDGP - Auxiliary Structured Double Group Pairing Formally, (q, m)-Auxiliary Struc-
+tured Double Group Pairing ((q, m)-ASDGP) assumption can be stated as:
+Assumption 2 (ASDGP) The (q, m)-ASDGP assumption holds for the bilinear group generator
+G if for all PPT adversaries A we have, on the probability space gk = (p, G1 , G2 , GT ) ← G(1λ ),
+g ←$ G1 , h ←$ G2 and a, b ←$ Zp the following holds:
+
+                                                      g ←$ G1 , h ←$ G2 , a, b ←$ Zp
+                                                                                       
+                    (A 6= 1G1 ∨ B 6= 1G2 )                       i     i    i    i 2q−1
+         Qq−1              i Q2q−1     i                σ = [g a , g b , ha , hb ]i=0 
+        ∧ Qi=0
+     Pr           e(Ai , ha ) i=q e(g a , Bi ) = 1GT            i     i    i    i
+                                                                                         = negl(λ)
+               q−1         bi
+                              Q2q−1    bi              aux = [g a , g b , ha , hb ]m
+                                                                                   i=2q
+                                                                                        
+          ∧ i=0 e(Ai , h ) i=q e(g , Bi ) = 1GT
+                                                           (A, B) ← A(gk, σ, aux)
+
+Lemma 2. The (q, m)-ASDGP assumption holds in the generic group model.
+The proof of the lemma can be found in Appendix A.2.
+      We can similarly define the dual assumptions, by swapping G1 and G2 in the definition above.
+
+
+3      Overview of our Techniques
+3.1     Background on Groth16
+In this section we present the necessary background and building blocks for aggregating multiple
+Groth16 proofs for the same SRS (same verification key). A detailed description of Groth16 SNARK
+protocol can be found in Appendix B.
+Setup. For a given bilinear group gk = (p, G1 , G2 , GT ), Groth16 SRS consist in consecutive powers
+of some random evaluation point s in both groups G1 and G2 :
+                                     i                       i
+                                  {g s }d−1    d
+                                        i=0 ∈ G1 ,        {hs }d−1    d
+                                                               i=0 ∈ G2 .
+
+
+                                                     11
+We will call these either monomials or ”powers of tau”.
+   The SRS for Groth16 also contains some additional elements computed from degree d − 1
+polynomials evaluated in the random point s. These evaluations are encoded in the exponents of
+the group generators g ∈ G1 and h ∈ G1 in the same way the monomials are.
+Prove. A Groth16 proof π for a statement u := a = {aj }tj=0 where a0 = 1 and a witness
+w := {aj }m
+          j=t+1 consists in 3 group elements π = (A, B, C), where A, C ∈ G1 and B ∈ G2 . These
+elements are computed by group operations using the public inputs {aj }tj=0 and the secret witness
+w = {aj }m
+         j=t+1 .
+
+Verify. For the verification algorithm, Groth16 uses only a part of its structured reference string
+which we will call verification key vk. This consists in the following elements:
+
+                                   n       βvj (s)+αwj (s)+yj (s) ot                                   
+            vk := P = g α , Q = hβ , Sj = g          γ                                 , H = hγ , D = hδ .
+                                                                                 j=0
+
+   Groth16 verification consists in checking a pairing equation between the proof elements π =
+(A, B, C) using the verification key:
+                                                           t
+                                                                   a
+                                                           Y
+                             e(A, B) = e(g α , hβ ) · e(         Sj j , hγ ) · e(C, hδ ).
+                                                           j=0
+
+
+
+3.2   Building Blocks for Aggregation
+
+SRS. The setup for our commitments and aggregation scheme needs elements from two indepen-
+dent compatible Groth16 SRS:
+
+ – Common Bilinear group description for both SRS: gk = (p, G1 , G2 , GT )
+ – Common group generators for both SRS: g ∈ G1 , h ∈ G2
+ – First SRS with random evaluation point a ∈ Zp for:
+                                                   n−1                       n            2n−1
+                            v1 = (h, ha , . . . , ha     ) and w1 = (g a , . . . , g a             )
+
+ – Second SRS with random evaluation point b ∈ Zp for:
+                                                   n−1                       n            2n−1
+                            v2 = (h, hb , . . . , hb     ) and w2 = (g b , . . . , g b           )
+
+Pair Group Commitments. To instantiate our aggregated scheme, we use two new pairing com-
+mitment schemes. These schemes need to satisfy special properties (as discussed in Section 4) and
+they require structured commitment keys cks , ckd of the form cks = (v1 , v2 ), ckd = (v1 , w1 , v2 , w2 ).
+We then commit to vectors A ∈ Gn1 , B ∈ Gn2 as follows:
+
+ 1. Single group version CMs (A) := CMs (cks ; A) = (TA , UA ) where
+                                                                                             n−1
+                           TA = A ∗ v1 = e(A0 , h)e(A1 , ha ) . . . .e(An−1 , ha                     )
+                                                                       b                    bn−1
+                           UA = A ∗ v2 = e(A0 , h)e(A1 , h ) . . . .e(An−1 , h                     )
+
+ 2. Double group version CMd (A, B) := CMd (ckd ; A, B) = (TAB , UAB ) where
+
+                          TAB = (A ∗ v1 )(w1 ∗ B),             UAB = (A ∗ v2 )(w2 ∗ B)
+
+
+                                                         12
+3.3     Framework for Aggregation
+
+The high-level idea of Groth16 aggregation is quite simple: since Groth16 verification consists in
+checking a pairing equation between the proof elements π = (A, B, C), instead of checking that n
+pairing equations are simultaneously satisfied it is sufficient to prove that only one inner pairing
+product of a random linear combination of these initial equations defined by a verifier’s random
+challenge r ∈ Zp holds. In a bit more detail, Groth16 verification asks to check an equation of
+the type e(Ai , Bi ) = Yi · e(Ci , D) for Yi ∈ GT , D ∈ G2 where Yi is a value computed from each
+statement ui = ai and πi = (Ai , Bi , Ci )n−1
+                                           i=0 are proof triples.
+    The aggregation will instead check a single randomized equation:
+                              n−1                     n−1             n−1
+                              Y                 i     Y        i      Y        i
+                                     e(Ai , Bi )r =         Yir · e         Cir , D .
+                                                                                   
+                               i=0                    i=0             i=0
+
+This can be rewritten using an inner product notation as:
+                           0
+                   ZAB = Yprod · e(ZC , D), and ZAB := A ∗ Br and ZC := C ∗ r
+
+                                           ri
+                      0
+                                 Qn−1
+where we denoted by Yprod :=         i=0 Yi .
+
+   What is left after checking that this unified equation holds is to verify that the elements
+ZAB , ZC are consistent with the initial proof triples in the sense that they compute the required
+inner product. This is done by combining pairing commitments schemes with TIPP and MIPP
+arguments: the TIPP argument shows that ZAB = A ∗ Br for some initial vectors A ∈ G1 , B ∈ G2
+committed using CMd ; the MIPP argument shows that ZC = C ∗ r for some vector C ∈ G1
+committed under CMs .
+
+
+4      Pair Group Commitment Schemes
+
+In this section we are introducing a new commitment scheme to group elements in a bilinear
+group. In order to use them in our aggregation protocol, we require the following properties from
+the commitment schemes:
+
+    • Computationally Binding Commitment: as per Definition 4
+    • Constant Size Commitment: the commitment value is independent of the length of the com-
+      mitted vector
+    • Doubly-Homomorphic: homomorphic both in the message space and in the key space
+
+         CM(ck1 + ck2 ; M1 + M2 ) = CM(ck1 ; M1 ) + CM(ck1 ; M2 ) + CM(ck2 ; M1 ) + CM(ck2 ; M2 ).
+
+    • Collapsing Property: double-homomorphism implies a distributive property between keys and
+      messages that allow to collapse multiple messages via a deterministic function Collapse defined
+      as follows:
+                                     ck1 kck01 M1 kM1               ck1 + ck01 M1
+                                                                               
+
+                    Collapse CM ck2 kck02 M2 kM2  = CM ck2 + ck02 M2 
+                                       ck3       M3                    ck3      M3
+
+    There are a few candidates for such schemes, but none of them are adapted for fulfilling our
+goals. The commitment schemes proposed by [DRZ20, BMM+ 19] works under some new assump-
+tion that asks for the commitment keys to be structured in a specific way. In order to use this
+commitment, we need to run a new trusted setup to generate a commitment key. It would be
+
+
+                                                       13
+impossible to consider existing Groth16 setups, since those give away elements that break binding
+of the commitment scheme.
+     Our main goal is to find a commitment scheme that uses a structured reference string similar
+to the one from many popular SNARK implementations, e.g. Groth16.
+     The commitment scheme proposed by Lai et al. [LMR19] is likely to satisfy the properties, but
+it is shown to be binding only for unstructured random public parameters, while in order to obtain
+a log-time verification Inner Pairing Product Argument scheme, we would need some structure for
+the commitment keys. We adapt these commitments from [LMR19] to work with structured keys
+and prove the commitments binding for an adversary that has access to these structured public
+parameters under our new assumptions ASSGP and ASDGP.
+     To optimise the commitment sizes we define two different variants of the commitment scheme,
+one that takes a vector of elements of a single group G1 , and one that takes two vectors of points
+in G1 and G2 respectively.
+
+4.1   Single group version CMs .
+This version is useful for the MIPP relation. It takes one vector A ∈ Gn1 and outputs two target
+group elements (TA , UA ) ∈ G2T as a commitment.
+ KGs (1λ ) → cks = (v1 , v2 ). Sample a, b ←$ Zp and set
+                           n−1                           n−1
+   v1 = (h, ha , . . . , ha ),   v2 = (h, hb , . . . , hb ).
+ CMs (cks = (v1 , v2 ), A = (A0 , . . . , An−1 )) → (TA , UA ):
+                                                                n−1
+    1. TA = A ∗ v1 = e(A0 , h) · e(A1 , ha ) . . . e(An−1 , ha )
+                                                                n−1
+    2. UA = A ∗ v2 = e(A0 , h) · e(A1 , hb ) . . . e(An−1 , hb )
+Lemma 3. Under the hardness of (n, m)-ASSGP assumption for m > 2n, this commitment
+scheme is computationally binding as per Definition 4.
+
+Proof. Suppose there exists a PPT adversary A that breaks the binding property of the com-
+mitment scheme. Then, given the output ((TA , UA ); A, A∗ ) of the adversary A we have that
+(TA , UA ) = (TA∗ , UA∗ ):
+                                                      n−1                                                   n−1
+             e(A0 , h)e(A1 , ha ) . . . e(An−1 , ha         ) = e(A∗0 , h)e(A∗1 , ha ) . . . e(A∗n−1 , ha         )
+                                                  bn−1                                                   n−1
+                               b
+             e(A0 , h)e(A1 , h ) . . . e(An−1 , h           ) = e(A∗0 , h)e(A∗1 , hb ) . . . e(A∗n−1 , hb )
+
+By applying the homomorphic properties of the commitment scheme to these equations we get:
+                                                                                      n−1
+                         e(A0 /A∗0 , h)e(A1 /A∗1 , ha ) . . . e(An−1 /A∗n−1 , ha            )=1
+                                                                                      n−1
+                         e(A0 /A∗0 , h)e(A1 /A∗1 , hb ) . . . e(An−1 /A∗n−1 , hb            )=1
+
+where the vector (A0 /A∗0 , A1 /A∗1 , . . . An−1 /A∗n−1 ) 6= 1G1 . This breaks the (n, m)-ASSGP assump-
+tion.
+
+4.2   Double group version CMd .
+This version is useful for the TIPP relation. It takes two vectors A ∈ Gn1 , B ∈ Gn2 and outputs two
+target group elements (TAB , UAB ) ∈ G2T as a commitment.
+
+ KGd (1λ ) → ckd = (v1 , v2 , w1 , w2 ) : Sample a, b ←$ Zp and set
+                           n−1              n            2n−1
+   v1 = (h, ha , . . . , ha ), w1 = (g a , . . . , g a         ),
+                           n−1              n             2n−1
+   v2 = (h, hb , . . . , hb ),    w2 = (g b , . . . , g b      ).
+
+
+                                                             14
+ CMd (ckd , A, B) → (TAB , UAB ):
+   1. TAB = (A ∗ v1 )(w1 ∗ B)
+   2. UAB = (A ∗ v2 )(w2 ∗ B)
+Lemma 4. Under the hardness of (n, m)-ASDGP assumption for m > 2n, this commitment
+scheme is computationally binding.
+Proof. The proof is analogous to the one of Lemma 3. Since the commitment is homomorphic
+breaking the binding is equivalent to finding a non-trivial opening to 1. Thus it breaks the as-
+sumption.
+
+Inner Pairing Product Commitments. It is straightforward to check that the two version of pairing
+commitment schemes CMs and CMd are compatible with inner product arguments, in the sense
+that they satisfy all the necessary properties: constant size, doubly-homomorphic and identity is
+a collapse function defined Collapseid (C) = C.
+
+Reusing Groth16 SRS. The two commitment schemes have the advantage that they can reuse
+two compatible (independent) SNARK setup ceremonies for their structured keys generation and
+therefore can be easily deployed without requiring a new trusted setup.
+    The SRSes required for the generation of the public commitment keys should satisfy some
+properties: We ask from the two ceremonies to be using the same basis/generators in the same
+bilinear group g ∈ G1 , h ∈ G2 , but two different randomnesses a, b, ∈ Zp , a 6= b for the exponents.
+                                                i   i
+                                                                bi  bi n
+The setups consists in consecutive powers {g a , ha }mi=0 and {g , h }i=0 .
+    Importantly, even if the two setups have different dimensions m 6= n, this is not impacting
+the binding of the commitments. The extra elements available to the adversaries are taken into
+account in the auxiliary input aux in the two assumptions, by setting accordingly the parameters.
+
+5   MT-IPP Scheme
+This new protocol will be used to prove two inner pairing product relations that are essential to
+SNARK aggregation: the multiexponentiation inner product (MIPP) between vectors C and r and
+the target inner pairing product (TIPP) between vectors A, B, for vectors A, C ∈ G1 and B ∈ G2 .
+   In order to optimize the aggregation contruction, we design a new protocol MT-IPP that “fuses”
+together proofs for MIPP and TIPP relations. More precisely MIPP and TIPP arguments are at
+the origin interactive protocols, that are turned into non-interactive arguments using Fiat-Shamir
+transformation. This means that at each round the challenges are generated by a hash function
+that is modeled by a random oracle. We will design a new protocol MT-IPP that simultaneously
+generate these challenges by running a common hash function on both MIPP and TIPP inputs for
+each round.
+
+Relation. First we define the relation proven using the merged MT-IPP argument. This is a con-
+junction of two relations:
+MIPP Relation. The multiexponentiation product relation:
+       Rmipp := {((TA , UA ), Z, r; A, r) : Z = A ∗ r ∧ (TA , UA ) = CMs (cks ; A) ∧ r = (ri )n−1
+                                                                                              i=0 }.
+
+TIPP Relation. The target inner pairing relation:
+
+      Rtipp := {((TAB , UAB ), Z, r; A, B) : Z = A ∗ Br ∧
+                                                  (TAB , UAB ) = CMd (ckd ; A, B) ∧ r = (ri )n−1
+                                                                                             i=0 },
+
+    where (TAB , UAB ) ∈ GT × GT , Z = A ∗ Br ∈ GT , A ∈ Gn1 , B ∈ Gn2 , r ∈ Zp .
+
+
+                                                  15
+MT-IPP Relation. The merged MT-IPP relation:
+                                                                                    
+                                                 (CMd (A, B), ZAB , r; A, B) ∈ Rtipp 
+                   (TAB , UAB ), (TC , UC ), 
+               
+        Rmt :=                                 :                ∧
+                       ZAB , ZC , r; A, B, C
+                                                    (CMs (C), ZC , r; C) ∈ Rmipp
+                                                                                    
+
+    for vectors A, C ∈ G1 and B ∈ G2 .
+
+Construction. MT-IPP argument is instantiated using the pair group commitment schemes CMs =
+(KGs , CMs ) and CMd = (KGd , CMd ) introduced in Section 4 which satisfy the desired properties
+for usage in inner pairing product protocols. It also makes black-box use of KZG Polynomial Com-
+mitment scheme KZG.PC = (KZG.KG, KZG.CM, KZG.Open, KZG.Check) described in Section 2.3.
+    Our scheme consists of 3 algorithms MT-IPP = (MT.Setup, MT.Prove, MT.Verify) described in
+the following:
+MT.Setup(1λ , Rmt ) → crsmt :
+    1. Run: cks := (v1 , v2 ) ← CMs (1λ ), ckd := (v1 , v2 , w1 , w2 ) ← CMd (1λ ).
+    2. Set commitment keys for KZG.PC scheme:
+                                       i                                               i
+                        ck1v := {ha }n−1
+                                     i=0 , vk1v := g
+                                                     a
+                                                                      ck1w := {g a }2n−1
+                                                                                    i=0 , vk1w := h
+                                                                                                   a
+
+                                      i                                                i
+                        ck2v := {hb }n−1
+                                     i=0 , vk2v := g
+                                                     b                               2n−1
+                                                                       ck2w := {g b }i=0  , vk2w := hb
+     3. Define ckkzg := (ckjσ ), vkkzg := (vkjσ ) for j = 1, 2; σ = v, w.
+     4. Fix Hashcom : G4T → Zp and its description hkcom .
+     5. Fix Hashx0 : Z2p × GT × G1 → Zp and its description hkx0 .
+     6. Fix Hash : Zp × G12T → Zp and its description hk.
+     7. Fix Hashz : Zp × G22 × G21 → Zp and its description hkz .
+     8. Set crsmt := (hkcom , hkx0 , hk, hkz , cks , ckd , ckkzg , vkkzg ).
+MT.Prove(crsmt , (TAB , UAB ), (TC , UC ), ZAB , ZC , r; A, B, C) → πmt :
+     – Loop “split & collapse” for step i
+        1. n0 = ni−1 /2 where n0 = n = 2`
+        2. If n0 < 1: break
+                                    −1           −1
+        3. Set B0 := Br , w10 := w1r , w20 := w2r .
+        4. Compute L/R inner products:
+                                (ZL )AB = A[n0 :] ∗ B0[:n0 ] and (ZR )AB = A[:n0 ] ∗ B0[n0 :]
+                                                            r   0                           r   0
+                                            (ZL )C = C[n[:n0 :] ] and (ZR )C = C[:n
+                                                                                  [n :]
+                                                                                    0]
+
+
+         5. Compute left cross commitments:
+                (TL , UL )AB = CMd ((v1 , w10 ; v2 , w20 ); A[n0 :] ||0, 0||B0[:n0 ] ))
+                               = ((A[n0 :] ∗ v1[:n0 ] )(w10 [n:0 ] ∗ B0[:n0 ] ), (A[n0 :] ∗ v2[:n0 ] )(w20 [n0 :] ∗ B0[:n0 ] ))
+                 (TL , UL )C = CMs ((v1 , v2 ), C[n0 :] ||0)
+                               = ((C[n0 :] ∗ v1[:n0 ] ), (C[n0 :] ∗ v2[:n0 ] ))
+         6. Compute right cross commitments:
+                 (TR , UR )AB = CMd ((v1 , w10 ; v2 , w20 ); 0||A[:n0 ] , B0[n0 :] ||0)
+                                 = ((A[:n0 ] ∗ v1[n0 :] )(w10 [:n0 ] ∗ B0[n0 :] ), (A[:n0 ] ∗ v2[n0 :] )(w20 [:n0 ] ∗ B0[n0 :] )
+                   (TR , UR )C = CMs ((v1 , v2 ), 0||C[:n0 ] )
+                                 = ((C[:n0 ] ∗ v1[n0 :] ), (C[:n0 ] ∗ v2[n0 :] ))
+
+
+                                                             16
+         7. Compute hash to the vector commitments
+
+                                        hcom = Hashcom ((TAB , UAB ), (TC , UC )).
+
+         8. Compute challenge xi , where x0 = Hashx0 (r, hcom , ZAB , ZC ):
+
+               xi = Hash (xi−1 ; (ZL , ZR )AB , (ZL , ZR )C , (TL , UL ; TR , UR )AB , (TL , UL ; TR , UR )C )
+
+
+         9. Compute Hadamard products on vectors
+                                                                                  x−1
+                           A := A[:n0 ] ◦ Ax[ni0 :] , B0 := B0 [:n0 ] ◦ B0 [ni0 :] , C := C[:n0 ] ◦ Cx[ni0 :]
+
+        10. Compute Hadamard products on keys v1 , v2 and w10 , w20 :
+                                                                            −1                      −1
+                                                                    x                       x
+                                       (v1 , v2 ) := (v1[:n0 ] ◦ v1 [n 0 :] , v2[:n0 ] ◦ v2 [n0 :] )
+
+                                                                           x                       x
+                                      (w10 , w20 ) := (w10 [:n0 ] ◦ w10 [n0 :] , w20 [:n0 ] ◦ w20 [n0 :] )
+
+       11. Set ni = n0
+     – Compute proofs (πvj , πwj )j=1,2 of correctness of final commitment keys (v1 , v2 ) ∈ G22 ; (w10 , w20 ) ∈
+       G21 (This step is detailed in Section 5.1):
+                                               2j                                        −2j 2j
+                            Q`−1                                        Q`−1
+        1. Define fv (X) = j=0 (1 + x−1                               n
+                                                                                                
+                                         `−j X ) and fw (X) = X           j=0 1 + x`−j r    X
+        2. Draw challenge z = Hashz (x` , v1 , v2 , w1 , w2 )
+        3. Prove that v1 = g fv (a) , v2 = hfv (a) , w1 = g fw (a) , w2 = hfw (b) are KZG commitments
+           of fv (X) by opening evaluations in z
+
+                                πvj ← KZG.Open(ckjv ; vj , z, fv (z); fv (X)) for j=1,2
+                               πwj ← KZG.Open(ckjw ; wj , z, fw (z); fw (X)) for j=1,2
+
+     – Given the final elements A, B 0 , C and (v1 , v2 ), (w10 , w20 ) at the end of the loop after split &
+       collapsing A, B0 = Br , C and v1 , v2 , w10 , w20 , set
+         πmt = A, B 0 , C, (ZL , ZR )AB , (ZL , ZR )C , (TL , UL )AB , (TR , UR )AB ,
+                                        (TL , UL )C , (TR , UR )C , (v1 , v2 ), (w10 , w20 ), (πvj , πwj )j=1,2
+                                                                                                                
+
+
+MT.Verify(crsmt , statement; πmt ) → b:
+     1. Parse statement = ((TAB , UAB ), (TC , UC ), ZAB , ZC , r)
+     2. Compute hash to the commitments hcom = Hashcom ((TAB , UAB ), (TC , UC ))
+     3. Reconstruct challenges {xi }`i=1 :
+          x0 = Hashx0 (r, hcom , ZAB , ZC )
+
+          xi = Hash xi−1 , (ZL [i], ZR [i])AB , (ZL [i], ZR [i])C ,
+                                                                                                                  
+                                         (TL [i], TR [i], UL [i], UR [i])AB , (TL [i], TR [i], UL [i], UR [i])C
+
+     4. Construct products and commitments recursively, i = 1 → `:
+                                                             x−1
+         – (Zi )AB = ZL [i]xAB
+                             i
+                               · (Zi−1 )AB · ZR [i]AB
+                                                    i
+
+                                                             x−1
+         – (Ti )AB = TL [i]xAB
+                             i
+                               · (Ti−1 )AB · TR [i]AB
+                                                    i
+
+                                                              x−1
+         – (Ui )AB = UL [i]xAB
+                             i
+                               · (Ui−1 )AB · UR [i]AB
+                                                    i
+
+
+        where (Z0 )AB = ZAB , (T0 ))AB = TAB , (U0 ))AB = UAB
+
+
+                                                             17
+                                                      x−1
+           – (Zi )C = ZL [i]xCi · (Zi−1 )C · ZR [i]Ci
+                                                      x−1
+           – (Ti )C = TL [i]xCi · (Ti−1 )C · TR [i]Ci ,
+                                                       x−1
+          – (Ui )C = UL [i]xCi · (Ui−1 )C · UR [i]Ci
+         where (Z0 )C = ZC , (T0 )C = TC , (U0 )C = UC
+                                                                2i
+                                                     Q`−1
+      5. Compute final vector value from r: r0 = i=0 (1 + x−1
+                                                           `−i r )
+
+      6. Verify final values (T` , U` , Z` )AB , (T` , U` , Z` )C :
+                      ?
+         (a) (Z` )AB = e(A, B 0 )
+                      ?     0
+         (b) (Z` )C = C r
+                                     ?                                       ?
+         (c) Check if (T` )AB = e(A, v1 )e(w10 , B 0 ) and (U` )AB = e(A, v2 )e(w20 , B 0 )
+                                 ?                           ?
+         (d) Check if (T` )C = e(C, v1 ) and (U` )C = e(C, v2 )
+      7. Verify final commitment keys v1 , v2 , w10 , w20 as detailed in Section 5.1
+         (a) Reconstruct KZG challenge point: z = Hashz (x` , v1 , v2 , w10 , w20 )
+         (b) Reconstruct commitment polynomials:
+                                                        `−1
+                                                        Y                           
+                                                                                 j
+                                             fv (X) =            1 + x−1
+                                                                      `−j X
+                                                                            2
+                                                                                                                     (1)
+                                                        j=0
+                                                              `−1
+                                                              Y                                 
+                                                                                         j   j
+                                            fw (X) = X n              1 + x`−j r−2 X 2                               (2)
+                                                              j=0
+
+         (c) Run verification for openings of evaluations in z for j = 1, 2:
+
+            b11 ← KZG.Check(vk1v ; v1 , z, fv (z); πv1 ),             b12 ← KZG.Check(vk2v ; v2 , z, fv (z); πv2 )
+            b21 ← KZG.Check(vk1w ; w1 , z, fw (z); πw1 ),             b22 ← KZG.Check(vk2w ; w2 , z, fw (z); πw2 )
+
+         All KZG.Checks are batched into a single pairing check.
+
+Theorem 3. If CMs , CMd are computational binding commitments as per Definition 4, the hash
+functions are modelled as random oracles and KZG.PC has computational knowledge binding as per
+Definition 6, then the protocol MT-IPP has completeness and computational knowledge soundness
+(Definition 1) against algebraic adversaries in the random oracle model.
+
+Proof. Our protocol follows a standard AND-composition technique for proofs of two relations (in
+our case Rtipp ∧ Rmipp ). The proof for each individual relation follows the same proving strategy
+as [BMM+ 19] proof of MIPP and TIPP arguments.
+    An adversary breaking soundness of the MT-IPP scheme, either convinces the verifier of incor-
+rect final keys v1 , v2 , w10 , w20 or breaks computational binding of one of CMs , CMd .
+    Since both CMs , CMd are computational binding, what is left to show is the completeness
+and soundness for the proof of correctness of the final commitment keys. The validity of the final
+commitment keys is shown using KZG.PC scheme. The complete analysis for this step can be found
+in Section 5.1.
+
+5.1    Final Commitment Keys
+In this section, we will detail one step of the MT-IPP protocol: Checking the correctness of the
+final commitment key, obtained after all ”split & collapse” steps.
+    Recall that our scheme MT-IPP achieves log-time verification using a specially structured com-
+mitment scheme that allows the prover to use one new challenge xj in each round of recursion
+
+
+                                                            18
+to transform the commitments homomorphically. Because of this, the verifier must also perform
+a linear amount of work in rescaling the commitment keys (cks , ckd ). To avoid having the verifier
+rescale the commitment keys, our schemes apply the same trick as [DRZ20, BMM+ 19]: we do this
+by outsourcing the work of rescaling the commitment keys to the prover.
+    Then what is left is to convince a verifier that this rescaling was done correctly just by checking
+a succinct proof on these final keys.
+
+Proof for Final Key. In our MT-IPP scheme, the prover will compute the final commitment keys
+v1 , v2 , w10 , w20 (the result of many rounds of rescaling/collapsing v1 , v2 , w10 , w20 until the end of the
+loop) and then prove that they are well-formed.
+     This is possible due to the structure in the commitment keys. For ease of presentation, we will
+                                                                                                    2           n−1
+show how this proof works for a generic vector v, where v = (v1 , v2 , . . . , v2` ) = (g, g α , g α , . . . g α ).
+The other checks for the keys v1 , v2 and w1 , w2 work in an analogously fashion.
+     Let us first define the relation to be proven, i.e. the correctness of the final commitment key
+v ∈ G1 given the initial key v:
+                                n                        i
+                                                                                             o
+                        Rck := (gk, v, f (X), ckg = ({g α }2n−2
+                                                           i=0  , vk h = hα
+                                                                            )) : v = g f (α)
+
+
+    The argument for the relation Rck allows the verifier to check well-formedness of the final
+structured commitment key. The idea is simple: the final commitment key v is interpreted as
+a KZG polynomial commitment that the prover must open at a random point z. The verifier
+produces the challenge point z ∈ Zp and the prover provides a valid KZG opening proof of f (z)
+for the commitment v. The interaction can be removed using Fiat-Shamir heuristic via a collision-
+resitant hash to generate the challenge z. The proof of security of such a protocol is given in
+[BMM+ 19] in the algebraic group model. In a nutshell, an algebraic adversary that convinces a
+verifier of incorrect keys can extract a valid 2n-SDH instance by breaking knowledge-binding of
+KZG.PC polynomial commitment scheme.
+    We will use a polynomial commitment scheme (Definition 2.2) that allows for openings of
+evaluations on a point and proving correctness of these openings. The concrete scheme is called
+KZG.PC and works for both groups G1 and G2 as described in Section 2.3. The verification requires
+an evaluation of the corresponding polynomial and four pairing checks.
+
+Polynomial Formula. We will show now, hot to define the correct polynomials to be committed
+under KZG.PC scheme in order to show that the final commitment keys was honestly generated.
+   Recall the structure of the 4 vectors v1 , v2 ∈ G2 and w1 , w2 ∈ G1 used for the commitment
+keys cks , ckd :
+                                            n−1                   n          2n−1                     −1
+                 v1 = (h, ha , . . . , ha         ),   w1 = (g a , . . . , g a          ),   w10 := w1r
+                                        n−1                        n             2n−1                 −1
+                 v2 = (h, hb , . . . , hb     ),       w2 = (g b , . . . , g b          ),   w20 := w2r
+
+   We will show the formulae for the polynomials the two polynomials fv (X) and fw (X) that we
+used in our scheme MT-IPP for v1 , v2 and for w10 , w20 are correct.
+   For ease of presentation, we state and prove the formula for a generic vector v = (v1 , v2 , . . . , v2` )
+             2         2` −1
+= (g, g α , g α , . . . g α ) of length n = 2` to which we apply the same rescaling as for the com-
+mitment keys cks , ckd . The specific formulae for v1 , v2 , w10 , w20 are easy to deduce once we have a
+formula for v.
+    Consider a challenge xj for round j, where the total number of rounds is `. Note that at each
+round j we split the sequence v1 , v2 , . . . , vn in half and we use xj to rescale first half and the second
+half of the vector recursively until we end up with a single value v.
+                                                                                                n−1
+    We claim that the formula for some initial key v = (v1 = g, v2 = g α , . . . , vn = g α ) and for a
+vector of challenges x1 . . . x`−1 , x` is:
+
+
+                                                             19
+                                                                Q`−1            2j
+                                                          v=g      j=0 (1+x`−j α   )
+                                                                                           .
+We will prove the general formula by induction:
+
+Step 1. Check the formula for ` = 1 (initial commitment key v has two elements v1 , v2 ):
+                                                                                  Q0                    2j
+                                            v = v1 v2x1 = g 1+x1 α = g               j=0 (1+x`−j α           )
+                                                                                                                 .
+
+Step 2. Suppose the statement is true for ` − 1. We prove it for `.
+
+   On the first round, we have a challenge x1 and we rescale the commitment key v which has
+length n = 2` as follows:
+                     x1
+   v0 = v[:2`−1 ] ◦ v[2`−1 :] ,
+
+                   2`−1                    2`−1 +1         2       2`−1 +2
+    v0 = (g · g x1 α      , g α · g x1 α             , g α · g x1 α          , . . . ).
+                                                   2                   `−1                         2`−1
+    We can write this differently as v =(v1 v1x1 α
+                                                 , . . . v2`−1 v2x`−1
+                                                      0           1α
+                                                                      ).
+    This gives us a nicely written commitment key after first round
+                                              2`−1              2`−1                       2`−1                      2`−1
+                       v0 = (v11+x1 α                 , v21+x1 α       , . . . v21+x
+                                                                                  `−1
+                                                                                     1α                1+x1 α
+                                                                                                  ) = v[:2 `−1 ]            .
+
+   We can apply the induction assumption for step ` − 1 to v[:2`−1 ] which is a commitment key of
+length 2`−1 . This means the final key for v is:
+                              Q                  (1+x1 α2`−1 )
+                                `−2           2j                     Q`−1          2j
+                                    1+x     α
+                          v = g j=0     `−j
+                                                                  = g j=0 (1+x`−j α ) .
+
+    Remark than in more generality, this can be written as:
+                                                                Q`−1                   j
+                                                                        (1+x`−j α2 )
+                                                          v = v1 j=0
+                                                                                           n      n+1                           2n−1
+   Therefore, if we start with an initial key w = (w1 = g α , w2α                                       . . . , wn = g α               ), the final key
+w can be written as:                            j`−1
+                                                          (1+x`−j α2 )                            2j
+                                  Q
+                                                                                 n Q`−1
+                                   w = w1 j=0                            = gα       j=0 (1+x`−j α    )
+
+
+
+
+6    SnarkPack: Aggregation Scheme
+
+In this section we describe SnarkPack, our new efficient protocol for Groth16 aggregation. The
+relation proven by SnarkPack can be stated as follows:
+Relation for Aggregation. More formally, we introduce the relation for aggregating n Groth16
+proof vectors A, C ∈ Gn1 , B ∈ Gn2 with respect to a fixed verification key vk:
+
+           RAGG := (u = {ai }n−1
+                   
+                               i=0 ; π = {(A, B, C)}) : Groth.Verify(vk, ui , πi ) = 1, ∀i
+
+where ui = ai = {ai,j }tj=0 , πi = (Ai , Bi , Ci ) ∈ G1 × G2 × G1 for i = 0, . . . n − 1.
+   The resulting argument for aggregation consists in 3 algorithms SnarkPack = (SP.Setup, SP.Prove,
+SP.Verify) that work as follows:
+
+
+                                                                       20
+SP.Setup(1λ , RAGG ) → (crsagg , vkagg )
+
+     1. Generate commitment key for CMd :
+
+                                      ckd = (v1 , v2 , w1 , w2 ) ← CMd .KG(1λ )
+
+     2. Set commitment key for CMs : cks = (v1 , v2 )
+     3. Call crsmt ← MT.Setup(1λ , Rmt )
+     4. Fix hash function Hashr : Zpt·n × G4T → Zp given by its description hkr
+     5. Set aggregation public parameters: crsagg = (vk, crsmt , hkr )
+
+SP.Prove(crsagg , u, π = (A, B, C)) → πagg
+
+     1. Parse proving key crsagg := (vk, crsmt , cks , ckd , hk)
+     2. Parse cks = (v1 , v2 ), ckd = (v1 , v2 , w1 , w2 )
+     3. Commit to A and B:
+
+                                    CMd ((v1 , v2 , w1 , w2 ); A, B) = (TAB , UAB )
+
+     4. Commit to C : CMs ((v1 , v2 ); C) = (TC , UC )
+     5. Hash these commitments hcom = Hashcom ((TAB , UAB ), (TC , UC ))
+     6. Derive random challenge r = Hashr (u, hcom ) and set r = {ri }n−1
+                                                                      i=0
+     7. Compute ZAB = Ar ∗ B
+                             Qn−1
+     8. Compute ZC = Cr = i=0 Ciri .
+     9. Run MT proof for inner products ZAB , ZC , r:
+
+                     πmt = MT.Prove(crsmt , (TAB , UAB ), (TC , UC ), ZAB , ZC , r; A, B, C, r)
+
+    10. Set πagg = ((TAB , UAB ), (TC , UC ), ZAB , ZC , πmt )
+
+
+SP.Verify(vkagg , u, πagg ) → b
+
+     1. Parse SNARK instances u = {ai,j }i=0,...n−1;j=0,...t
+     2. Parse verification key vkagg := (vk, crsmt , hk)
+     3. Hash the commitments hcom = Hashcom ((TAB , UAB ), (TC , UC ))
+                                                                    
+     4. Parse vk := P = g α , Q = hβ , {Sj }tj=0 , H = hγ , D = hδ
+     5. Derive random challenge r = Hashr (u, hcom )
+     6. Set statement = (u, (TAB , UAB ), (TC , UC ), ZAB , ZC , r)
+     7. Check MT proof b1 ← MT.Verify(crsmt , statement, πmt )
+                             Pn−1
+                                    a ri
+     8. Compute ZSj = Sj i=0 ij for all j = 0 . . . t
+     9. Check Groth16 final equation to the decision bit b2 :
+
+                                               Pn−1                  t
+                                           ?           ri
+                                                                     Y
+                                  ZAB = e(P      i=0        , Q)e(       ZSj , H)e(ZC , D)
+                                                                 j=0
+
+
+    10. Set decision bit b = b1 ∧ b2
+
+
+                                                       21
+7   Implementation
+We have implemented the scheme in Rust, using the paired [Fil18b] library on the BLS12-381
+curve. The code can be found on the feat-ipp2 branch [Fil21] of the bellperson repository [Fil18a].
+We have taken the original code of the arkwork library [ark19] and modified it both for fitting the
+scheme presented in this paper and for performance. All proofs are Groth16 proofs with 350 public
+inputs, which is similar to the proofs posted by Filecoin miners. All benchmarks are done on a 32
+cores / 64 threads machine with AMD Raizen Threadripper CPUs.
+Parallelism: It is important to note that the protocol allows for some parallel operations and our
+implementation makes use of that. Therefore, all benchmarks presented here can change depending
+on the degree of parallelism of the machine.
+Trusted Setup: We created a condensed version of the SRS required for our protocol from the
+powers of tau transcript of both Zcash [zca18] and Filecoin [Lab18]. The code to assemble the SRS
+from two powers of tau can be found at [nik21]. The SRS created allows to aggregate up to 219
+proofs.
+Field elements compression: The proof requires many pairing operations and multiplications in
+the target group which employ arithmetic over the finite field Fp12 . We implemented compression of
+these field elements that still allow some computations without decompression using algorithms de-
+rived from RELIC library [AGM+ ]. You can find the specific implementation in this branch [dig21].
+This led to a 40% reduction in proof size.
+
+
+
+
+                            Fig. 1. Proof size: Aggregation vs Batching.
+
+
+Compressing pairing checks: A further performance gain in our SnarkPack is given by the
+verification batch which applies to the pairing checks from MT-IPP verification: We scale each
+pairing checks of the form
+                                      e(A, B)e(C, D)... = T
+with a random exponent when verifying so we can compress multiple such checks into one. This
+randomized checking technique is borrowed from the Zcash specs [HBHW21]. Specifically, we have
+a list P of length n of pairing checks of the form e(A, B)e(C, D)... = T . To compute a pairing we
+need to apply two commutative operations: The Miller loop (ML) and the Final Exponentiation
+(FE). We get advantage of the commutativity of these two steps to improve the verification time
+by checking many pairing equations at once. The verifier performs the following steps to verify all
+checks in a compressed manner:
+
+
+                                                22
+                                       Fig. 2. Aggregation Time
+
+
+ 1. Choose n randoms scalars ri with r0 = 1
+ 2. Randomize each pairing check Pi for i > 1:
+                                      e(Ari i , Bi )e(Ciri , Di ) · · · = T ri
+ 3. Compute the Miller Loop (ML) on the left side of each pairing check:
+                                   mi = ML((Ari i , Bi ), (Ciri , Di ), . . . )
+ 4. Multiply all results together and apply the final exponentiation (F E) at the end:
+                                             Y          Y
+                                        F E( mi ) =        Tiri
+                                                   i             i
+
+    Note that doing the random linear combination using the G1 components of the check (i.e. Ari i )
+is much faster than simply doing the exponentiation on the result of the pairings (i.e. e(Ai , Bi )ri )
+as the exponentiation is then in GT .
+
+Proof Size. The proof size in Fig. 2 compares the size of n proofs versus the size of one aggregated
+proof. The figure shows the break even point around 150 proofs where aggregation takes less space
+than batching. At 128 proofs, the size of aggregated proof is of 23kB versus 24kB for individual
+proofs.
+
+Aggregation time. Fig. 2 shows the time taken by the aggregator to create an aggregated
+proof. We can see for example that it can aggregate 1024 proofs in 1.4s. The prover is required
+to compute a logarithmic number of multi-exponentiations and expensive pairing products. Our
+implementation perform these in parallel and in batches (batching miller loop operations).
+
+Verification time. Fig. 3 shows the comparison between the verification of an aggregated proof
+and other batching techniques described in the zcash protocol [HBHW21]. Verifying Groth16 proofs
+in batches is what is commonly used in zcash as well as Filecoin to get a sublinear verification
+time. The graph shows that batching is more efficient when verifying less 32 Groth16 proofs but
+aggregation becomes exponentially faster after that point. SnarkPack scales logarithmically and
+can verify 8192 proofs in 163ms, including unserialization. Note the verification algorithm is linear
+in terms of the public inputs. In our case, 350 public inputs per proof is small enough to barely
+count for the total verification time.
+
+
+                                                       23
+                          Fig. 3. Verifcation time: Aggregation vs Batching.
+
+
+Acknowledgements. We would like to thank Benedikt Bunz, Pratyush Mishra, and Psi Vesely
+for valuable discussions on this work, as well as Ben Fisch and Nicola Greco for the initial intuition
+of using IPP for aggregating Filecoin SNARK-based proofs. We are also grateful to dignifiedquire
+for his contributions to the Rust codebase.
+
+
+
+
+                                                 24
+References
+ABL+ 19. Behzad Abdolmaleki, Karim Baghery, Helger Lipmaa, Janno Siim, and Michal Zajac. UC-
+         secure CRS generation for SNARKs. pages 99–117, 2019.
+AGM+ .   D. F. Aranha, C. P. L. Gouvêa, T. Markmann, R. S. Wahby, and K. Liao. RELIC is an Efficient
+         LIbrary for Cryptography. https://github.com/relic-toolkit/relic.
+ark19.   arkwork. Rust inner pairing product, 2019. https://github.com/arkworks-rs/ripp.
+BCC+ 16. Jonathan Bootle, Andrea Cerulli, Pyrros Chaidos, Jens Groth, and Christophe Petit. Efficient
+         zero-knowledge arguments for arithmetic circuits in the discrete log setting. pages 327–357,
+         2016.
+BCG+ 14. Eli Ben-Sasson, Alessandro Chiesa, Christina Garman, Matthew Green, Ian Miers, Eran
+         Tromer, and Madars Virza. Zerocash: Decentralized anonymous payments from Bitcoin. Cryp-
+         tology ePrint Archive, Report 2014/349, 2014. https://eprint.iacr.org/2014/349.
+BCG+ 15. Eli Ben-Sasson, Alessandro Chiesa, Matthew Green, Eran Tromer, and Madars Virza. Secure
+         sampling of public parameters for succinct zero knowledge proofs. pages 287–304, 2015.
+BCG+ 20. Sean Bowe, A. Chiesa, Matthew Green, Ian Miers, Pratyush Mishra, and H. Wu. Zexe: Enabling
+         decentralized private computation. 2020 IEEE Symposium on Security and Privacy (SP), pages
+         947–964, 2020.
+BCI+ 13. Nir Bitansky, Alessandro Chiesa, Yuval Ishai, Rafail Ostrovsky, and Omer Paneth. Succinct
+         non-interactive arguments via linear interactive proofs. pages 315–333, 2013.
+BCTV14. Eli Ben-Sasson, Alessandro Chiesa, Eran Tromer, and Madars Virza. Succinct non-interactive
+         zero knowledge for a von neumann architecture. pages 781–796, 2014.
+BGM17. Sean Bowe, Ariel Gabizon, and Ian Miers. Scalable multi-party computation for zk-SNARK
+         parameters in the random beacon model. Cryptology ePrint Archive, Report 2017/1050, 2017.
+         https://eprint.iacr.org/2017/1050.
+BMM+ 19. Benedikt Bünz, Mary Maller, Pratyush Mishra, Nirvan Tyagi, and Psi Vesely. Proofs for
+         inner pairing products and applications. Cryptology ePrint Archive, Report 2019/1177, 2019.
+         https://eprint.iacr.org/2019/1177.
+Dam00.   Ivan Damgård. Efficient concurrent zero-knowledge in the auxiliary string model. pages 418–
+         430, 2000.
+dig21.   dignifiedquire. Compression on fp12 elements, 2021. https://github.com/filecoin-project/
+         blstrs/compare/feat-compression.
+DRZ20.   Vanesa Daza, Carla Ràfols, and Alexandros Zacharakis. Updateable inner product argument
+         with logarithmic verifier and applications. pages 527–557, 2020.
+Fil18a.  Filecoin.    bellperson, groth16 library, 2018.     https://github.com/filecoin-project/
+         bellperson.
+Fil18b.  Filecoin.    paired: high performance bls12-381 library, 2018.          https://github.com/
+         filecoin-project/paired.
+Fil20.   Filecoin.   Filecoin powers of tau ceremony attestations, 2020.         https://github.com/
+         arielgabizon/perpetualpowersoftau.
+Fil21.   Filecoin. Groth16 aggregation library, 2021. https://github.com/filecoin-project/
+         bellperson/tree/feat-ipp2.
+Fis19.   Ben Fisch. Tight proofs of space and replication, 2019. https://web.stanford.edu/~bfisch/
+         tight_pos.pdf.
+GGPR13. Rosario Gennaro, Craig Gentry, Bryan Parno, and Mariana Raykova. Quadratic span programs
+         and succinct NIZKs without PCPs. pages 626–645, 2013.
+Gro16.   Jens Groth. On the size of pairing-based non-interactive arguments. pages 305–326, 2016.
+HBHW21. Daira Hopwood, Sean Bowe, Taylor Hornby, and Nathan Wilcox. Zcash protocol specification,
+         2021. https://zips.z.cash/protocol/protocol.pdf.
+KZG10.   Aniket Kate, Gregory M. Zaverucha, and Ian Goldberg. Constant-size commitments to poly-
+         nomials and their applications. pages 177–194, 2010.
+Lab18.   Protocol Labs. Filecoin, 2018. https://filecoin.io/filecoin.pdf.
+LMR19.   Russell W. F. Lai, Giulio Malavolta, and Viktoria Ronge. Succinct arguments for bilinear group
+         arithmetic: Practical structure-preserving cryptography. pages 2057–2074, 2019.
+Mau05.   Ueli M. Maurer. Abstract models of computation in cryptography (invited paper). pages 1–12,
+         2005.
+
+
+                                                  25
+nik21.  nikkolasg. Tau aggregation for ipp, 2021. https://github.com/nikkolasg/taupipp.
+PHGR13. Bryan Parno, Jon Howell, Craig Gentry, and Mariana Raykova. Pinocchio: Nearly practical
+        verifiable computation. pages 238–252, 2013.
+Sho97.  Victor Shoup. Lower bounds for discrete logarithms and related problems. pages 256–266,
+        1997.
+zca18.  zcash.      Zcash powers of taus ceremony attestation, 2018.       https://github.com/
+        ZcashFoundation/powersoftau-attestations.
+
+
+A     Assumptions in GGM
+
+A.1    ASSGP Assumption in GGM
+
+Assumption 4 (ASSGP) The (q, m)-Auxiliary Structured Single Group Pairing assumption holds
+for the bilinear group generator G if for all PPT adversaries A we have, on the probability space
+gk = (p, G1 , G2 , GT ) ← G(1λ ), g ←$ G1 , h ←$ G2 and a, b ←$ Zp the following holds:
+
+                                                    g ←$ G1 , h ←$ G2 , a, b ←$ Zp
+                                                                                     
+                        A 6= 1G1                              i    i    i    i 2q−1
+                 Qq−1           i                   σ ← [g a , g b , ha , hb ]i=0 
+             Pr ∧ i=0 e(Ai , ha ) = 1GT
+                                                               i    i    i    i
+                                                                                       = negl(λ)
+                   Qq−1          i                  aux ← [g a , g b , ha , hb ]m     
+                  ∧ i=0 e(Ai , hb ) = 1GT                                        i=2q
+                                                        A ← A(gk, σ, aux)
+
+We can similarly define the dual assumption, by swapping G1 and G2 in the definition above.
+
+Lemma 5. The (q, m)-ASSGP assumption holds in the generic group model.
+
+Proof. Suppose A is an adversary that on input (gk, σ, aux), outputs (A0 , . . . , Aq−1 ) ∈ Gq1 such that
+Qq−1           i            Qq−1          i
+
+Pi=0  e(Ai , ha ) = 1GT and i=0 e(Ai , hb ) = 1GT . Then its GGM extractor outputs αi (X, Y ) =
+  m         j       j
+  j=0 (xj X + yj Y + cj ) for 0 ≤ i < q then we have:
+
+
+
+                α0 (X, Y ) + Xα1 (X, Y ) + X 2 α2 (X, Y ) + · · · + X q−1 αq−1 (X, Y ) = 0                (3)
+                                                2                       q−1
+                α0 (X, Y ) + Y α1 (X, Y ) + Y α2 (X, Y ) + · · · + Y          αq−1 (X, Y ) = 0            (4)
+
+Then we have:
+
+
+                 α0 (X, Y ) = −Xα1 (X, Y ) − X 2 α2 (X, Y ) − · · · − X q−1 αq−1 (X, Y )                  (5)
+                                                    2                      q−1
+                 α0 (X, Y ) = −Y α1 (X, Y ) − Y α2 (X, Y ) − · · · − Y           αq−1 (X, Y )             (6)
+
+If we substract (6) and (5) we got
+
+                               0 =(X − Y )α1 (X, Y ) + · · · + (X q−1 − Y q−1 )αq−1 (X, Y )               (7)
+                                      2     2                           q−1         q−1
+           −(X − Y )α1 (X, Y ) =(X − Y )α2 (X, Y ) + · · · + (X                −Y         )αq−1 (X, Y )   (8)
+
+Now we can divide by (X − Y ) and obtain:
+
+                −α1 (X, Y ) =(X + Y )α2 (X, Y ) + (X 2 + XY + Y 2 )α3 (X, Y ) + · · · +
+                              + (X q−2 + Y X q−3 + · · · + Y q−3 X + Y q−2 )αq−1 (X, Y )                  (9)
+
+
+                                                        26
+Substitute the expression of −α1 (X, Y ) in equation (5) and remark that all X i αi (X, Y ) terms are
+vanishing:
+
+α0 (X, Y ) = X[(X + Y )α2 (X, Y ) + (X 2 + XY + Y 2 )α3 (X, Y ) + · · · + (X q−2 + X q−3 Y + · · · +
+            + XY q−3 + Y q−2 )αq−1 (X, Y )] − X 2 α2 (X, Y ) − · · · − X q−1 αq−1 (X, Y )
+α0 (X, Y ) = XY α2 (X, Y ) + (X 2 Y + XY 2 )α3 (X, Y ) + · · · + (X q−2 Y + · · · + XY q−2 )αq−1 (X, Y )
+α0 (X, Y ) = XY [α2 (X, Y ) + (X + Y )α3 (X, Y ) + · · · + (X q−3 + X q−4 Y + · · · + Y q−3 )αq−1 (X, Y )]
+                                                                                                     (10)
+
+This implies that either α0 (X, Y ) is a multiple of XY or α0 (X, Y ) = 0.
+   By the GGM assumption, we have that α0 (X, Y ) = 0.
+   We continue by replacing α0 (X, Y ) = 0 in equation (10):
+
+             0 = α2 (X, Y ) + (X + Y )α3 (X, Y ) + · · · + (X q−3 + X q−4 Y + · · · + Y q−3 )αq−1 (X, Y )
+                                                                                                      (11)
+ −α2 (X, Y ) = (X + Y )α3 (X, Y ) + · · · + (X q−3 + X q−4 Y + · · · + Y q−3 )αq−1 (X, Y )                 (12)
+
+Substitute the expression of −α2 (X, Y ) in equation (6) and remark that all Y i αi (X, Y ) terms are
+vanishing:
+
+                   0 = −Y α1 (X, Y ) − Y 2 [(X + Y )α3 (X, Y ) + · · · + (X q−3 + X q−4 Y + . . .
+                    + Y q−3 )αq−1 (X, Y )] − Y 3 α3 (X, Y ) − · · · − Y q−1 αq−1 (X, Y )
+       Y α1 (X, Y ) = Y 2 Xα3 (X, Y ) + · · · + (X q−3 Y 2 + X q−4 Y 3 + · · · + XY q−2 )αq−1 (X, Y )
+       Y α1 (X, Y ) = Y 2 X[α3 (X, Y ) + · · · + (X q−4 + X q−5 Y + · · · + Y q−4 )αq−1 (X, Y )]           (13)
+
+This implies that either α1 (X, Y ) is a multiple of XY or α1 (X, Y ) = 0.
+   By the GGM assumption, we have that α1 (X, Y ) = 0.
+   We continue by replacing α1 (X, Y ) = 0 in equation (13):
+
+         0 =α3 (X, Y ) + · · · + (X q−4 + X q−5 Y + · · · + Y q−4 )αq−1 (X, Y )
+ −α3 (X, Y ) = (X 2 + XY + Y 2 )α4 (X, Y ) + · · · + (X q−4 + X q−5 Y + · · · + Y q−4 )αq−1 (X, Y ) (14)
+
+And so on... till we show that αi (X, Y ) = 0 ∀i = 0 . . . q − 1. We conclude that the adversarly
+produced vector (A0 , . . . , Aq−1 ) = 1G1 .
+
+
+A.2    ASDGP Assumption in GGM
+
+Assumption 5 (ASDGP) The (q, m)-ASDGP assumption holds for the bilinear group generator
+G if for all PPT adversaries A we have, on the probability space gk = (p, G1 , G2 , GT ) ← G(1λ ),
+g ←$ G1 , h ←$ G2 and a, b ←$ Zp the following holds:
+
+                                                           g ←$ G1 , h ←$ G2 , a, b ←$ Zp
+                                                                                            
+                  (A 6= 1G1 ∨ B 6= 1G2 )                              i     i    i    i 2q−1
+          Qq−1          ai
+                            Q2q−1    ai                       σ = [g a , g b , ha , hb ]i=0 
+      Pr ∧
+          Qi=0  e(A i, h )  i=q e(g , Bi ) = 1GT                     i     i    i    i
+                                                                                              = negl(λ)
+             q−1          i Q2q−1     i                     aux = [g a , g b , ha , hb ]m    
+           ∧ i=0 e(Ai , hb ) i=q e(g b , Bi ) = 1GT                                     i=2q
+                                                                (A, B) ← A(gk, σ, aux)
+
+Lemma 6. The (q, m)-ASDGP assumption holds in the generic group model.
+
+
+                                                     27
+Proof. Suppose A is an adversary that on input (gk, σ, aux), outputs A = (A0 , . . . , Aq−1 ) and
+B = (B0 , . . . , Bq−1 ) such that:
+             q−1                   2q−1                              q−1                   2q−1
+             Y                i     Y         i                      Y                 i    Y         i
+                   e(Ai , ha )            e(g a , Bi ) = 1GT and           e(Ai , hb )            e(g b , Bi ) = 1GT .
+             i=0                   i=q                               i=0                   i=q
+                                                            Pm             j
+                                                                                                                   Pm
+Then its GGM extractor outputs αi (X, Y ) =                    j=0 (xj X       +yj Y j +cj ) and βi (X, Y ) =            j=0 (xj X
+                                                                                                                                     j
+                                                                                                                                         +
+yj Y j + cj ) for 0 ≤ i < q such that:
+
+
+  α0 (X, Y ) + Xα1 (X, Y ) + · · · + X q−1 αq−1 (X, Y ) + X q β0 (X, Y ) + · · · + X 2q−1 βq−1 (X, Y ) = 0
+                                                                                                        (15)
+  α0 (X, Y ) + Y α1 (X, Y ) + · · · + Y q−1 αq−1 (X, Y ) + Y q β0 (X, Y ) + · · · + Y 2q−1 βq−1 (X, Y ) = 0
+                                                                                                          (16)
+By substracting (16) and (15) we got
+     0 = (X − Y )α1 (X, Y ) + · · · + (X q−1 − Y q−1 )αq−1 (X, Y ) + (X q − Y q )βq (X, Y ) + . . .                             (17)
+Now we can factor (X − Y ) and then divide by it and obtain:
+              −α1 (X, Y ) =(X + Y )α2 (X, Y ) + (X 2 + XY + Y 2 )α3 (X, Y ) + · · · +
+                                    + (X 2q−2 + Y X 2q−3 + · · · + Y 2q−3 X + Y 2q−2 )β2q−1 (X, Y )                             (18)
+Substitute −α1 (X, Y ) in equation (15) and remark that all X i αi (X, Y ), X q+i βq+i (X, Y ) terms are
+vanishing:
+                                                                                      
+                  Xq−1   i−1
+                         X                              2q−1
+                                                        X X    i−1
+  α0 (X, Y ) = X           X i−j−1 Y j  αi (X, Y ) +           X i−j−1 Y j  βi (X, Y ) −
+                       i=2        j=0                                i=q         j=0
+                 q−1
+                 X                          2q−1
+                                            X
+             −         X i αi (X, Y ) −            X i βi (X, Y )
+                 i=2                         i=q
+                                                                                      
+                  Xq−1  Xi−1                            2q−1
+                                                        X X    i−1
+  α0 (X, Y ) = X           X i−j−1 Y j  αi (X, Y ) +           X i−j−1 Y j  βi (X, Y )
+                       i=2        j=1                                i=q         j=1
+                                                                                           
+                   Xq−1  Xi−1                              2q−1
+                                                           X X    i−1
+  α0 (X, Y ) = XY           X i−j−1 Y j−1  αi (X, Y ) +           X i−j−1 Y j−1  βi (X, Y ) (19)
+                         i=2       j=1                                         i=q     j=1
+
+This implies that either α0 (X, Y ) is a multiple of XY or α0 (X, Y ) = 0.
+   By the GGM assumption, we have that α0 (X, Y ) = 0.
+   We continue by replacing α0 (X, Y ) = 0 in equation (19):
+                                                                                
+                   q−1
+                   X     i−1
+                         X                                2q−1
+                                                          X X    i−1
+     −α2 (X, Y ) =          X i−j−1 Y j−1  αi (X, Y ) +           X i−j−1 Y j−1  βi (X, Y )                                 (20)
+                        i=3       j=1                                      i=q       j=1
+
+    Substitute the expression of −α2 (X, Y ) in equation (15) or (16) and remark that all terms
+X i αi (X, Y ), X i βi (X, Y ) (respectively Y i αi (X, Y ), Y i βi (X, Y )) terms are vanishing.
+    And so on till we show that αi (X, Y ) = 0 ∀i = 0 . . . q − 1 and βi (X, Y ) = 0 ∀i = q . . . 2q − 1.
+    We conclude that the adversarly produced vectors (A0 , . . . , Aq−1 ) = 1G1 , (B0 , . . . , Bq−1 ) = 1G2 .
+
+
+                                                                28
+Groth.Setup(1λ , R)
+α, β, γ, δ ←$ Z∗p , s ←$ Z∗p ,
+                                i
+                                         n βvj (s)+αwj (s)+yj (s) ot    n βvj (s)+αwj (s)+yj (s) o      n si t(s) od−2
+crs = QAP, g α , g β , g δ , {g s }d−1
+                                   i=0 ,  g         γ                  , g          δ                  , g δ           ,
+                                                                   j=0                             j>t             i=0
+                             i
+                                   
+           hβ , hγ , hδ , {hs }d−1
+                               i=0
+
+                                 n       βvj (s)+αwj (s)+yj (s) ot
+vk := P = g α , Q = hβ ,                                               , H = hγ , D = hδ
+                                                                                            
+                                  Sj = g          γ
+                                                                 j=0
+td = (s, α, β, γ, δ)
+return (crs, td)
+
+
+Groth.Prove(crs, u, w)                                               Groth.Verify(vk, u, π)
+u = (a1 , . . . , at ), a0 = 1                                       π = (A, B, C)
+w = (at+1 , . . . , am )                                             vio (x) = ti=0 ai vi (x)
+                                                                              P
+
+v(x) = m
+        P
+          j=0 aj vj (x)                                              wio (x) = ti=0 ai wi (x)
+                                                                              P
+           P
+vmid (x) = j∈Imid aj vj (x)                                                   Pt
+                                                                     yio (x) = i=0 ai yi (x)
+w(x) = m
+        P
+           j=0 aj wj (x)                                                     βvio (s) + αwio (s) + yio (s)
+            P                                                        fio =
+wmid (x) = j∈Imid aj wj (x)                                                               γ
+        Pm
+y(x) = j=0 aj yj (x)                                                 Check
+                                                                     e(A, B) = e(g α , hβ ) · e(g fio , hγ ) · e(C, hδ )
+           P
+ymid (x) = j∈Imid aj yj (x)
+h(x) = (v(x)w(x)−y(x))
+             t(x)
+
+        βvmid (s) + αwmid (s) + ymid (s)
+fmid =                                                               Groth.Sim(td, u)
+                      δ
+r, u ←$ Z∗p                                                          a, b ←$ Z∗p
+a = α + v(s) + rδ,           b = β + w(s) + uδ                            ab − αβ − βvio (s) + αwio (s) + yio (s)
+                                                                     c=
+c = fmid + t(s)h(s)
+               δ
+                    + ua + rb − urδ                                                         δ
+return (π = (A = g , B = h , C = g c ))
+                     a       b                                       return (π = (A = g a , B = hb , C = g c ))
+
+
+
+                                         Fig. 4. Groth16 Construction from QAP.
+
+
+B      Groth16 Scheme
+Let C be an arithmetic circuit over Zp , with m wires and d multiplication gates. Groth16 scheme
+proves circuit satisfiability, using a Quadratic Arithmetic Program (QAP) characterisation. Briefly,
+a QAP as introduced by [GGPR13] is translating a circuit into an equivalent arithmetic relation
+that holds only if the circuit has a solution.
+    Let Q = (t(x), {vk (x), wk (x), yk (x)}m
+                                           k=0 ) be a Quadratic Arithmetic Program (QAP) which
+computes C. We denote by Iio = {1, 2, . . . t} the indices corresponding to the public input and
+public output values of the circuit wires and by Imid = {t+1, . . . m}, the wire indices corresponding
+to the private input and non-input, non-output intermediate values (for the witness).
+    We describe Groth = (Setup, Prove, Verify) scheme in [Gro16] that consists in 3 algorithms as
+per Figure 4.
+
+
+
+
+                                                               29
+

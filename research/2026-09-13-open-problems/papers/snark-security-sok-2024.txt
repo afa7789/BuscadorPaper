@@ -1,0 +1,1241 @@
+          SoK: What Don’t We Know?
+Understanding Security Vulnerabilities in SNARKs
+Stefanos Chaliasos, Imperial College London; Jens Ernstberger; David Theodore,
+  Ethereum Foundation; David Wong, zkSecurity; Mohammad Jahanara, Scroll
+     Foundation; Benjamin Livshits, Imperial College London & Matter Labs
+       https://www.usenix.org/conference/usenixsecurity24/presentation/chaliasos
+
+
+
+
+        This paper is included in the Proceedings of the
+               33rd USENIX Security Symposium.
+                   August 14–16, 2024 • Philadelphia, PA, USA
+                                  978-1-939133-44-1
+
+
+
+
+                                          Open access to the Proceedings of the
+                                            33rd USENIX Security Symposium
+                                                is sponsored by USENIX.
+ SoK: What Don’t We Know? Understanding Security Vulnerabilities in SNARKs
+
+          Stefanos Chaliasos                   Jens Ernstberger            David Theodore                   David Wong
+        Imperial College London                                          Ethereum Foundation                 zkSecurity
+                       Mohammad Jahanara                              Benjamin Livshits
+                        Scroll Foundation                   Imperial College London & Matter Labs
+
+
+                          Abstract                                  non-interactive protocols that allow the prover to generate
+                                                                    a succinct proof. The proof is efficiently checked by the veri-
+Zero-knowledge proofs (ZKPs) have evolved from being a the-
+                                                                    fier, while maintaining three crucial properties: completeness,
+oretical concept providing privacy and verifiability to having
+                                                                    soundness, and zero-knowledge. What makes SNARKs partic-
+practical, real-world implementations, with SNARKs (Suc-
+                                                                    ularly appealing is their general-purpose nature, allowing any
+cinct Non-Interactive Argument of Knowledge) emerging as
+                                                                    computational statement represented as a circuit to be proven
+one of the most significant innovations. Prior work has mainly
+                                                                    and efficiently verified. Typically, SNARKs are used to prove
+focused on designing more efficient SNARK systems and pro-
+                                                                    that for a given function f and a public input x, the prover
+viding security proofs for them. Many think of SNARKs as
+                                                                    knows a (private) witness w, such as f (x, w) = y. This capabil-
+“just math,” implying that what is proven to be correct and
+                                                                    ity allows SNARKs to be used in various applications, includ-
+secure is correct in practice. In contrast, this paper focuses on
+                                                                    ing ensuring data storage integrity [82], enhancing privacy in
+assessing end-to-end security properties of real-life SNARK
+                                                                    digital asset transfers [67, 84] and program execution [15, 17],
+implementations. We start by building foundations with a
+                                                                    as well as scaling blockchain infrastructure [60, 78, 79, 85].
+system model and by establishing threat models and defining
+                                                                    Their versatility also extends to non-blockchain uses, such
+adversarial roles for systems that use SNARKs. Our study en-
+                                                                    as in secure communication protocols [61, 96] and in efforts
+compasses an extensive analysis of 141 actual vulnerabilities
+                                                                    to combat disinformation [54, 56]. Unfortunately, developing
+in SNARK implementations, providing a detailed taxonomy
+                                                                    and deploying systems that use SNARKs safely is a challeng-
+to aid developers and security researchers in understanding the
+                                                                    ing task.
+security threats in systems employing SNARKs. Finally, we
+evaluate existing defense mechanisms and offer recommen-
+dations for enhancing the security of SNARK-based systems,             In this paper, we undertake a comprehensive analysis of
+paving the way for more robust and reliable implementations         publicly disclosed vulnerabilities in SNARK systems. De-
+in the future.                                                      spite the existence of multiple security reports affecting such
+                                                                    systems, the information tends to be scattered. Additionally,
+                                                                    the complexity of SNARK-based systems and the unique pro-
+1    Introduction                                                   gramming model required for writing ZK circuits make it
+                                                                    difficult to obtain a comprehensive understanding of the pre-
+Zero-Knowledge Proofs (ZKPs) have undergone a remark-               vailing vulnerabilities and overall security properties of these
+able evolution from their conceptual origins in the realm of        systems. Traditional taxonomies for software vulnerabilities
+complexity theory and cryptography [47, 48] to their current        do not apply in the case of SNARKs; hence, we provide the
+role as fundamental components that enable a wide array of          seminal work that addresses this gap by providing a holis-
+practical applications [36]. Originally conceptualized as an        tic taxonomy that highlights pitfalls in developing and using
+interactive protocol where an untrusted prover could convince       SNARKs. Specifically, we analyzed 141 vulnerability reports
+a verifier of the correctness of a computation without reveal-      spanning nearly 6 years, from 2018 until 2024. Our study
+ing any other information (zero-knowledge) [47], ZKPs have,         spans the entire SNARK stack, encompassing the theoreti-
+over the past decade, transitioned from theory to practical         cal foundations, frameworks used for writing and compiling
+widely used implementation [15, 17, 31, 67, 70, 77, 82, 84].        circuits, circuit programs, and system deployments. We sys-
+   On the forefront of the practical application of general-        tematically categorize and investigate a wide array of vulner-
+purpose ZKPs are Succinct Non-interactive Arguments of              abilities, uncovering multiple insights about the extent and
+Knowledge (SNARKs) [26, 40, 44, 50, 75]. SNARKs are                 causes of existing vulnerabilities, and potential mitigations.
+
+
+
+USENIX Association                                                                    33rd USENIX Security Symposium          3855
+Contributions.                                                      cross-layer interactions can introduce complex vulnerabilities.
+                                                                    This paper attempts to cover the entire gamut of erroneous
+   • SNARKs system and threat models: We provide the                possibilities in the ZKP space.
+     first framework for reasoning about systems built using
+     SNARKs, analyzing interactions between different com-
+     ponents, defining adversaries and their knowledge, and         2     Background on SNARKs
+     discussing potential implementation-level vulnerabilities
+     and their impact.                                              A ZKP enables an entity to prove that a statement is true, with-
+                                                                    out disclosing anything besides the veracity of the statement.
+   • Study of vulnerabilities: We present the first system-         A ZKP is termed a ZK-SNARK if the proof size and verifi-
+     atic study of known vulnerabilities in systems using           cation time are sublinear in the statement to be proven, the
+     SNARKs. We gathered 141 vulnerabilities from 107 au-           communication between prover and verifier is non-interactive,
+     dit reports, 16 vulnerability disclosures, as well as a num-   and security holds against a computationally bounded prover.
+     ber of bug trackers of popular SNARK projects. When            Common ZK-SNARKs are targeting the problem of circuit
+     it comes to SNARKs, this is the first study of this scale      satisfiability, where the statement is represented as an arith-
+     in the literature. Further, because of the breadth of our      metic circuit. Hence, general-purpose SNARKs prove a fixed
+     coverage, we believe our findings to be representative of      NP relation R, and allow the prover to convince a verifier
+     the entire SNARK space.                                        that for the public input x they know a witness w such that
+   • Vulnerabilities taxonomy: We introduce a taxonomy              (x, w) ∈ R. Pre-processing SNARKs [26], which are the focus
+     for classifying vulnerabilities in SNARKs, highlight-          of this work, additionally introduce a setup phase that encodes
+     ing unique vulnerabilities and common pitfalls in the          the relation being proven into a succinct representation.
+     SNARK stack that help researchers and practitioners bet-          In summary, a SNARK is composed of three algorithms:
+     ter understand important threats in the SNARK ecosys-          Setup(pp) → (pk, vk). Given public parameters pp as input,
+     tem.                                                           output proving and verification keys pk and vk.
+                                                                    Prove(pk, x, w) → π. Given the proving key pk, the public
+   • Analyzing defenses: We analyze the main defense tech-          input x, and the witness w, output a proof π.
+     niques proposed by the research and practitioner com-          Verify(vk, x, π) → {0, 1}. Given the verification key vk, the
+     munities and highlight some notable gaps.                      public input x, and the proof π, output 1 if the proof is valid
+                                                                    and 0 otherwise.
+Key Findings. We find that developers seem to struggle in              A ZK-SNARK satisfies the following security properties:
+correctly implementing arithmetic circuits that are free of vul-    Knowledge Soundness. A dishonest prover cannot convince
+nerabilities, especially due to most tools exposing a low-level     the verifier of an invalid statement, except with negligible
+programming interface that can easily lead to misuse without        probability.
+extensive domain knowledge in cryptography. In detail, we           Perfect Completeness. An honest prover can always con-
+find the following flaws to be most pressing: (i) Implementa-       vince the verifier of the veracity of a valid statement.
+tion bugs across SNARK systems’ layers, including classic vul-      Zero Knowledge. The proof π reveals nothing about the
+nerabilities like input validation errors and over/underflows.      witness w, beyond its existence.
+These can undermine SNARKs’ core properties: complete-                 For an in-depth introduction of ZKPs and SNARKs from a
+ness, soundness, and zero-knowledge. (ii) The unique pro-           theoretical perspective, we refer the reader to [88].
+gramming model for SNARK circuits poses challenges, often
+leading to under-constrained circuits. This category emerges
+from overlooking constraints or misinterpreting logic into          3     System and Threat Models for SNARKs
+circuits. The low-level nature of SNARK Domain Specific
+Languages (DSLs), such as Circom, exacerbates vulnerabili-          We introduce a four-layer system model, showing how
+ties due to a lack of common high-level programming features        SNARKs are implemented in practice. Based on our system
+such as basic types. (iii) Design and implementation errors in      model, we provide a holistic threat model defining SNARK
+proof systems are critical yet often overlooked vulnerabilities.    vulnerabilities, adversaries, and their potential impact.
+These errors may originate from the frameworks implement-
+ing the proof systems, like an implementation error in Gnark’s      3.1    System Model
+Plonk verifier, or from the theoretical foundations themselves.
+An example is the “Frozen Heart” vulnerability, attributed to       Figure 1 depicts the system architecture of an application
+incomplete descriptions in the original proof system papers,        based on SNARKs for circuit satisfiability, i.e., argument sys-
+leading to significant implementation errors [32].                  tems that let the prover show that given a public input x, it
+   It is important to highlight that ZK systems are not “just       knows a witness w such that the circuit satisfies C (x, w) = y.
+math” — they are complex, “compositional” systems where             In our system model, we refer to four distinct layers. First,
+
+
+
+3856    33rd USENIX Security Symposium                                                                       USENIX Association
+            Real World   SNARK World                                       type Circuit struct {
+                                                                              X frontend.Variable `gnark:",private"`
+                           CIRCUIT
+                         Implementation
+                                                         Compiler             C frontend.Variable `gnark:",public"`
+                                                                              Y frontend.Variable `gnark:",public"`
+   public input                                                            }
+                                           Witness      Intermediate
+                                          Generation   Representation
+                                                                           func (circuit *Circuit) Define(api frontend.API) error {
+   private input                                                             outputs := api.Compiler().NewHint(hint.SqrtHint, 1, circuit.X)
+ INTEGRATION                                                 FRONTEND        squareRoot := outputs[0]
+       Application
+                                                                              api.AssertIsEqual(api.Mul(squareRoot, squareRoot), circuit.X)
+
+         Interface                                                             result := api.Mul(squareRoot, circuit.Const)
+                                                                                api.AssertIsEqual(circuit.Y, result)
+                                                              BACKEND
+                                                                               return nil
+                                                                    crs
+                                             SNARK                         }
+                                             Prover
+           SNARK                                        (Deterministic)
+           Verifier                                         Setup         Figure 2: Example circuit written in the eDSL gnark [16].
+                                                                          Lines highlighted in gray add constraints in the circuit.
+
+Figure 1: System model of an application based on SNARKs.
+                                                                          within the circuit to only validate legitimate solutions. If the
+                                                                          constraints are not sound, then there is the risk of exploitation
+                                                                          (see Section 5). For example, expressing X ̸= 0 is trivial in
+the developer specifies the circuit in the Circuit Layer, ac-             a “normal” programming language, whereas encoding it in
+cording to the specification of the statement to be proven.               a custom circuit is non-trivial. By Fermat’s Little Theorem,
+The Frontend Layer enables the compilation of the circuit                 one can check X p−1 = 1, but this would cost O(logp) con-
+to a SNARK-friendly representation. The Backend Layer                     straints [71]. An alternative is to have the prover provide a hint
+consumes this representation, and provides the concrete im-               H = X −1 , the multiplicative inverse of X, to check X · H = 1.
+plementation of the proof system. The Integration Layer is                Since all nonzero elements in F p have a multiplicative inverse,
+the application logic that interacts with the proof system. We            this constrains X to be nonzero by deduction [57]. We provide
+proceed to introduce the key components in each layer.                    a concrete example of a circuit leveraging a hint in gnark for
+                                                                          efficiently computing the square root in Figure 2. In practice,
+(i) C IRCUIT L AYER . SNARKs targeting circuit satisfiability             developer tools employ differing approaches to ease circuit
+require the computational statement to be represented as an               specification in high-level programming interfaces:
+arithmetic circuit. Most SNARKs work over elements in a
+finite field F p , and hence each wire in the arithmetic circuit          Circuit Domain Specific Languages. Domain Specific Lan-
+is represented as an element in F p . Note, that there are also           guages (DSLs) are specialized programming languages de-
+SNARKs employing Ring arithmetic [42], with the purpose of                signed to address specific problem domains. In the case of
+achieving more efficient operations over Z264 to match native             SNARKs, they offer a tailored syntax to efficiently express
+execution on standard CPUs. When developing a ZK system,                  constraints in an arithmetic circuit [3,11,28,33,71,75]. Learn-
+there are several considerations at different levels of the stack         ing a DSL might be challenging, especially for developers not
+that must be taken into account by developers: (i) determin-              familiar with SNARKs.
+ing what inputs and outputs of the computation are exposed
+                                                                          Circuit Embedded Domain Specific Languages. An Em-
+publicly, (ii) encoding the application logic as an arithmetic
+                                                                          bedded Domain Specific Language (eDSL) is a type of
+circuit in F p , and (iii) specifying how applications should
+                                                                          domain-specific language that is embedded within a host
+compose with the circuit (e.g. by ensuring that public inputs
+                                                                          general-purpose programming language. For developing
+are well-formed before verifying a proof). Specifying circuits
+                                                                          SNARKs, several eDSLs have emerged in recent years, em-
+correctly is unintuitive, as arithmetic circuits do not natively
+                                                                          bedded as libraries in Golang [16], Rust [37,81,95], and Type-
+support non-arithmetic operations. Moreover, developers face
+                                                                          Script [69]. eDSLs can seamlessly interact with other code
+challenges in translating conventional programming logic into
+                                                                          written in the host language, allowing easy integration with
+circuit formats while simultaneously addressing the dual re-
+                                                                          existing libraries. At the same time, they require developers
+quirements of value assignment for witnesses and applying
+                                                                          to actively distinguish between in-circuit and out-of-circuit
+constraints to check the validity of solutions. The prover is
+                                                                          operations, which requires domain expertise to ensure correct
+responsible for assigning these values (i.e., witness assign-
+                                                                          implementation.
+ments in the circuit), but the verifier has to check that these
+assignments adhere to the constraints (i.e., constraints in the           ZK Virtual Machines. Circuit DSLs and eDSLs allow de-
+circuit). Crucially, developers must remember that a malicious            velopers to specify circuits in a manner similar to application-
+prover might manipulate witness values, bypassing circuit                 specific integrated circuits (ASIC). Zero-Knowledge Virtual
+logic. Therefore, it is vital to rigorously constrain the witness         Machines (ZK-VMs) follow a different programming model,
+
+
+
+USENIX Association                                                                              33rd USENIX Security Symposium         3857
+where the arithmetic circuit represents the loop of fetching        Rust, Golang, or C++ 3 .
+instructions from memory and successively executing them
+(similar to the fetch-decode-execute cycle as observed in a         Witness Generation. The main task of the witness generator
+general-purpose CPU). Common ZK-VMs target existing In-             is to calculate the intermediate wires for a given circuit C ,
+struction Set Architectures [4,18,60,79,85]. For example, ZK-       given the assignment of public and private inputs. Note that
+EVMs target the primitive instructions (i.e., “opcodes”) of the     the concept of a separate witness generator is not necessarily
+Ethereum Virtual Machine [60, 79, 85], and RISC Zero [18]           implemented by every frontend. Often, the circuit code can
+and Jolt [4] operate on the RISC-V instruction set. Similarly,      be executed to either produce constraints at compile time
+there are ZK-VMs for custom ISAs that are optimized for             (e.g., the line highlighted in grey in Figure 2) or to produce
+proving in a SNARK [46, 78]. Some ZK-VMs, such as the               witness values at runtime/proving (e.g., the hint in Figure 2).
+Cairo ZK-VM [46], provide a DSL to specify programs for             When an auxiliary “witness generator” exists, instructions
+the ZK-VM. ZK-VMs can be beneficial as they operate on              are generated on how to fill a symbolic witness table and the
+existing instruction sets and can leverage existing tooling.        witness generator is a binary generated at compile time.
+Writing circuits directly, while more error-prone, can be more      (iii) BACKEND L AYER . Given the arithmetic circuit and
+efficient due to access to low-level optimizations.                 witness, the backend specifies the algorithmic implementation
+(ii) F RONTEND L AYER : The frontend of a SNARK for circuit-        of proof systems (e.g., Groth16 [50], Plonk [40], Stark [13],
+satisfiability compiles the high-level program written by the       Marlin [26]). At a high level, the backend algorithms follow
+developer to a representation (i.e., arithmetization) which is      the API as in Section 2.
+amenable for the proof system in a backend. Frontends are           Setup. In pre-processing SNARKs, the setup algorithm gen-
+agnostic to proof systems, as in they can provide a compila-        erates the prover and verifier keys (pk and vk) by encoding the
+tion of high-level programs to differing arithmetizations. At       circuit relation, with the primary goal of succinct verification
+runtime, the frontend assigns all intermediate wires in the         and optimized proving. However, different SNARKs have
+circuit in order to generate the public and private parts of the    vastly differing properties with regard to trust assumptions,
+witness. We introduce the components in detail as follows:          which in turn also impact their performance. Some SNARKs
+Arithmetization. An arithmetization is a representation of          require a trusted setup, i.e., a randomized setup phase that in-
+the constraint system in a mathematical form, typically a set of    troduces a trapdoor either per circuit (i.e., non-universal) [50]
+algebraic equations, that can be efficiently processed by the ar-   or in a universal setup phase [40]. The randomized part of the
+gument system, i.e., the backend of a SNARK. Common arith-          setup involves public parameters and random input to gen-
+metizations include rank-1 constraint systems (R1CS) [44],          erate a common reference string (CRS) [68], which can be
+variations of Plonkish arithmetization [40], Arithmetic Inter-      used to derive pk and vk in the deterministic part of the setup
+mediate Representations (AIR) [13] and Customizable Con-            for a concrete circuit instantiation. The trapdoor needs to be
+straint Systems (CCS) [86]. Different arithmetizations result       discarded after the setup proccess is done, as anyone who has
+in a different cost profile for the respective proof system that    knowledge of the trapdoor can forge proofs. SNARKs that
+relies on them, and notably, they introduce different limita-       do not employ a trapdoor in the setup phase are commonly
+tions with respect to how the circuit is defined. For example,      coined transparent [13]. Note, that this introduces a trade-off
+R1CS does not support constraints that have a polynomial de-        in verifier efficiency — transparent SNARKs only have poly-
+gree larger than two, and AIR requires circuits to be uniform.      logarithmic-time verification as compared to constant-time
+Notably, Setty et al. provided CCS, a constraint system that        for SNARKs with trusted setup [88].
+generalizes Plonkish, AIR, and R1CS arithmetizations [86].          Prover & Verifier. The prover consumes the values generated
+Circuit Compiler. The circuit compiler in a SNARK imple-            by the frontend, where the circuit is represented in a specific
+mentation compiles the circuit specified in a high-level DSL        arithmetization. At a high level, the prover of a pre-processing
+or eDSL to the respective arithmetization. Note, that not all       SNARK (aside from Groth16 [50]) utilizes a polynomial com-
+compilers target the compilation of high-level languages to         mitment to commit to the satisfying witness, and successively
+specific arithmetizations. For example, high-level programs         engages with the verifier in an interactive protocol to evalu-
+can first be compiled to VampIR 1 and ACIR 2 , which are            ate the correctness of assignments with regard to the circuit
+intermediate representations that allow compilation to, e.g.,       relation. This “recipe” leads to a SNARK if the verifier is
+R1CS or some form of Plonkish arithmetization and aim to            public-coin [76], and the prover can hash the transcript of
+ease the support of multiple backends. Similarly, zkLLVM            the interactive proof to render the protocol non-interactive
+provides a compiler from the LLVM IR to different arithmeti-        (a process commonly denoted as applying the “Fiat-Shamir
+zations, allowing users to prove the execution of, e.g., native     heuristic”). Different proof systems choose different combi-
+                                                                    nations of polynomial commitments and interactive proofs,
+   1 https://github.com/anoma/vamp-ir
+   2 https://github.com/noir-lang/acvm                                 3 https://github.com/NilFoundation/zkLLVM
+
+
+
+
+3858    33rd USENIX Security Symposium                                                                        USENIX Association
+resulting in differing properties for the respective target ap-     delegate the proof generation to an untrusted party [64]. Simi-
+plications. The most popular approaches include Plonk [40],         larly, one may require a fast prover (linear in the size of the
+which employs a constant-round polynomial interactive ora-          statement) and a fast verifier (constant in the size of the cir-
+cle proof (IOP) with the KZG commitment [55]. Halo2 [95]            cuit). In this case, common projects employ a recursive com-
+uses the Plonk IOP with the Bulletproofs polynomial commit-         position of proofs, i.e., they first leverage a SNARK with a fast
+ment [19]. Another class of protocol combines a polynomial          prover and successively prove the verification in a SNARK
+commitment based on Merkle hashes with a low-degree test,           with a fast verifier. For example, Polygon ZK-EVM [79] com-
+resulting in a protocol that does not demand for a trusted          poses a FRI-based SNARK with a Groth16 to obtain the
+setup or operations in elliptic curve groups [12], at the cost      succinct proof size and verification for cheap verification of
+of non-constant verification time and a larger proof size [35].     proofs in a smart contract, whilst benefiting from the faster
+Plonky2 [81] uses the FRI-based polynomial commitment               prover time and decreased size of the reference string required
+scheme and combines it with the Plonk IOP. Groth16 [50],            for Groth16. Note that in this case, the trust assumption re-
+the SNARK with the shortest proof size, is based on prob-           duces to the weakest component, i.e., Groth16 still requires a
+abilistically checkable proofs (PCP) [44] and pairings over         trusted setup. There are several other works that employ a sim-
+elliptic curves for proof verification. For an in-depth taxon-      ilar strategy to obtain efficient SNARK constructions through
+omy, we refer readers to [88]. Some applications leverage one       aggregation or recursive composition [34, 41, 59, 83, 92, 93].
+of the above SNARKs without the zero-knowledge property,
+solely relying on non-interactivity and succinctness (e.g zk-
+EVMs [79, 85]). In most SNARKs, zero-knowledge can be
+                                                                    3.2    Threat Model Taxonomy
+obtained cheaply with minor modifications.                          We consider any usage of a SNARK that violates the in-
+(iv) I NTEGRATION L AYER . In our system model, we col-             tended behavior of one of the previously discussed layers
+lectively term any application-specific implementation that         as a SNARK vulnerability. In this section, we first define the
+doesn’t directly relate to the circuit layer, frontend layer, or    scope of vulnerabilities at each layer, outline the roles an ad-
+backend layer, the integration layer. This includes source          versary can take that may lead to a specific adversarial impact
+code interacting with any of the other layers, application logic    throughout our system model.
+that may impact the overall security of employing SNARKs,           Scope of Vulnerabilities. In the (i) circuit layer, vulnerabili-
+as well as composition and aggregation of proofs.                   ties may result from coding mistakes on the implementation
+Code Interacting with SNARK Components. A SNARK                     of circuits that can lead to having inconsistent or weak con-
+application requires code that interacts with the functions ex-     straints that break the soundness and/or completeness of the
+posed by the prior layers. Typically, developers use Solidity,      system. A primary reason for this is mistranslation due to
+JavaScript, or any other language to perform API calls to the       developers not being used to writing in a differing program-
+frontend or backend. For performance reasons, many applica-         ming model that introduces surprising pitfalls. In the circuit
+tions reduce circuits to their minimal size to fulfill a specific   layer, we exclude logic bugs that are not necessarily associ-
+functionality, outsourcing operations, like range-checks for        ated with writing SNARK circuits, and focus on issues that
+certain input values, to native application code.                   arise from the use of SNARK software specifically. In the
+                                                                    (ii) frontend layer, vulnerabilities may primarily arise due to
+Complementary ZKP Logic. An application might employ                bugs in compiling from high-level source code to a specific
+complementary logic beyond the SNARK itself to ensure               arithmetization. In the (iii) backend layer, vulnerabilities may
+its security properties. For example, nullifiers are commonly       occur in the prover, where adversarial provers attempt proof
+used as private values that “nullify” a specific object upon        forgery. For SNARKs requiring a trusted setup, applications
+its use to ensure that specific operations are only executed        might use an MPC-ceremony for generating the reference
+once. Consider the use of nullifiers in Tornado Cash [77].          string trustlessly. Vulnerabilities in the MPC-ceremony are
+A user deposits a token in a smart contract and associates a        considered out of scope, as they do not directly pertain to
+secret nullifier with it. When a user wants to withdraw, the        SNARKs. Vulnerabilities in the (iv) integration layer resem-
+contract checks that the nullifier has not been used before to      ble any issue in the software components that interact with a
+prevent double-spending. The user additionally generates a          SNARK. For example, circuits can have implicit constraints
+SNARK proof, which proves that the nullifier is associated          that ought to be checked in the integration layer. We exclude
+with a deposit, without revealing the exact deposit to achieve      traditional vulnerabilities, such as reentrancy for smart con-
+anonymity.                                                          tracts, as they are not unique to systems using SNARKs.
+Proof Delegation, Aggregation, Recursion & Composition.             (i) A DVERSARIAL ROLES : Throughout this work, we assume
+In some applications, proofs can be too computationally ex-         that adversaries are rational agents aiming to attack systems
+pensive to be generated on end-user devices. To achieve proof       utilizing SNARKs. We outline the knowledge an adversary
+generation on computationally restricted devices, one may           can obtain given its role in our system model in Table 1:
+
+
+
+USENIX Association                                                                     33rd USENIX Security Symposium          3859
+                                                                       s        s      n
+                                           ut        ut             nes tnes atio                    y                          Security Vulnerability    Bug
+                                     Inp te Inp uit           Wit te Wi metiz              Key r Ke               Layer                                        Total
+                            u b l ic
+                                       r iva    i r c ub  lic
+                                                                r iva    r i th   R S rover erifie roof                           audits   disclosures Tracker
+Adversarial Role          P          P        C         P     P        A        C     P    V      P
+R1 - Network Adversary    ✩      ✘       ✔      ✔       ✘       ✩       ✔       ✩       ✩       ✔                 Integration         8            1         4   13
+R2 - Adversarial User     ✔      ✔       ✔      ✔       ✔       ✩       ✔       ✩       ✩       ✩
+R3 - Adversarial Prover   ✔      ✩       ✔      ✔       ✩       ✔       ✔       ✔       ✩       ✔
+                                                                                                                  Circuit            86           10         3   99
+                                                                                                                  Frontend            0            0         6    6
+                                                                                                                  Backend             7            5        11   23
+Table 1: Categorization of adversarial roles by the knowledge
+they can obtain and utilize. A network adversary can observe                                                      Total             101           16        24   141
+existing proofs and reuse them with different inputs to exploit
+malleability vulnerabilities. The user can delegate proof gen-                                                      Table 2: Origins of vulnerability reports.
+eration to a proving service, while the prover can generate
+and has complete control over proof generation. Typically,                                                      Impact        Soundness Completeness Zero Knowledge
+soundness vulnerabilities due to circuit bugs can exploited                                                     Integration          11             2                  0
+only by the prover. Adversary has “✔” knowledge, “✘” no                                                         Circuit              94             5                  0
+knowledge, “✩” maybe knowledge.                                                                                 Frontend              2             4                  0
+                                                                                                                Backend              17             3                  3
+                                                                                                                Total               124            14                  3
+R1 - Network Adversary. A network adversary can observe the
+public values transmitted between participants in the SNARK                                                        Table 3: Impact of SNARK vulnerabilities.
+application. Hence, it can obtain knowledge about the public
+witness x, the public common reference string, and the proof π
+sent from the prover to the verifier. A network adversary may                                             I2 - Breaking Completeness. The vulnerability allows a
+attempt to exploit weak simulation extractability of certain                                              prover to submit proofs of a true statement that leads to an
+proof systems that can render a proof malleable [45].                                                     invalid verification by a verifier. Further, it can be the case
+R2 - Adversarial User. In some SNARK applications, users                                                  that valid proofs are rejected by an honest verifier.
+are not involved in proof generation or proof verification at                                             I3 - Breaking Zero-Knowledge. The vulnerability allows an
+all. For example, ZK-EVMs provide a service that leverages                                                adversary to break the zero-knowledge property, i.e., it allows
+SNARKs primarily to minimize transaction costs. In this case,                                             information leakage about the private witnesses. If an adver-
+an adversarial user has oracle access to the prover, i.e., it can                                         sary exploits such a vulnerability, they could gain access to
+submit an arbitrary number of public inputs (or private inputs,                                           sensitive data, such as secret keys or private inputs, leading
+in case of privacy-preserving delegated proof generation [27]),                                           to privacy violations and potentially further exploits based on
+with the aim of successfully performing Denial-of-Service                                                 the information gained.
+(DoS) attacks. Further, an adversarial user may exploit circuit
+issues, where the circuit is defined by the prover (i.e., the
+service provider) to whom the user delegates the proof.                                                   4   Methodology
+R3 - Adversarial Prover. An adversarial prover has knowl-                                                 Exploring the security vulnerabilities across the entire
+edge of all input values, including the verifier key, and may                                             SNARK stack presents a complex challenge for several rea-
+attempt to break the underlying cryptographic primitives or                                               sons. Firstly, the unique programming model required for
+exploit misconfigurations in the setup phase. The adversarial                                             developing SNARK circuits means that a significant number
+prover can easily exploit soundness vulnerabilities in the ver-                                           of potential security issues are difficult to identify and under-
+ifier, such as under-constrained bugs discussed in Section 5.                                             stand. Secondly, the tools used for SNARK development are
+To mitigate this risk, systems, including ZK-rollups, may tem-                                            themselves non-standardized and heterogeneous, each offer-
+porarily adopt permissioned provers, where only authorized                                                ing different interfaces. The relative novelty of SNARK tech-
+entities can generate and submit proofs to the verifier (typi-                                            nology contributes to a lack of comprehensive documentation
+cally a smart contract acting as the verifier). This approach                                             and standards, further complicating the analysis of these tools.
+reduces the risk of adversaries exploiting soundness vulnera-                                             Moreover, instances of vulnerabilities being actively exploited
+bilities, although it does not eliminate the possibility of the                                           are rare. There are no incidents of blackhat attacks publicly
+permissioned prover exploiting such vulnerabilities.                                                      disclosed related to SNARKs. Furthermore, in applications
+(ii) V ULNERABILITY I MPACT: We categorize the impact of a                                                that leverage the zero-knowledge property of SNARKs, it
+vulnerability into the following categories:                                                              can be especially challenging to determine if an attack has
+I1 - Breaking Soundness. The vulnerability allows a prover                                                occurred due to the privacy-preserving nature of these sys-
+to convince a verifier of a false statement; that is, it allows the                                       tems. To cope with these challenges, we apply the following
+creation of a proof for an incorrect statement that is nonethe-                                           methodology.
+less accepted as valid.                                                                                   Analyzed SNARK Implementations. Our examination fo-
+
+
+
+3860      33rd USENIX Security Symposium                                                                                                                USENIX Association
+cuses on widely deployed SNARK systems, including ZK-                     Root Cause                                         UC   OC   CE   Total
+rollups for blockchain scalability (e.g., zkSync Era [60], Poly-          Assigned but Unconstrained                         14    0    0     14
+gon ZK-EVM [79] Scroll [85]),4 privacy-centric blockchains                Missing Input Constraints                          25    0    0     25
+                                                                          Unsafe Reuse of Circuit                             9    0    0      9
+(e.g., Zcash [84], Aztec [6], and decentralized privacy applica-          Wrong translation of logic into constraints        32    0    2     34
+tions (e.g., Tornado Cash [77]). We also assess key circuit li-           Incorrect Custom Gates                              1    0    0      1
+                                                                          Out-of-Circuit Computation Not Being Constrained    1    0    0      1
+braries and SNARK frameworks (e.g., Circom and halo2) [35].               Arithmetic Field Errors                             8    0    0      8
+Our analysis further extends to inspecting the underlying                 Bad Circuit/Protocol Design                         4    0    0      4
+                                                                          Other Programming Errors                            1    1    1      3
+proof systems for known bugs. This comprehensive approach
+                                                                          Total                                              95    1    3     99
+ensures that we cover a broad spectrum of real-world SNARK
+applications and the various layers of technology they rely
+on.                                                                   Table 4: Circuit vulnerabilities. UC: Under-Constrained, OC:
+                                                                      Over-Constrained, CI, Computational/Hints Error.
+Data Sources. In our comprehensive study of security vul-
+nerabilities related to SNARK systems, we have utilized an
+extensive range of data sources to ensure a thorough anal-            of-concept exploits for many bugs raises questions about their
+ysis. Our primary source includes critical and high-impact            actual exploitability. We try to mitigate this by excluding non-
+vulnerabilities identified in 107 security audit reports of sys-      security vulnerabilities from our dataset. Secondly, while our
+tems employing SNARKs. Among these, 75 reports specifi-               classification of vulnerabilities was rigorously reviewed by
+cally highlighted vulnerabilities directly related to SNARKs,         multiple researchers and iteratively refined, the possibility of
+while the remaining reports detailed other types of vulnera-          misclassification cannot be entirely ruled out. Our reliance on
+bilities, such as common smart contract deficits. Addition-           publicly available reports means our analysis may be skewed
+ally, we have incorporated vulnerabilities from public bug            towards more commonly detected vulnerabilities, potentially
+bounty programs and vulnerability disclosures. Our search             overlooking others that are less apparent but equally prevalent.
+for disclosures included those from prominent projects like
+Zcash, Aztec Connect, and TornadoCash, disclosures by se-
+curity firms and researchers specializing in ZKPs, and com-           5      Circuit Issues
+prehensive web searches targeting ZKP vulnerabilities. We
+                                                                      Vulnerabilities at the circuit layer represent the most prevalent
+reviewed Web3 bug bounty programs like Immunefi, though
+                                                                      threat to systems using SNARKs (c.f. Table 2). The primary
+we found no ZKP-related disclosures there. Additionally, we
+                                                                      challenge for developers lies in adapting to a different level
+consulted closely with top audit firms focusing on ZKPs to
+                                                                      of abstraction, coupled with the need to optimize circuits for
+ensure we didn’t miss any critical disclosures. These sources
+                                                                      efficiency, as they significantly influence the cost of using a
+provide real-world examples of how vulnerabilities have im-
+                                                                      SNARK. This section initially highlights the three primary
+pacted operational systems as well as the measures taken to
+                                                                      vulnerabilities encountered in the circuit layer, followed by
+address them. Furthermore, we delved into bug trackers of
+                                                                      outlining the root causes that lead to these vulnerabilities (see
+popular GitHub projects related to SNARKs. Our focus here
+                                                                      Table 4). In total, 95 circuit vulnerabilities led to soundness
+has been specifically on security-related bugs, filtering out
+                                                                      issues and 4 led to completeness issues (c.f. Table 3).
+non-security-related issues. Table 2 in our paper depicts these
+varied data sources, collectively forming the foundation of
+our study of SNARK security.                                          5.1         Vulnerabilities
+Classification. We classify vulnerabilities by determining
+                                                                      V1. Under-Constrained: The most frequent vulnerability
+the layer that they occur in with respect to our system model
+                                                                      in ZK circuits arises from insufficient constraints. This defi-
+(cf. Section 3.1). Successively, we asses the vulnerability
+                                                                      ciency causes the verifier to mistakenly accept invalid proofs,
+type (e.g., over-constrained), identify its root cause, and as-
+                                                                      thus undermining the system’s soundness or completeness.
+sess whether it impacts soundness, completeness, or zero-
+knowledge when exploited (cf. Table 3). We provide a full             V2. Over-Constrained: Although less common than under-
+classification of all vulnerabilities as an open-source dataset       constrained issues, circuits can be over-constrained, leading
+as a reference for practitioners.5                                    to the rejection of valid witnesses by honest provers or benign
+                                                                      proofs from honest verifiers. This issue stems from extra
+Threats to validity. Our investigation into vulnerabilities
+                                                                      constraints in the circuit, where legitimate solutions cannot
+within SNARK systems faces several challenges that could
+                                                                      be proven or verified, leading to DoS issues. Nevertheless,
+affect the validity of our findings. Firstly, the absence of proof-
+                                                                      over-constrained bugs should not be confused with redundant
+   4 Notably, ZK-rollups have more than 1B USD in accumulated value   constraints that add no additional value but do not lead to any
+locked in them according to L2BEAT https://l2beat.com/scaling/        issues other than introducing computational inefficiencies.
+summary
+   5 https://docs.google.com/spreadsheets/d/1E97ulMufitGSKo_          V3. Computational/Hints Error: Occurs when the computa-
+Dy09KYGv-aBcLPXtlN5QUpwyv66A                                          tional part of a circuit is erroneous, often leading to complete-
+
+
+
+USENIX Association                                                                              33rd USENIX Security Symposium              3861
+ness issues where for correct inputs, the witness generation             inadvertently omit essential constraints or simplify the logic
+either fails or produces wrong results. Note that completeness           to reduce the number of constraints, potentially missing criti-
+issues can often be transient, meaning that you can fix the              cal corner cases. This can leave variables under-constrained,
+underlying issue without having to update the circuit and re-            allowing them to accept multiple or any values under certain
+compute the prover and/or the verifier keys. Computational               conditions, thus deviating from the developer’s intent and
+issues may also result in soundness issues if the constraints            introducing vulnerabilities.
+are applied using the same erroneous logic.                              R5. Incorrect Custom Gates: In implementations following
+                                                                         the TurboPLONK model, such as Halo2, circuit constraints
+5.2    Root Causes                                                       are defined by using custom gates applied to specific rows
+                                                                         and cells of a table that constitute the Plonkish representation
+R1. Assigned but not Constrained: A frequent issue in ZK                 of the circuit. However, this approach can lead to bugs when
+circuit design lies in distinguishing between assignments and            custom gates are incorrectly handled. Errors may arise from
+constraints. While constraints are mathematical equations                inaccurately determining the appropriate offsets, resulting in
+that must be satisfied for any given witness for the proof               misalignment with the intended behavior of the circuit.
+to be valid, assignments allocate values to variables during
+                                                                         R6. Out-of-Circuit Computation Not Being Constrained:
+the witness generation process. The problem arises when
+                                                                         Out-of-circuit computation refers to computations within the
+variables are assigned values based on correct computations
+                                                                         code that do not directly impact the witness generation yet
+but lack corresponding constraints. This oversight can lead
+                                                                         play a crucial role in the overall functionality. In DSLs like
+the verifier to erroneously accept any value for these variables.
+                                                                         Circom, certain functions operate outside the circuit logic.
+R2. Missing Input Constraints: Developers sometimes ne-                  Similarly, in eDSLs, standard code (e.g., vanilla Rust) is used
+glect to apply constraints on input variables in reusable cir-           for various computations that do not affect witness genera-
+cuits. This omission occurs either (i) unintentionally or (ii)           tion. For instance, computations like division, are typically
+because they anticipate these constraints will be enforced at a          performed out-of-circuit to optimize circuit efficiency. This
+different interface level (i.e., caller circuit or integration layer),   method involves executing the computation externally and
+thus omitting the constraints for optimization reasons. How-             then witnessing the result back into the circuit where it is
+ever, the absence of clear documentation or fully constrained            constrained to ensure correctness. Issues arise when these out-
+inputs in these circuits can lead to severe vulnerabilities. Note        of-circuit computations lead to missing assignments or when
+that this issue is particularly common in low-level circuit              constraints necessary for the circuit’s integrity are overlooked.
+DSLs, such as Circom, which lack user-defined types.                     A specific manifestation of this issue is the boomerang issue,
+R3. Unsafe Reuse of Circuit: In ZK circuit design, particu-              where a variable, initially constrained within the circuit, is
+larly when using DSLs like Circom, the practice of reusing               temporarily moved out-of-circuit and then reintegrated with-
+circuits (such as templates in Circom or gadgets in halo2)               out the necessary reapplication of constraints.
+can introduce vulnerabilities if not handled correctly. This             R7. Arithmetic Field Error: Working with field arithmetic
+primarily occurs in two scenarios: (i) Implicit Constraints              in ZK circuits can be challenging, especially as developers
+in Sub-Circuits, occurred when circuits are reused without               might overlook the nuances of computations within a finite
+appropriately constraining their inputs or outputs based on              field. The most common issues in this context are arithmetic
+the assumption that the user will apply these constraints on             overflows and underflows. We categorize the primary types
+call-site. (ii) Insecure Circuits Instantiation when circuits are        of overflows and underflows in ZK circuits as follows: (i)
+meant to be used for specific setups (e.g., specific curves).            Native Field Arithmetic Over/Underflow, occurs when circuit
+An example is the Sign template from circomlib, which was                computations exceed the finite field’s limits, causing values to
+designed solely for the BN254 curve field.6                              loop back within the field’s range due to modulo arithmetic.
+R4. Wrong translation of logic into constraints: Translat-               (ii) Overflows in Transformed Formats, risks of overflows
+ing computations for ZK circuits presents a unique set of                arise when numbers are transformed into bit representations
+challenges, primarily due to the distinct programming model              for specific operations (e.g., range checks) or for emulating
+of ZK circuits compared to traditional CPU-targeted code. A              non-native arithmetics like fixed-point arithmetics. This is
+significant issue arises when translating logic that involves            particularly problematic when multiple bit representations
+types and operations available in conventional programming               remain within the field’s overflow limits, leading to under-
+languages but are either absent or must be re-implemented                constrained vulnerabilities.
+in ZK frameworks (e.g., fixed-point arithmetic). This often              R8. Bad Circuit/Protocol Design: Circuit design issues in
+leads to the need for creative but error-prone solutions, such           SNARKs often stem from fundamental flaws in how circuits
+as using multiplexers for conditional logic. Developers might            are conceptualized, potentially leading to unintended behav-
+   6 https://github.com/iden3/circomlib/blob/master/                     iors or the violation of protocol properties. A common man-
+circuits/sign.circom#L23                                                 ifestation of this problem is the incorrect categorization of
+
+
+
+3862    33rd USENIX Security Symposium                                                                             USENIX Association
+    Root Cause                 PDE   PCE   PUD   ZKPCLE   Total     can result in both soundness and completeness issues. While
+    Integration Design Error    1     2     0      0         3      unchecked data can be input in the circuit directly or indirectly
+    Missing Validation Input    0     0     9      1        10      (by hashing it), the failure to enforce these implicit constraints
+    Total                       1     2     9      1        13
+                                                                    at the integration layer can compromise the integrity of the
+                                                                    entire system.
+Table 5: Integration vulnerabilities. PDE: Proof Delegation Er-
+ror, PCE: Proof Composition Error, PUD: Passing Unchecked           V5. Proof Delegation Error: In scenarios where proof gen-
+Data, ZKPCLE: ZKP Complementary Logic Error                         eration is delegated to an untrusted prover, there’s a risk of
+                                                                    malicious activities. For example, a bad design could lead to
+                                                                    the leaking of personal or secret data. This issue underlines
+variables – such as designating a variable as private when it       the need for secure and trusted channels in proof delegation
+should be public. These issues can significantly impact the         and decentralized proving services [43].
+functionality and security of the protocol.                         V6. Proof Composition Error: This issue arises when the
+R9. Other Programming Errors: This category encom-                  logic is distributed across multiple proofs, but the intended
+passes a range of common programming errors that do not             behavior is not adequately enforced by the verifier who is
+fit neatly into other specific vulnerability categories but still   expected to glue parts of certain proofs with parts of others.
+have significant implications for the integrity of SNARK sys-       The lack of coherence and coordination between different
+tems. These errors include, but are not limited to, API misuse,     proofs can lead to undefined behaviors in the application.
+incorrect indexing in arrays, and logical errors within the com-
+                                                                    V7. ZKP Complementary Logic Error: This category en-
+putational parts (i.e., witness generation) of the circuit that
+                                                                    compasses vulnerabilities in the integration layer arising
+are not directly related to constraint application.
+                                                                    from the flawed implementation of logic that operates in
+Countermeasures. To address circuit layer vulnerabilities           conjunction with ZKPs. An illustrative example of such a
+in SNARK systems, especially the common issue of under-             flaw is the poor management of protocol-specific mechanisms
+constrained vulnerabilities, several straightforward yet effec-     like nullifiers. Consider a privacy-preserving application like
+tive strategies are recommended. Firstly, adding missing con-       Tornado Cash (TC), where users aim to dissociate deposits
+straints, particularly range checks, is crucial to ensure the       from withdrawals. TC employs ZKPs alongside a nullifier
+integrity and robustness of the circuits. In-depth documen-         scheme; each deposit involves generating a nullifier and a
+tation of circuit design and SNARK system specifications            secret, which, when hashed, are appended in a Merkle tree
+can significantly aid in preventing misunderstandings and           in TC.7 Upon withdrawal, the user submits the nullifier and
+oversights during development and auditing. Additionally,           employs a SNARK to prove knowledge of the corresponding
+adopting DSLs, whenever possible, that support modern pro-          secret without revealing it, thus unlinking the withdrawal from
+gramming features, such as abstractions and basic types, en-        the deposit. However, a critical check within the integration
+hances the development process by providing clearer guide-          layer is required to ensure the unique use of each nullifier.
+lines and reducing the likelihood of errors. Lastly, the use        Without this check, the system is vulnerable to exploitation,
+of specialized security tools designed for ZK circuits, as de-      allowing a user to repeatedly withdraw funds, thus draining
+tailed in Section 8, can detect some vulnerabilities during the     TC. This class of bugs, crucially, is not due to a flaw in the
+developing phase, further securing SNARK systems against            circuit’s design or implementation but stems from an over-
+vulnerabilities.                                                    sight in auxiliary mechanisms that are integral to the secure
+                                                                    and correct application of ZKPs.
+6      Integration Layer Issues
+Besides circuit-related problems, numerous vulnerabilities          6.2     Root Causes
+in systems employing SNARKs originate from the integra-
+tion layer. These vulnerabilities often stem from improper          R10. Missing Validation Input: This root cause involves
+interactions between the application/system and the prover or       inadequate validation checks on data before its input into
+verifier, or from design flaws within this layer that compro-       the circuit or before computations that affect data used later
+mise the inherent properties of SNARKs. Table 5 categorizes         by the circuit. It arises when the integration layer does not
+all analyzed bugs into distinct categories and root causes.         properly validate input data or when the circuit itself lacks
+                                                                    necessary checks. This oversight can lead to the acceptance
+                                                                    of inappropriate data, potentially getting an application stuck,
+6.1       Vulnerabilities                                           or worse, compromising the circuit’s computations.
+V4. Passing Unchecked Data: This vulnerability manifests               7 For more information on how TC works we refer the reader to the official
+when implicit constraints on the public inputs expected by          documentation https://docs.tornadoeth.cash/generals/how-does-tornado-cash-
+the circuit are not enforced by the application’s verifier. It      work
+
+
+
+
+USENIX Association                                                                        33rd USENIX Security Symposium                  3863
+        Layer      Vulnerability                      # Bugs         code.
+                   Incorrect Constraint Compilation       3          V9. Witness Generation Error: This issue arises during the
+        Frontend   Witness Generation Error               3          witness generation phase, where errors in the compilation
+                   Total                                  6          can produce invalid witnesses or cause crashes, potentially
+                   Setup Error                            1          leading to a denial of service. Typically, such errors occur
+                   Prover Error                           6          due to misinterpretation of the circuit code, or due to the
+        Backend
+                   Unsafe Verifier                       16          generation of bogus witness generators in target languages.
+                   Total                                 23
+
+                                                                     7.2     Backend Vulnerabilities
+       Table 6: Summary of frontend and backend bugs.
+                                                                     V10. Setup Error: This vulnerability arises during the setup
+                                                                     phase, where the generation of public parameters occurs. In-
+R11. Integration Design Error: Design flaws in the integra-          correct or easily compromised parameters can significantly
+tion code that lead to undesired behavior or break protocol          undermine the system’s integrity.
+properties, such as not checking for duplicate nullifiers, are
+                                                                     V11. Prover Error: Issues within the prover of the proof
+critical. Furthermore, designing privacy-enhanced applica-
+                                                                     system fall into this category. These vulnerabilities can lead
+tions poses a significant challenge. It is not straightforward to
+                                                                     to the prover mistakenly rejecting valid witnesses, accepting
+create ZK applications with privacy as a core property, and
+                                                                     invalid ones, or breaking the zero-knowledge property.
+developers may inadvertently leak information without realiz-
+ing it. This issue isn’t about the proof system or constraints; it   V12. Unsafe Verifier: This category includes vulnerabili-
+is about the inherent difficulty in designing an application that    ties resulting from inadequate checks on the verifier’s inputs,
+doesn’t subtly leak data. This underscores the complexity and        missing checks during verification, or bogus mathematical
+importance of carefully considering privacy aspects in the de-       operations, risking the proof system’s integrity. Vulnerabili-
+sign phase of ZK applications. Fixes often require a high-level      ties can emerge regardless of whether the verifier is manually
+redesign rather than a simple programming correction.                implemented or generated by a framework.
+
+
+7     Frontend/Backend Issues                                        7.3     Root Causes
+                                                                     Frontend and backend vulnerabilities can stem from a variety
+The compilation of ZK circuits (frontend), along with proving        of root causes, ranging from basic programming errors to
+a witness and verifying it (backend), rely on the correctness        configuration issues or deviations from the specifications of
+of the underlying software that implements the compilation           proof systems. These can be as simple as missing validation
+process as well as the algorithms that underpin the proof            checks for proofs or as complex as informational leaks that
+system. Table 6 provides an overview of vulnerabilities that         expose sensitive data. Additionally, the use of poor-quality
+can occur within these components. Vulnerabilities in either         or predictable randomness sources can compromise crucial
+the frontend or backend layers pose a significant risk, even if      ZKP properties. Adherence to proof system specifications is
+the circuits have been formally verified or if the proof system      critical in preventing vulnerabilities. A common issue is the
+is theoretically secure; any defects in these layers could render    incorrect implementation of the Fiat-Shamir transformation,
+the entire system insecure for end-users.                            where a critical component is omitted during the hashing
+                                                                     process of the transcript.
+7.1     Frontend Vulnerabilities
+                                                                     8     Defenses For SNARKs
+V8. Incorrect Constraint Compilation: This type of vulner-
+ability emerges from deficiencies in the compilation phase,          This section presents an overview of defense mechanisms
+specifically in the enforcement of constraints defined in the        aimed at mitigating the SNARK vulnerabilities detailed in the
+ZK circuit. Specifically, such issues may stem from the arith-       previous sections. Table 7 compiles, to our best knowledge,
+metization process or overly aggressive optimization routines        all publications and tools associated with SNARK security.
+that unintentionally excise vital constraints. Any missteps          A filled bullet in the table indicates that the referenced tech-
+in these processes can result in an inaccurate or incomplete         nique provides at least one defensive measure against the
+translation of the original constraints at the circuit layer. Con-   issues indicated by the corresponding row’s header. Notably,
+sequently, this could permit a verifier to erroneously accept        in addition to SNARK-specific strategies, conventional secu-
+an invalid proof or, conversely, to reject a legitimate one. At      rity tools (e.g., fuzzing) have been utilized in audits, although
+its core, this vulnerability mirrors a classical compiler bug,       they typically fall short in preventing most vulnerabilities
+wherein the compiler erroneously interprets high-level DSL           due to the oracle problem [9]. For example, fuzzing might be
+
+
+
+3864    33rd USENIX Security Symposium                                                                         USENIX Association
+                             Vulnerability                                                                                    Defenses
+                                                                           89]
+                                                                         ect                                                                                  [73    Sna
+                                                                             [        1]      kt [                                             9, 3              ]      rk P                   53]
+                                                                                                   87]                                              0]                      ro b
+                                                                                                                              Pic                                                                      Sec
+                                                                                                            ]
+                                                                   msp           AP                        [63       e [9                                OW                               ER
+                                                                                    [9                                   0]      us [      Ale              BB                  e [3         [            *
+                                                                Cir                        Ko            Cod                         74]      o [2
+                                                                    co           ZK           rre           a      Ecn                                        23                    8]   CIV         Tra
+                                                                                                                                                                                                        d
+
+                             Under-Constrained                                                                                                              #                                          #
+
+
+
+
+  Backend Frontend Circuit
+                             Over-Constrained                        #            #                                  #           #                          #                              #           #
+                             Computational Error                     #            #           #                      #           #                          #              #               #
+                             Incorrect Constraint Compilation        #            #           #            #         #           #             #                           #               #           #
+
+                             Witness Generation Error                #            #           #            #         #           #             #            #              #               #
+                             Setup Error                             #            #           #            #         #           #             #            #                              #           #
+                             Prover Error                            #            #           #            #         #           #             #            #              #               #
+                             Unsafe Verifier                         #            #           #            #         #           #             #            #              #               #
+
+
+Table 7: An overview of papers and tools offering defense mechanisms for addressing vulnerabilities in SNARK-based systems.
+While numerous techniques are concentrated on circuit-layer security, they often face challenges in scalability or possess limited
+functionality tied to specific DSLs. The last column represents traditional security tools (e.g., AFL and property-based testing)
+employed by auditors in audit reports. Note that these tools typically have limited capabilities for detecting SNARK-related bugs.
+We excluded the integration layer from the table as no defense detects bugs in that layer.
+
+
+useful in detecting completeness bugs, but it often falls short                                                  Representation, which can then be analyzed for potential vul-
+of finding soundness issues. In the following, we delve into                                                     nerabilities. Another promising direction is the creation of
+the current defensive measures for each layer, suggest future                                                    more secure DSLs, like Aleo [28], noname 8 , and Noir 9 , or
+steps for preventing SNARK vulnerabilities, and review the                                                       eDSLs such as o1js [69], which incorporate strong typing and
+tools employed in the audits we examined.                                                                        improved abstractions to prevent common issues.
+                                                                                                                    Additionally, differential testing [65] against a reference
+Circuit Layer Defenses. The circuit layer emerges as the                                                         implementation could be a viable method to identify com-
+most prominent layer for SNARK vulnerabilities, leading to                                                       putational issues. We anticipate that proper compilation of
+the development of various techniques like static analysis and                                                   DSL to an IR could enable more general static analysis to
+symbolic execution, particularly targeting under-constrained                                                     uncover SNARK vulnerabilities in a DSL-agnostic way. Fur-
+bugs. Tools such as Circomspect [89] and ZKAP [91] em-                                                           thermore, applying hardening techniques to automatically
+ploy static analysis using predefined rules to identify under-                                                   patch circuits with missing range checks could enhance secu-
+constrained issues in Circom circuits. Similarly, Korrect [87]                                                   rity. Complementary to existing approaches, compositional
+utilizes static analysis and SMT solvers to spot common pit-                                                     verification techniques could be applied to verify ZK circuits.
+falls in Halo2 circuits. SNARKProbe [38] leverages fuzzing                                                       Lastly, advanced fuzzing techniques that generate slightly
+and SMT solvers to test circuits written using R1CS-based                                                        incorrect witnesses might prove effective in detecting under-
+libraries. Picus [74], on the other hand, adopts a more ad-                                                      constrained vulnerabilities, while providing counterexamples.
+vanced symbolic execution approach to verify that Circom                                                         Finally, there is a growing demand for more advanced testing
+circuits are not under-constrained. CIVER [53] uses a modu-                                                      frameworks in the field. Such frameworks would greatly as-
+lar technique based on the application of transformation and                                                     sist developers in creating their own unit and integration tests,
+deduction rules to verify properties of Circom circuits using                                                    which could be instrumental in identifying and rectifying
+pre- and post-conditions. In a different approach, DSLs like                                                     many easily detectable vulnerabilities prior to deployment.
+Coda [64] and Leo [29, 30] support formal verification of
+circuits, aiding developers in creating more secure circuits.                                                    Integration Layer Defenses. Table 7 highlights a notable
+                                                                                                                 gap: there are currently no specific defenses developed for
+   Despite these initial strides in tool development for ZK                                                      vulnerabilities in the integration layer of SNARK systems.
+circuits, significant limitations remain. Tools relying on SMT                                                   However, traditional security methods like property-based
+solvers, like Picus and Korrect, face challenges due to limited                                                  fuzzing or formal verification could be applicable if there’s
+support and efficiency in handling finite field arithmetic, lead-                                                a comprehensive specification detailing the expected system
+ing to performance bottlenecks [51, 72]. Static analysis tools                                                   behavior and its interactions with SNARK components. A
+are often restricted in the range of vulnerabilities they can                                                    promising direction for future development is the creation of
+detect and tend to be specific to certain languages. CirC [71]
+compiler represents a step towards language-agnostic tool-                                                          8 https://github.com/zksecurity/noname
+
+ing, allowing various DSLs to compile into an Intermediate                                                          9 https://aztec.network/aztec-nr/
+
+
+
+
+USENIX Association                                                                                                                         33rd USENIX Security Symposium                              3865
+security frameworks designed to rigorously test the integra-        tiple proof systems besides the primary SNARK, such as
+tion between client-side code (such as Solidity and JavaScript)     alternative SNARK proofs or trusted-execution environment
+and circuit code. We suggest exploring multi-layer testing          (TEE) based proofs [21], and primary proofs are accepted
+and verification techniques targeting both these components         only if the secondary ones agree with it. This design trades
+simultaneously. An example could be a combined testing              off liveness with more safety, as a dispute will potentially
+of Circom and Solidity applications. Additionally, having           bring the system to a halt. Such systems require a dispute
+a detailed specification of the entire system, including how        resolution mechanism to handle potential disagreements. In
+different components interact, can significantly enhance the        practice, some ZK-Rollup projects [85], arguably one of the
+effectiveness of manual code inspection.                            most complex categories of SNARK systems today, are al-
+                                                                    ready experimenting with multi-provers.10
+Frontend/Backend Layers Defenses. The infrastructure
+layer, comprising the frontend and backend of SNARK sys-
+tems, has largely been overlooked by security researchers.          9     Issues in Proof Systems
+Ozdemir et al. [73] acknowledged that a flaw in a ZKP com-
+piler could undermine the integrity of a ZKP, and took ini-         While the focus of earlier sections was on implementation
+tial steps to mitigate such risks by partially verifying a key      and design vulnerabilities across the four layers introduced in
+compiler pass in the CirC compiler [71]. SNARKProve [38]            Section 3.1, vulnerabilities can also exist within the theoret-
+implements a fuzzing framework that can be configured with          ical foundations of SNARKs’ proof systems. This includes
+custom files (i.e., ideal files) to test specific cryptographic     the formal descriptions and security proofs of protocols. Such
+properties of the backends and frontends. In its initial version,   vulnerabilities are less common but carry significant impli-
+it has been successful in detecting issues in the Setup phase of    cations, potentially affecting all implementations of a given
+the backend. Moreover, practitioners have employed fuzzing          proof system. For example, the “Frozen Heart” vulnerabil-
+tools like AFL to identify bugs in these layers. However, these     ity within the Plonk proof system (c.f. Appendix ??) led to
+tools are somewhat limited in scope, typically only capable of      standard implementations of Plonk being compromised. The
+detecting crashes, potentially missing more subtle but critical     discovery of such flaws could severely impact the SNARK
+vulnerabilities such as miscompilations.                            ecosystem, especially protocols that depend on these systems.
+   As the field progresses with more complex optimizations          Vulnerabilities in the proof system generally stem from two
+in the compilation stage being enabled and the introduction         main sources: errors in the original proof system description,
+of more advanced proof systems, it is likely that more vulner-      including missing or incorrect security proofs or incomplete
+abilities will emerge at the infrastructure layer of SNARKs.        descriptions that could lead developers to introduce significant
+Consequently, there is a pressing need for the development          vulnerabilities during implementation.
+of more sophisticated testing methodologies for the infras-            The primary method for evaluating proof systems currently
+tructure layer. Overcoming the oracle problem and generating        is peer review, where researchers assess security proofs, sup-
+effective test cases are key challenges in this area. Insights      plemented by occasional manual audits. Beyond cryptanaly-
+from the extensive body of work on testing conventional com-        sis, employing tools like EasyCrypt [10] and other computer-
+pilers [23, 24, 62, 94] could be valuable in devising strategies    aided cryptographic proof software [8] offers a promising
+for more effectively testing SNARK compilers.                       avenue for formalizing and verifying the security properties
+                                                                    of zero-knowledge protocols, as exemplified by Firsov et al.’s
+Tools Applied on Audits. Our analysis of the 75 audit reports
+                                                                    work [39]. It is crucial for every proof system to be accom-
+we reviewed revealed that SNARK-related tools were utilized
+                                                                    panied by exhaustive security proofs and to undergo rigorous
+in only 5 instances. Specifically, Picus was employed in 4
+                                                                    review before production use to prevent potential bugs.
+audits, while ZKAP, Ecne, and Circomspect were each used
+once. Interestingly, one audit incorporated differential testing    Universal Composability. The universal composability (UC)
+against a reference implementation to identify computational        framework by Canetti [20] is widely considered as the “gold
+issues in the circuits. Moreover, traditional security tools like   standard” for proving the security of cryptographic primi-
+AFL, Semgrep, and property testing were used in 10 audits,          tives. The reason for the popularity of the UC model is that
+primarily for detecting bugs at the circuit and infrastructure      it can guarantee strong security against adaptive adversaries
+levels. This highlights a significant need for enhanced tooling     and further allows for modular reusability of cryptographic
+for both the frontend and backend layers of SNARK systems.          primitives in greater, high-level protocol designs. Arguing
+                                                                    UC security for a SNARK, or a SNARK-based protocol, is
+Multi-Provers as a Defense Mechanism. SNARK proofs                  non-trivial, as SNARKs commonly use techniques that are
+are often used in safety-critical contexts, yet, with the cur-      not realizable in the UC model [49], and result in SNARKs
+rent state of technology, guaranteeing that a complex SNARK         that are not formally non-malleable. Recent work aims to
+system is bug-free and safe remains an elusive goal. The multi-     close this gap by studying compilers that render common
+prover design enhances safety by introducing redundancy at
+the proof system level. A multi-prover system utilizes mul-             10 https://scroll.io/blog/scaling-security
+
+
+
+
+3866    33rd USENIX Security Symposium                                                                        USENIX Association
+SNARKs UC-secure by encrypting the witness and including           but also increases the likelihood of introducing vulnerabilities
+it in the argument, which results in an overhead that ren-         into the circuits. The prevalent use of such DSLs highlights a
+ders the SNARK non-succinct due to the unbounded size of           regression to an era with bugs due to the absence of modern
+the witness [1, 2, 7, 58]. Most recent work proves that initial    programming safeguards, underscoring an urgent need for
+SNARK constructions [14, 66] that do utilize random oracles        more user-friendly DSLs that offer better abstractions and
+are UC-secure [25].                                                safety features, thereby mitigating the main shortcomings and
+   In practice, we observe that UC security is often not con-      reducing the vulnerability surface of SNARK applications.
+sidered, and non-UC-secure protocols, like Groth16 [50], are       RQ: How can more user-friendly DSLs be designed to reduce
+applied without further ado. However, we are not aware of          the vulnerability surface of SNARK applications?
+any protocol that claims UC-security and successively got          4) Challenge – The added complexity of SNARKs present
+exploited due to erroneous analysis, i.e., an underspecified       challenges for developers and auditors. The inherent com-
+ideal functionality or incorrectly claiming that the real-life     plexity of SNARKs introduces significant challenges for both
+model can be simulated in the ideal process model.                 developers and auditors, compounded by the abstraction lev-
+                                                                   els of ZK circuits and the low-level intricacies of most DSLs.
+                                                                   Developers often find themselves navigating the task of inte-
+10    Discussion                                                   grating critical cryptographic operations—such as digital sig-
+                                                                   natures, commitment schemes, and Merkle trees—within the
+In the following, we extract insights on the current state of
+                                                                   ZK circuits. This combination of complex cryptographic code
+SNARK security, highlight key findings, discuss their impli-
+                                                                   with the unique paradigm of SNARKs places a considerable
+cations and make recommendations for future research.
+                                                                   burden on ensuring accuracy and security, particularly when
+1) Insight – Under-constrained bugs pose a significant
+                                                                   such code underpins the most vital or privacy-sensitive parts
+threat to SNARK deployments. Under-constrained bugs
+                                                                   of an application. Hence, not only must developers acquire the
+emerge as the most prevalent vulnerability class within ZK
+                                                                   technical depth of cryptographic programming within these
+circuits. Unlike typical vulnerabilities, their root causes span
+                                                                   new frameworks, but auditors must also adapt their method-
+from straightforward programming errors to challenges inher-
+                                                                   ologies to effectively scrutinize these sophisticated systems.
+ent in SNARK DSLs, including the complexity of translating
+                                                                   RQ: What educational and tooling resources can assist de-
+logic to constraints efficiently. As developers navigate these
+                                                                   velopers and auditors in navigating the complexities of using
+peculiarities, ensuring circuits are thoroughly constrained re-
+                                                                   SNARKs? How useful can specifications (formal or informal)
+mains crucial for maintaining system integrity and security.
+                                                                   be towards detecting vulnerabilities in systems using ZKPs?
+RQ: What tools and methodologies can be developed to bet-
+                                                                   5) Insight – Compiler and proof system implementation
+ter identify and mitigate under-constrained bugs in ZK cir-
+                                                                   bugs can undermine major protocols. Infrastructure bugs
+cuits? Which techniques are the most efficient in detecting
+                                                                   in compilers and proof system implementations can critically
+such bugs?
+                                                                   undermine the security of major SNARKs. Even when cir-
+2) Insight – Soundness bugs affecting SNARK verifiers
+                                                                   cuits are verified and audited, vulnerabilities in the underly-
+lead on average to high severity bugs. Particularly when
+                                                                   ing infrastructure or proof systems can jeopardize the entire
+soundness bugs are exploitable, typically due to under-
+                                                                   application, emphasizing the importance of holistic testing
+constrained circuits, they can lead to significant security
+                                                                   approaches for the infrastructure layer of the SNARKs.
+breaches. Their potential to compromise system security has
+                                                                   RQ: How can the reliability and security of compilers and
+led to suboptimal strategies, such as employing multi-provers
+                                                                   proof system implementations for SNARKs be ensured? Which
+and permissioned provers, alongside significant bug bounties,
+                                                                   testing or verification techniques can be applied?
+sometimes reaching up to $500k for a single vulnerability. 11
+These measures underscore the critical nature of soundness         6) Challenge – Preliminary security tools show promising
+in maintaining the trustworthiness of SNARK-based systems.         results but also limitations. Recent developments in tools
+                                                                   for securing ZK circuits show promise but face scalability
+RQ: What are effective strategies to detect and prevent sound-
+                                                                   issues and are often limited to specific DSLs or types of
+ness bugs in SNARKs? Can we formally verify the verifiers,
+                                                                   vulnerabilities. The complexity of SNARK systems makes
+as their scope is limited?
+                                                                   manual code inspection necessary, pointing to a significant
+3) Insight – Low-level circuit DSLs are easy-to-misuse
+                                                                   need for better security tools and educational resources. This
+leading to many vulnerabilities. Crafting efficient ZK cir-
+                                                                   combination of advanced tooling and increased knowledge is
+cuits often necessitates using low-level ZK DSLs such as
+                                                                   crucial for improving the security of the SNARK ecosystem.
+Circom and Gnark, reminiscent of early assembly and C pro-
+gramming, where common high-level programming features             RQ: What improvements are needed in security tools to ef-
+such as abstractions and basic types are absent. This com-         fectively scale and cover a broader range of vulnerabilities?
+plexity not only steepens the learning curve for developers        What are the limitations of formal verification tools?
+                                                                   7) Insight – Insecure Proof System Instantiation. The selec-
+  11 https://aztec.network/blog/aztec-connect-postmortem/          tion of cryptographic curves and fields for SNARK instantia-
+
+
+
+USENIX Association                                                                    33rd USENIX Security Symposium         3867
+tion is a critical decision that can significantly impact system   on issues prevalent at the smart contract layer. Homoliak
+security. Insecure choices can expose the system to potential      et al. [52] introduced a multi-layered security model, systemat-
+brute force attacks similarly to other cryptographic protocols,    ically addressing vulnerabilities, threats, and countermeasures
+underscoring the necessity of careful selection to ensure the      for blockchains. Atzei et al. [5] explored Ethereum’s security
+overall security and integrity of SNARK applications.              vulnerabilities, offering a classification of common program-
+RQ: What is the security of SNARKs instantiation given spe-        ming pitfalls. Zhou et al. [97] developed a five-layer model
+cific curves and fields? How many bits of security does each       and a comprehensive taxonomy of threat models to analyze
+SNARK have when using specific configurations?                     and compare incidents in DeFi. Further, Chaliasos et al. [22]
+8) Challenge – SNARK undetectable exploits. In privacy-            used the dataset from [97] to evaluate state-of-the-practice
+preserving blockchains, such as ZCash, coins enter a privacy       smart contract security tools against real-world vulnerabilities.
+pool (a.k.a. shielded value pool) where they can be trans-         In a similar way, future work could leverage our findings to
+ferred without revealing the amount or recipient address. The      assess the efficacy of emerging security tools for SNARKs
+transaction validation mechanism relies on SNARKs and a            against the vulnerabilities detailed in our dataset.
+soundness bug can enable the adversary to print infinite coins
+inside the privacy pool. Note that such attacks can remain
+undetected as long as, at any point, the amount of coins that      12    Conclusions
+exited the pool is smaller or equal to coins that have entered
+                                                                   In this work, we present comprehensive system and threat
+the pool previously. A partial defense against these attacks
+                                                                   models for SNARK systems’ security, a detailed study, and
+is turnstile enforcement, adding a consensus check to reject
+                                                                   a taxonomy of 141 vulnerabilities, demonstrating that secu-
+blocks violating pool balance, ensuring exits don’t exceed
+                                                                   rity breaches can affect every layer of systems employing
+entries. This highlights the need for privacy-focused SNARK
+                                                                   SNARKs, jeopardizing completeness, soundness, and zero-
+systems with exploit detection and prevention mechanisms.
+                                                                   knowledge properties. Our work reveals the intricate and
+RQ: How can we develop detection mechanisms or heuristics
+                                                                   unique security challenges inherent to SNARKs, indicating
+for exploits in privacy-preserving SNARK systems?
+                                                                   that defense mechanisms focusing on SNARK security have
+                                                                   significant limitations. By highlighting key insights and po-
+11     Related Work                                                tential advancements in security practices, we underscore the
+                                                                   urgency for continued research and enhanced defenses within
+SNARK Vulnerabilities. This paper introduces a four-layer          the SNARK ecosystem. As SNARKs become increasingly
+system model, defines threat models along with a detailed          pivotal in cryptographic applications, our study emphasizes
+taxonomy of vulnerabilities and root causes across each            the necessity for progressive and fortified security measures
+layer in SNARK systems. Prior works have identified spe-           to ensure the robustness of these systems.
+cific vulnerabilities within SNARKs; for example, Wen et
+al. [91] highlighted common vulnerabilities in Circom cir-
+cuits, while others [38, 53, 74, 87, 90] have focused mainly
+                                                                   Acknowledgments
+on under-constrained vulnerabilities and proposed counter-
+                                                                   We would like to thank our shepherd and the anonymous
+measures. Ozdemir et al. [73] shed light on potential issues
+                                                                   USENIX reviewers. We also thank Shankara Pailoor, Alex
+during the SNARK compilation phase. For security tools
+                                                                   Ozdemir, Jean-Philippe Aumasson, Oana Ciobotaru, and
+related to SNARK vulnerabilities, Table 7 offers a compre-
+                                                                   Justin Traglia for their insightful feedback. Finally, we thank
+hensive overview. Additionally, the community maintains a
+                                                                   the Ethereum Foundation and 0xPARC for supporting this
+bug tracker dedicated to ZKP-related vulnerabilities.12 Our re-
+                                                                   work.
+search complements these efforts by systematizing knowledge
+from the examination of 141 vulnerabilities and enriching the
+understanding of SNARK security.                                   References
+Security of Integrity-Preserving Technologies. Integrity-
+preserving computation encompasses a variety of technolo-           [1] Behzad Abdolmaleki, Noemi Glaeser, Sebastian Ra-
+gies, each presenting unique security challenges. Similar to            macher, and Daniel Slamanig. Universally compos-
+our work, Cerdeira et al. [21] examined 124 CVEs within                 able nizks: Circuit-succinct, non-malleable and crs-
+TEE-based systems and proposed a vulnerability taxonomy                 updatable. IACR Cryptol. ePrint Arch., 2023, 2023.
+for TrustZone-assisted TEE Systems. Blockchain smart con-
+                                                                    [2] Behzad Abdolmaleki, Sebastian Ramacher, and Daniel
+tracts represent another avenue for integrity-preserving com-
+                                                                        Slamanig. Lift-and-shift: obtaining simulation ex-
+putation; Praitheeshan et al. [80] identified common soft-
+                                                                        tractable subversion and updatable snarks generically.
+ware and Ethereum smart contract vulnerabilities, focusing
+                                                                        In Proceedings of the 2020 ACM SIGSAC Conference
+  12 https://github.com/0xPARC/zk-bug-tracker                           on Computer and Communications Security, 2020.
+
+
+
+3868    33rd USENIX Security Symposium                                                                       USENIX Association
+ [3] Nada Amin, John Burnham, François Garillot, Rosario      [14] Eli Ben-Sasson, Alessandro Chiesa, and Nicholas
+     Gennaro, Daniel Rogozin, Cameron Wong, et al. Lurk:           Spooner. Interactive oracle proofs. In Theory of Cryptog-
+     Lambda, the ultimate recursive knowledge. Cryptology          raphy: 14th International Conference, TCC. Springer,
+     ePrint Archive, 2023.                                         2016.
+ [4] Arasu Arun, Srinath Setty, and Justin Thaler. Jolt:      [15] Joseph Bonneau, Izaak Meckler, Vanishree Rao, and
+     Snarks for virtual machines via lookups. Cryptology           Evan Shapiro. Mina: Decentralized cryptocurrency at
+     ePrint Archive, 2023.                                         scale. Whitepaper, 2020.
+ [5] Nicola Atzei, Massimo Bartoletti, and Tiziana Cimoli.    [16] Gautam Botrel, Thomas Piellard, Youssef El Housni,
+     A survey of attacks on ethereum smart contracts (sok).        Ivo Kubjas, and Arya Tabaie. Consensys/gnark: v0.8.0,
+     In Principles of Security and Trust: 6th International        2023.
+     Conference, POST 2017, Held as Part of the European
+     Joint Conferences on Theory and Practice of Software,    [17] Sean Bowe, Alessandro Chiesa, Matthew Green, Ian
+     ETAPS 2017, Uppsala, Sweden, April 22-29, 2017, Pro-          Miers, Pratyush Mishra, and Howard Wu. Zexe: En-
+     ceedings 6. Springer, 2017.                                   abling decentralized private computation. In 2020 IEEE
+                                                                   Symposium on Security and Privacy (SP). IEEE, 2020.
+ [6] Aztec. Aztec network, 2023. https://docs.aztec.
+     network/.                                                [18] Jeremy Bruestle, Paul Gafni, and the RISC Zero Team.
+                                                                   Risc zero zkvm: Scalable, transparent arguments
+ [7] Karim Baghery and Mahdi Sedaghat. Tiramisu: black-            of risc-v integrity. https://dev.risczero.com/
+     box simulation extractable nizks in the updatable crs         proof-system-in-detail.pdf, 2023.
+     model. In International Conference on Cryptology and
+     Network Security. Springer, 2021.                        [19] Benedikt Bünz, Jonathan Bootle, Dan Boneh, Andrew
+                                                                   Poelstra, Pieter Wuille, and Greg Maxwell. Bulletproofs:
+ [8] Manuel Barbosa, Gilles Barthe, Karthik Bhargavan,
+                                                                   Short proofs for confidential transactions and more. In
+     Bruno Blanchet, Cas Cremers, Kevin Liao, and Bryan
+                                                                   2018 IEEE symposium on security and privacy (SP).
+     Parno. Sok: Computer-aided cryptography. In 2021
+                                                                   IEEE, 2018.
+     IEEE symposium on security and privacy (SP). IEEE,
+     2021.                                                    [20] Ran Canetti. Universally composable security: A new
+ [9] Earl T Barr, Mark Harman, Phil McMinn, Muzammil               paradigm for cryptographic protocols. In Proceedings
+     Shahbaz, and Shin Yoo. The oracle problem in soft-            42nd IEEE Symposium on Foundations of Computer
+     ware testing: A survey. IEEE transactions on software         Science, pages 136–145. IEEE, 2001.
+     engineering, 41(5), 2014.                                [21] David Cerdeira, Nuno Santos, Pedro Fonseca, and San-
+[10] Gilles Barthe, François Dupressoir, Benjamin Grégoire,        dro Pinto. Sok: Understanding the prevailing security
+     César Kunz, Benedikt Schmidt, and Pierre-Yves Strub.          vulnerabilities in trustzone-assisted tee systems. In 2020
+     Easycrypt: A tutorial. International School on Founda-        IEEE Symposium on Security and Privacy (SP). IEEE,
+     tions of Security Analysis and Design, 2012.                  2020.
+
+[11] Marta Bellés-Muñoz, Miguel Isabel, Jose Luis Muñoz-      [22] Stefanos Chaliasos, Marcos Antonios Charalambous,
+     Tapia, Albert Rubio, and Jordi Baylina. Circom: A cir-        Liyi Zhou, Rafaila Galanopoulou, Arthur Gervais, Dim-
+     cuit description language for building zero-knowledge         itris Mitropoulos, and Benjamin Livshits. Smart contract
+     applications. IEEE Transactions on Dependable and             and defi security tools: Do they meet the needs of practi-
+     Secure Computing, 2022.                                       tioners? In 2024 IEEE/ACM 46th International Confer-
+                                                                   ence on Software Engineering (ICSE). IEEE Computer
+[12] Eli Ben-Sasson, Iddo Bentov, Yinon Horesh, and                Society, 2023.
+     Michael Riabzev. Fast reed-solomon interactive oracle
+     proofs of proximity. In 45th international colloquium    [23] Stefanos Chaliasos, Thodoris Sotiropoulos, Diomidis
+     on automata, languages, and programming. Schloss              Spinellis, Arthur Gervais, Benjamin Livshits, and Dim-
+     Dagstuhl-Leibniz-Zentrum fuer Informatik, 2018.               itris Mitropoulos. Finding typing compiler bugs. In
+                                                                   Proceedings of the 43rd ACM SIGPLAN International
+[13] Eli Ben-Sasson, Iddo Bentov, Yinon Horesh, and                Conference on Programming Language Design and Im-
+     Michael Riabzev. Scalable zero knowledge with no              plementation, 2022.
+     trusted setup. In Advances in Cryptology–CRYPTO
+     2019: 39th Annual International Cryptology Confer-       [24] Yang Chen, Alex Groce, Chaoqiang Zhang, Weng-Keen
+     ence, Santa Barbara, CA, USA, August 18–22, 2019,             Wong, Xiaoli Fern, Eric Eide, and John Regehr. Tam-
+     Proceedings, Part III 39. Springer, 2019.                     ing compiler fuzzers. In Proceedings of the 34th ACM
+
+
+
+USENIX Association                                                              33rd USENIX Security Symposium         3869
+       SIGPLAN conference on Programming language design              Gervais, Benjamin Livshits, and Michele Orrù. zk-
+       and implementation, 2013.                                      bench: A toolset for comparative evaluation and per-
+                                                                      formance benchmarking of snarks. Cryptology ePrint
+[25] Alessandro Chiesa and Giacomo Fenzi. zksnarks in the             Archive, 2023.
+     rom with unconditional uc-security. Cryptology ePrint
+     Archive, 2024.                                              [36] Jens Ernstberger, Stefanos Chaliasos, Liyi Zhou, Philipp
+                                                                      Jovanovic, and Arthur Gervais. Do you need a zero
+[26] Alessandro Chiesa, Yuncong Hu, Mary Maller, Pratyush             knowledge proof? Cryptology ePrint Archive, Paper
+     Mishra, Noah Vesely, and Nicholas Ward. Marlin: Pre-             2024/050, 2024. https://eprint.iacr.org/2024/
+     processing zksnarks with universal and updatable srs. In         050.
+     Advances in Cryptology–EUROCRYPT: 39th Annual In-
+                                                                 [37] Privacy & Scaling Explorations. halo2 community edi-
+     ternational Conference on the Theory and Applications
+                                                                      tion, 2023.
+     of Cryptographic Techniques. Springer, 2020.
+                                                                 [38] Yongming Fan, Yuquan Xu, and Christina Garman.
+[27] Alessandro Chiesa, Ryan Lehmkuhl, Pratyush Mishra,               Snarkprobe: An automated security analysis framework
+     and Yinuo Zhang. Eos: Efficient private delegation               for zksnark implementations. International Conference
+     of zksnark provers. In USENIX Security Symposium.                on Applied Cryptography and Network Security, 2024.
+     USENIX Association, 2023.
+                                                                 [39] Denis Firsov and Dominique Unruh. Zero-knowledge
+[28] Collin Chin, Howard Wu, Raymond Chu, Alessandro                  in easycrypt. In 2023 IEEE 36th Computer Security
+     Coglio, Eric McCarthy, and Eric Smith. Leo: A program-           Foundations Symposium (CSF). IEEE, 2023.
+     ming language for formally verified, zero-knowledge
+     applications. Cryptology ePrint Archive, 2021.              [40] Ariel Gabizon, Zachary J Williamson, and Oana Ciob-
+                                                                      otaru. Plonk: Permutations over lagrange-bases for
+[29] Alessandro Coglio, Eric McCarthy, Eric Smith, Collin             oecumenical noninteractive arguments of knowledge.
+     Chin, Pranav Gaddamadugu, and Michel Dellepere.                  Cryptology ePrint Archive, 2019.
+     Compositional formal verification of zero-knowledge         [41] Nicolas Gailly, Mary Maller, and Anca Nitulescu. Snark-
+     circuits. Cryptology ePrint Archive, 2023.                       pack: Practical snark aggregation. In International Con-
+[30] Alessandro Coglio, Eric McCarthy, and Eric W Smith.              ference on Financial Cryptography and Data Security.
+     Formal verification of zero-knowledge circuits. arXiv            Springer, 2022.
+     preprint arXiv:2311.08858, 2023.                            [42] Chaya Ganesh, Anca Nitulescu, and Eduardo Soria-
+                                                                      Vazquez. Rinocchio: Snarks for ring arithmetic. Journal
+[31] World Wide Web Consortium et al. Verifiable creden-              of Cryptology, 36(4), 2023.
+     tials data model 1.0: expressing verifiable information
+     on the web. Specification, 2019.                            [43] Sanjam Garg, Aarushi Goel, Abhishek Jain, Guru-Vamsi
+                                                                      Policharla, and Sruthi Sekar. zksaas: Zero-knowledge
+[32] Quang Dao, Jim Miller, Opal Wright, and Paul Grubbs.             snarks as a service. Cryptology ePrint Archive, 2023.
+     Weak fiat-shamir attacks on modern proof systems.
+     Cryptology ePrint Archive, Paper 2023/691, 2023.            [44] Rosario Gennaro, Craig Gentry, Bryan Parno, and Mar-
+     https://eprint.iacr.org/2023/691.                                iana Raykova. Quadratic span programs and suc-
+                                                                      cinct nizks without pcps. In Advances in Cryptology–
+[33] Jacob Eberhardt and Stefan Tai. Zokrates-scalable                EUROCRYPT: 32nd Annual International Conference
+     privacy-preserving off-chain computations. In 2018               on the Theory and Applications of Cryptographic Tech-
+     IEEE International Conference on Internet of Things              niques. Springer, 2013.
+     (iThings) and IEEE Green Computing and Communica-
+                                                                 [45] Geometry. Groth16 malleability. https://geometry.
+     tions (GreenCom) and IEEE Cyber, Physical and Social
+                                                                      xyz/notebook/groth16-malleability, 2023.
+     Computing (CPSCom) and IEEE Smart Data (Smart-
+     Data). IEEE, 2018.                                          [46] Lior Goldberg, Shahar Papini, and Michael Riabzev.
+                                                                      Cairo–a turing-complete stark-friendly cpu architecture.
+[34] Youssef El Housni and Aurore Guillevic. Families of              Cryptology ePrint Archive, 2021.
+     snark-friendly 2-chains of elliptic curves. In Annual In-
+     ternational Conference on the Theory and Applications       [47] Shafi Goldwasser, Silvio Micali, and Charles Rackoff.
+     of Cryptographic Techniques. Springer, 2022.                     The knowledge complexity of interactive proof-systems.
+                                                                      In Proceedings of the Seventeenth Annual ACM Sympo-
+[35] Jens Ernstberger, Stefanos Chaliasos, George Kadi-               sium on Theory of Computing, STOC ’85. Association
+     anakis, Sebastian Steinhorst, Philipp Jovanovic, Arthur          for Computing Machinery, 1985.
+
+
+
+3870    33rd USENIX Security Symposium                                                                  USENIX Association
+[48] Shafi Goldwasser, Silvio Micali, and Charles Rackoff.           composable zero-knowledge proofs. Cryptology ePrint
+     The knowledge complexity of interactive proof systems.          Archive, 2015.
+     Siam J. Comput, 18(1), 1989.
+                                                                [59] Abhiram Kothapalli, Srinath Setty, and Ioanna Tzialla.
+[49] Jens Groth. Simulation-sound nizk proofs for a practical        Nova: Recursive zero-knowledge arguments from fold-
+     language and constant size group signatures. In Ad-             ing schemes. In Annual International Cryptology Con-
+     vances in Cryptology–ASIACRYPT: 12th International              ference. Springer, 2022.
+     Conference on the Theory and Application of Cryptol-
+     ogy and Information Security. Springer, 2006.              [60] Matter Labs. zksync era, 2023. https://era.zksync.
+                                                                     io/.
+[50] Jens Groth. On the size of pairing-based non-interactive
+     arguments. In Advances in Cryptology–EUROCRYPT:            [61] Jan Lauinger, Jens Ernstberger, Andreas Finkenzeller,
+     35th Annual International Conference on the Theory              and Sebastian Steinhorst. Janus: Fast privacy-preserving
+     and Applications of Cryptographic Techniques. Springer,         data provenance for tls 1.3. Cryptology ePrint Archive,
+     2016.                                                           2023.
+
+[51] Thomas Hader, Daniela Kaufmann, and Laura Kovács.          [62] Vu Le, Mehrdad Afshari, and Zhendong Su. Compiler
+     Smt solving over finite field arithmetic. arXiv preprint        validation via equivalence modulo inputs. ACM Sigplan
+     arXiv:2305.00028, 2023.                                         Notices, 49(6), 2014.
+
+[52] Ivan Homoliak, Sarad Venugopalan, Daniël Reijsbergen,      [63] Junrui Liu, Ian Kretz, Hanzhi Liu, Bryan Tan, Jonathan
+     Qingze Hum, Richard Schumi, and Pawel Szalachowski.             Wang, Yi Sun, Luke Pearson, Anders Miltner, Işıl Dil-
+     The security reference architecture for blockchains: To-        lig, and Yu Feng. Certifying zero-knowledge circuits
+     ward a standardized model for studying vulnerabilities,         with refinement types. arXiv preprint arXiv:2304.07648,
+     threats, and defenses. IEEE Communications Surveys &            2023.
+     Tutorials, 23(1), 2020.                                    [64] Tianyi Liu, Tiancheng Xie, Jiaheng Zhang, Dawn Song,
+[53] Miguel Isabel, Clara Rodríguez-Núñez, and Albert Ru-            and Yupeng Zhang. Pianist: Scalable zkrollups via fully
+     bio. Scalable verification of zero-knowledge protocols.         distributed zero-knowledge proofs. Cryptology ePrint
+     In 2024 IEEE Symposium on Security and Privacy (SP).            Archive, 2023.
+     IEEE Computer Society, 2024.                               [65] William M McKeeman. Differential testing for software.
+[54] Daniel Kang, Tatsunori Hashimoto, Ion Stoica, and               Digital Technical Journal, 10(1), 1998.
+     Yi Sun. Zk-img: Attested images via zero-knowledge         [66] Silvio Micali. Computationally sound proofs. SIAM
+     proofs to fight disinformation, 2022.                           Journal on Computing, 30(4), 2000.
+[55] Aniket Kate, Gregory M Zaverucha, and Ian Goldberg.        [67] Ian Miers, Christina Garman, Matthew Green, and
+     Constant-size commitments to polynomials and their              Aviel D Rubin. Zerocoin: Anonymous distributed e-
+     applications. In Advances in Cryptology-ASIACRYPT:              cash from bitcoin. In 2013 IEEE Symposium on Security
+     16th International Conference on the Theory and Appli-          and Privacy. IEEE, 2013.
+     cation of Cryptology and Information Security. Springer,
+     2010.                                                      [68] Valeria Nikolaenko, Sam Ragsdale, Joseph Bonneau,
+                                                                     and Dan Boneh. Powers-of-tau to the people: Decen-
+[56] Hankyung Ko, Ingeun Lee, Seunghwa Lee, Jihye Kim,               tralizing setup ceremonies. Cryptology ePrint Archive,
+     and Hyunok Oh. Efficient verifiable image redacting             2022.
+     based on zk-snarks. In Proceedings of the 2021 ACM
+     Asia Conference on Computer and Communications Se-         [69] o1 labs. Typescript framework for zk-snarks and zkapps.
+     curity, ASIA CCS ’21. Association for Computing Ma-             https://github.com/o1-labs/o1js, 2021.
+     chinery, 2021.
+                                                                [70] Alex Ozdemir and Dan Boneh. Experimenting with
+[57] Ahmed Kosba, Charalampos Papamanthou, and Elaine                collaborative {zk-SNARKs}:{Zero-Knowledge} proofs
+     Shi. xjsnark: A framework for efficient verifiable com-         for distributed secrets. In 31st USENIX Security Sympo-
+     putation. In 2018 IEEE Symposium on Security and                sium (USENIX Security 22), 2022.
+     Privacy (SP). IEEE, 2018.
+                                                                [71] Alex Ozdemir, Fraser Brown, and Riad S Wahby. Circ:
+[58] Ahmed Kosba, Zhichao Zhao, Andrew Miller, Yi Qian,              Compiler infrastructure for proof systems, software ver-
+     Hubert Chan, Charalampos Papamanthou, Rafael Pass,              ification, and more. In 2022 IEEE Symposium on Secu-
+     Elaine Shi, et al. C0c0: A framework for building               rity and Privacy (SP). IEEE, 2022.
+
+
+
+USENIX Association                                                                33rd USENIX Security Symposium       3871
+[72] Alex Ozdemir, Gereon Kremer, Cesare Tinelli, and Clark     [86] Srinath Setty, Justin Thaler, and Riad Wahby. Customiz-
+     Barrett. Satisfiability modulo finite fields. Cryptology        able constraint systems for succinct arguments. Cryp-
+     ePrint Archive, 2023.                                           tology ePrint Archive, 2023.
+
+[73] Alex Ozdemir, Riad S Wahby, Fraser Brown, and Clark        [87] Fatemeh Heidari Soureshjani, Mathias Hall-Andersen,
+     Barrett. Bounded verification for finite-field-blasting         MohammadMahdi Jahanara, Jeffrey Kam, Jan Gorzny,
+     (in a compiler for zero knowledge proofs). Cryptology           and Mohsen Ahmadvand. Automated analysis of halo2
+     ePrint Archive, 2023.                                           circuits. Cryptology ePrint Archive, 2023.
+
+[74] Shankara Pailoor, Yanju Chen, Franklyn Wang, Clara         [88] Justin Thaler et al. Proofs, arguments, and zero-
+     Rodríguez, Jacob Van Geffen, Jason Morton, Michael              knowledge. Foundations and Trends® in Privacy and
+     Chu, Brian Gu, Yu Feng, and Işıl Dillig. Automated de-         Security, 4(2–4), 2022.
+     tection of under-constrained circuits in zero-knowledge
+                                                                [89] Trail of Bits. circomspect: A static analyzer for cir-
+     proofs. Proceedings of the ACM on Programming Lan-
+                                                                     com 2 circuits. https://github.com/trailofbits/
+     guages, 7(PLDI), 2023.
+                                                                     circomspect, 2023. Accessed: 2024-01-31.
+[75] Bryan Parno, Jon Howell, Craig Gentry, and Mariana
+                                                                [90] Franklyn Wang.   Ecne.  https://github.com/
+     Raykova. Pinocchio: Nearly practical verifiable compu-
+                                                                     franklynwang/EcneProject, 2022.
+     tation. Communications of the ACM, 59(2), 2016.
+                                                                [91] Hongbo Wen, Jon Stephens, Yanju Chen, Kostas Fer-
+[76] Rafael Pass, Wei-Lung Dustin Tseng, and Douglas
+                                                                     les, Shankara Pailoor, Kyle Charbonnet, Isil Dillig, and
+     Wikström. On the composition of public-coin zero-
+                                                                     Yu Feng. Practical security analysis of zero-knowledge
+     knowledge protocols. SIAM Journal on Computing,
+                                                                     proof circuits. Cryptology ePrint Archive, 2023.
+     40(6), 2011.
+                                                                [92] Tiancheng Xie, Jiaheng Zhang, Zerui Cheng, Fan Zhang,
+[77] Alexey Pertsev, Roman Semenov, and Roman Storm.                 Yupeng Zhang, Yongzheng Jia, Dan Boneh, and Dawn
+     Tornado cash privacy solution version 1.4. Tornado              Song. zkbridge: Trustless cross-chain bridges made
+     cash privacy solution version, 2019.                            practical. In Proceedings of the 2022 ACM SIGSAC
+[78] Polygon. Miden vm. https://polygon.technology/                  Conference on Computer and Communications Security,
+     polygon-miden, 2023.                                            2022.
+
+[79] Polygon. Polygon zkevm, 2023. https://polygon.             [93] Tiancheng Xie, Yupeng Zhang, and Dawn Song. Orion:
+     technology/polygon-zkevm.                                       Zero knowledge proof with linear prover time. In Annual
+                                                                     International Cryptology Conference. Springer, 2022.
+[80] Purathani Praitheeshan, Lei Pan, Jiangshan Yu, Joseph
+                                                                [94] Xuejun Yang, Yang Chen, Eric Eide, and John Regehr.
+     Liu, and Robin Doss. Security analysis methods on
+                                                                     Finding and understanding bugs in c compilers. In
+     ethereum smart contract vulnerabilities: a survey. arXiv
+                                                                     Proceedings of the 32nd ACM SIGPLAN conference
+     preprint arXiv:1908.08605, 2019.
+                                                                     on Programming language design and implementation,
+[81] Mir Protocol. Plonky2, 2023.                                    2011.
+
+[82] Protocol Labs. Filecoin: A decentralized storage net-      [95] ZCash. halo2, 2023.
+     work. https://filecoin.io/filecoin.pdf, 2023.
+                                                                [96] Fan Zhang, Deepak Maram, Harjasleen Malvai, Steven
+[83] Deevashwer Rathee, Guru Vamsi Policharla, Tiancheng             Goldfeder, and Ari Juels. Deco: Liberating web data
+     Xie, Ryan Cottone, and Dawn Song. Zebra: Anonymous              using decentralized oracles for tls. In Proceedings of
+     credentials with practical on-chain verification and ap-        the 2020 ACM SIGSAC Conference on Computer and
+     plications to kyc in defi. Cryptology ePrint Archive,           Communications Security, 2020.
+     2022.                                                      [97] Liyi Zhou, Xihan Xiong, Jens Ernstberger, Stefanos
+[84] Eli Ben Sasson, Alessandro Chiesa, Christina Garman,            Chaliasos, Zhipeng Wang, Ye Wang, Kaihua Qin, Roger
+     Matthew Green, Ian Miers, Eran Tromer, and Madars               Wattenhofer, Dawn Song, and Arthur Gervais. Sok:
+     Virza. Zerocash: Decentralized anonymous payments               Decentralized finance (defi) attacks. In 2023 IEEE Sym-
+     from bitcoin. In 2014 IEEE symposium on security and            posium on Security and Privacy (SP). IEEE, 2023.
+     privacy. IEEE, 2014.
+
+[85] Scroll. Scroll zkevm, 2023. https://scroll.io/.
+
+
+
+3872   33rd USENIX Security Symposium                                                                  USENIX Association
+

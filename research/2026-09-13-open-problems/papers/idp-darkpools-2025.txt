@@ -1,0 +1,667 @@
+Research Paper Track                                                                                          AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+   Indifferential Privacy: A New Paradigm and Its Applications to
+              Optimal Matching in Dark Pool Auctions
+          Antigoni Polychroniadou                                             T.-H. Hubert Chan                                        Adya Agrawal
+    J.P. Morgan AI Research, J.P. Morgan                                    University of Hong Kong                                  J.P. Morgan Chase
+              AlgoCRYPT CoE                                                   Hong Kong, China                                        Bengaluru, India
+               New York, USA                                                   hubert@cs.hku.hk                                 adya.agrawal@jpmchase.com
+    antigoni.polychroniadou@jpmorgan.com
+
+ABSTRACT                                                                                             1    INTRODUCTION
+Public exchanges like the New York Stock Exchange and NASDAQ                                         Dark pools are private trading venues designed for institutional in-
+act as auctioneers in a public double auction system, where buyers                                   vestors to execute large trades anonymously, concealing details such
+submit their highest bids and sellers offer their lowest asking prices,                              as price and identities until after the transaction. Orders, which
+along with the number of shares (volume) they wish to trade. The                                     include the trade direction (buy or sell), volume, and price, are
+auctioneer matches compatible orders and executes the trades when                                    matched by the operator when they have opposite directions and
+a match is found. However, auctioneers involved in high-volume                                       compatible bid and ask prices. While they help prevent price swings
+exchanges, such as dark pools, may not always be reliable. They                                      from large orders, there are trust concerns. Operators may engage
+could exploit their position by engaging in practices like front-                                    in front running, using insider knowledge of upcoming trades to
+running or face significant conflicts of interest—ethical breaches                                   execute their own trades first and profit from the price movement.
+that have frequently resulted in hefty fines and regulatory scrutiny                                 Additionally, dark pool operators, often large financial institutions,
+within the financial industry.                                                                       may prioritize their own trades over clients’, creating a conflict of
+   Previous solutions, based on the use of fully homomorphic en-                                     interest. The lack of transparency also makes it difficult to detect
+cryption (Asharov et al., AAMAS 2020), encrypt orders ensuring                                       manipulative practices, raising concerns about fairness. Several
+that information is revealed only when a match occurs. However,                                      dark pool operators have been fined for misconduct, including mis-
+this approach introduces significant computational overhead, mak-                                    leading investors and failing to maintain proper trading practices.
+ing it impractical for high-frequency trading environments such as                                   Notable examples include Barclays ($70 million) and Credit Suisse
+dark pools.                                                                                          ($84.3 million) in 2016 for misrepresenting their dark pool opera-
+   In this work, we propose a new system based on differential                                       tions, Deutsche Bank ($3.7 million in 2017) for similar issues, ITG
+privacy combined with lightweight encryption, offering an efficient                                  ($20.3 million in 2015) for conflicts of interest, and Citigroup ($12
+and practical solution that mitigates the risks of an untrustworthy                                  million in 2018) for misleading clients about trade execution [21].
+auctioneer. Specifically, we introduce a new concept called Indif-                                      While dark pools aim to prevent the leakage of large orders, op-
+ferential Privacy, which can be of independent interest, where a                                     erators still gain privileged access to clients’ hidden orders, creating
+user is indifferent to whether certain information is revealed after                                 potential for conflicts of interest or misuse of sensitive data. Recent
+some special event, unlike standard differential privacy. For exam-                                  research has focused on cryptographically protecting order informa-
+ple, in an auction, it’s reasonable to disclose the true volume of a                                 tion. These systems allow users to submit orders in encrypted form,
+trade once all of it has been matched. Moreover, our new concept                                     enabling dark pool operators to compare orders without revealing
+of Indifferential Privacy allows for maximum matching, which is                                      their contents, only unveiling them when matches occur. This ap-
+impossible with conventional differential privacy.                                                   proach ensures greater security and mitigates risks associated with
+                                                                                                     operator access to sensitive trade information.
+KEYWORDS                                                                                                Asharov et al. [1] introduced a secure dark pool model using
+                                                                                                     Threshold Fully Homomorphic Encryption (FHE), which combines
+auctions; differential privacy; dark pools; matching
+                                                                                                     two cryptographic techniques: FHE, allowing computations on en-
+ACM Reference Format:                                                                                crypted data without decryption, and Threshold Cryptography,
+Antigoni Polychroniadou, T.-H. Hubert Chan, and Adya Agrawal. 2025.                                  where a secret (such as a decryption key) is split among multiple
+Indifferential Privacy: A New Paradigm and Its Applications to Optimal                               parties. In this approach, data is encrypted with a public key, and
+Matching in Dark Pool Auctions. In Proc. of the 24th International Confer-                           computations are performed on the encrypted data by an untrusted
+ence on Autonomous Agents and Multiagent Systems (AAMAS 2025), Detroit,                              party. Decryption requires a threshold number of participants to
+Michigan, USA, May 19 – 23, 2025, IFAAMAS, 9 pages.                                                  combine their key shares. In Asharov et al. [1] model, orders are
+                                                                                                     encrypted under a public key, and the operator matches them di-
+                                                                                                     rectly on the encrypted data. Once a match is found, the orders are
+                  This work is licensed under a Creative Commons Attribution Inter-                  decrypted by the clients using their decryption shares, ensuring
+                  national 4.0 License.
+                                                                                                     that no single entity, including the operator, can access the sensitive
+Proc. of the 24th International Conference on Autonomous Agents and Multiagent Systems               order details. Throughout the process, the orders remain encrypted,
+(AAMAS 2025), Y. Vorobeychik, S. Das, A. Nowé (eds.), May 19 – 23, 2025, Detroit, Michigan,          preventing any single party from accessing both the data and the
+USA. © 2025 International Foundation for Autonomous Agents and Multiagent Systems
+(www.ifaamas.org).
+                                                                                                     decryption key. However, FHE is known for being computationally
+
+
+
+
+                                                                                              1670
+Research Paper Track                                                                     AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+heavy, and adding a threshold mechanism increases the complexity.                  (1) Practical Dark Pool Solution: We propose an efficient so-
+Optimizing this for real-time or large-scale applications is still an                  lution for continuous double auctions (such as dark pools)
+active research area. Moreover, the need for multiple parties to                       that conceals both bid and ask quantities, effectively reduc-
+collaborate on decryption and sometimes computation can intro-                         ing reliance on trusted auctioneers while ensuring privacy
+duce significant communication overhead. As a result, the process                      guarantees.
+takes nearly a full second to complete a single match, significantly               (2) Novel Privacy Concept: We introduce indifferential pri-
+impacting performance.                                                                 vacy, a new extension of differential privacy tailored to this
+   A recent development, Prime Match [18], introduces a solution                       context, which can be of independent interest with potential
+to protect the confidentiality of periodic auctions run by a market                    applicability beyond auctions and dark pools.
+operator. Prime Match allows users to submit orders in an encrypted                (3) Maximum Matching: Our new notion of indifferential pri-
+form, with the operator comparing these orders through encryption                      vacy allows us to achieve the optimal maximum matching
+and only revealing them if a match occurs. The auctions capture                        which is impossible to achieve under conventional differen-
+the trade direction (buy or sell) and the desired volume, but ex-                      tial privcy [11].
+clude price. Prime Match represents the first financial tool based on              (4) Efficiency and Implementation: Our system significantly
+secure multiparty computation (MPC). In the high-stakes, highly                        outperforms previous privacy-preserving auction models,
+competitive financial sector, MPC is gaining significant traction as a                 which often struggled with practicality and hindered their
+crucial enabler of privacy, with J.P. Morgan successfully deploying                    adoption in production. We show that our solution rivals non-
+Prime Match in production.                                                             private auction protocols in terms of performance, making
+   However, in continuous double auctions without excluding the                        it viable for real-world deployment.
+price, such as those in dark pools, where the computational complex-
+ity surpasses that of simpler periodic auctions like Prime Match,                  High-Level Idea of our techniques: To preserve privacy while
+secure computation techniques fall short. They cannot support                   matching buy and sell orders, each order is viewed as containing
+high-frequency trading within acceptable timeframes, limiting the               𝑥 units, with users submitting 𝑥 + 𝑛𝑜𝑖𝑠𝑒 orders to the server based
+feasibility of these methods for enhancing privacy in dark pools                on indifferential privacy. The orders are represented as nodes in a
+and the broader financial sector, where speed and efficiency are                bipartite graph, with sell orders from sellers 𝑆𝑖 on the left and buy
+critical.                                                                       orders from buyers 𝐵𝑖 on the right. See Figure 1 for an example. The
+   In this work, we pose the question: Can we achieve a privacy-                server ranks the nodes based on price 𝑝, where higher prices for
+preserving solution to dark pools with efficiency comparable to non-            buyers and lower prices for sellers are considered more favorable,
+private dark pool protocols? We propose a system that combines                  referred to as "extreme" prices. The algorithm then constructs a
+differential privacy with encryption, providing a more efficient                bipartite graph, with edges connecting buy and sell nodes if the
+alternative to secure MPC and FHE. Differential Privacy achieves                buying price meets or exceeds the selling price.
+privacy by adding noise to the results of queries or computations                  In particular, the algorithm constructs and maintains a bipartite
+on datasets. The level of noise is determined by a privacy parame-              graph, where edges exist between buy and sell nodes when their
+ter, which quantifies the trade-off between privacy and accuracy.               prices are compatible, i.e., the buying price is at least equal to the
+By leveraging differential privacy, our dark pool approach ensures              selling price. As matches are made, isolated nodes (the gray nodes in
+that individual orders are obfuscated while still allowing for effec-           Figure 1)—those without neighbors, such as when their price cannot
+tive matching. This method conceals the most critical aspect of                 be met—are promptly removed from the graph. In the maximum
+dark pools—the volumes of orders—thus preserving the primary                    matching problem, the goal is to identify a set of edges where no
+objective of dark pools, which is to hide large trades.                         two edges share a node, thereby maximizing the total number of
+   In summary, integrating differential privacy with encryption                 matches. As mentioned above, nodes with the most popular price
+offers a streamlined, efficient solution that balances privacy and              on one side of the graph are naturally connected to nodes with the
+computational feasibility, making it an attractive practical alterna-           least popular price on the opposite side. These pairs, referred to
+tive to impractical methods like MPC and FHE.                                   as polar opposite nodes, form the basis of an iterative matching
+                                                                                strategy that guarantees an optimal matching solution.
+                                                                                   Our approach maintains this optimal matching even when users
+1.1    Our Contributions:                                                       submit a number of noise-injected fake (the red nodes in Figure 1)
+   Problem Statement: The dark pool consists of 𝑛 agents (clients),             orders to obscure the true amounts of their order. To achieve this,
+and an operator who receives the orders from the clients. Each                  we introduce in-differential privacy (detailed in Section 2.1) and
+order takes one of two forms: (1) Buy Order: (buy, 𝑝, 𝑥), where 𝑥 is            orders are not only sorted by price but also arranged such that each
+the quantity/volume, and 𝑝 is the highest price the buyer is willing            user’s true orders are followed by their corresponding fake orders.
+to pay per share. (2) Sell Order: (sell, 𝑝, 𝑥), where 𝑝 is the lowest              Unlike traditional differential privacy, our new in-differential
+price the seller is willing to accept per share. A buy order can be             privacy concept allows for selective disclosure of information post-
+matched to a sell order if the buying price is at least the selling             match, aligning with realistic scenarios. For instance, in the context
+price. Our objective is to design matching protocols that maximize              of a dark pool trading environment, it becomes acceptable to reveal
+the total number of matches while preserving user data privacy.                 the actual quantity of a trade once it has been fully matched, as
+Specifically, we aim to conceal the quantity 𝑥 of the orders during             it no longer poses a risk to privacy. To establish this new privacy
+the process. Our key contributions are as follows:                              framework, we integrate graph refinement techniques, ensuring
+
+
+
+
+                                                                         1671
+Research Paper Track                                                                     AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+                                                                               ten traders. Notably, their model does not conceal orders; instead, it
+                                                                               discloses an aggregated list of all pending buy and sell orders, which
+                                                                               sets it apart from our solution. Moreover, there are existing works
+                                                                               proposing private dark pool constructions utilizing blockchain tech-
+                                                                               nology [2, 10, 17], our focus diverges from this area. Furthermore,
+                                                                               all these solutions experience slowdowns due to the reliance on
+                                                                               computationally intensive public key cryptographic mechanisms.
+                                                                                  The work of Hsu et al. [11] also considered a private matching
+                                                                               problem under the notion of joint differential privacy, where the
+                                                                               view of the adversary consists of the output received by all users
+                                                                               except the user whose privacy is concerned. Since the notion is
+                                                                               still based on the conventional approach of using divergence on
+                                                                               the adversarial views for neighboring inputs, their privacy notion
+                                                                               can only lead to an almost optimal matching. In contrast, our new
+                                                                               notion can achieve the exact optimal matching.
+                                                                                  The authors in [20] employ differential privacy in a distinct and
+                                                                               simplified setting of volume matching [3, 8, 18], where prices are
+                                                                               predetermined and fixed, to obfuscate aggregated client volumes
+                                                                               and conceal the trading activity of concentrated clients. In their auc-
+                                                                               tion mechanism, the obfuscated aggregate volumes are published
+                                                                               daily, enabling buyers to make informed matching decisions based
+Figure 1: Maximum Matching Example. The figure illustrates a                   on this publicly available inventory.
+bipartite graph and its maximum matching where nodes are first
+sorted by price, followed by the user’s genuine orders and then
+their fake orders. This arrangement ensures optimal matching, max-             2    PRELIMINARIES
+imizing the number of successful pairings according to algorithm 1.            We first describe the problem setting and the adversary model.
+                                                                               Problem Setup. The order of each user 𝑖 has a type 𝜏𝑖 ∈ buy, sell,
+                                                                               a price 𝑝𝑖 ∈ R+, and a positive quantity 𝑥𝑖 ∈ Z+ . An input configu-
+that the protocol not only protects user data but also facilitates an
+                                                                               ration 𝐶 := (𝜏𝑖 , 𝑝𝑖 , 𝑥𝑖 ) : 𝑖 ∈ [𝑛] consists of users’ orders. One unit of
+efficient and optimal matching process, in the presence of noise.
+                                                                               a buy order can be matched to one unit of a sell order if the buying
+   Implementation: We present an end-to-end implementation of                  price is at least the selling price. The goal is to design matching
+our system. While previous FHE-based solutions processed fewer                 protocols that maximize the total number of matched units while
+than one order per second, our system dramatically outperforms                 preserving the privacy of users’ data.
+them, handling between 600 and 850 orders per second (according to             Adversarial Model. The server can observe the most amount of
+Table 2), depending on the input volume. Furthermore, we provide               information, which is modeled as an adversary that is semi-honest,
+an analysis of the overhead introduced by our privacy-preserving               i.e., it will follow the protocol and try to learn about users’ data.
+mechanism compared to the non-private version. While privacy                   Observe that when one unit of a buy order is matched to a sell
+inevitably incurs some cost and does not come for free, our system’s           order, the identities of both the buyer and the seller, as well as
+overhead remains minimal and practical, making it highly suitable              their bidding prices, must be revealed. Here are possible privacy
+for high-frequency trading environments.                                       concepts.
+                                                                                     • Given the bid (𝜏𝑖 , 𝑝𝑖 , 𝑥𝑖 ) of a user 𝑖, the type 𝜏𝑖 and the price 𝑝𝑖
+1.2    Related Work                                                                     are public information, but the number 𝑥𝑖 of units is private.
+The works of [5, 6, 15] leverage secure multiparty computation                          However, the identity of the user 𝑖 is known, and because it
+(MPC) with multiple operators instead of a single one. While this                       is placing a bid, it is also known that 𝑥𝑖 ≥ 1.
+method is computationally faster than fully homomorphic encryp-                         We will develop a new privacy notion that only hides the
+tion (FHE), it comes with significant communication overhead due                        value of 𝑥𝑖 when the bid cannot be fully executed. This the-
+to the necessary interactions among multiple operators. Moreover,                       oretical privacy guarantee will mainly focus on this new
+the practicality of this approach is limited, as most current dark                      notion.
+pool systems operate with a single operator. Importantly, MPC can                    • In practice, perhaps a user may not even want its presence
+only guarantee the privacy of orders if the dark pool operators                         in the system to be known if no unit of its bid is executed.
+do not collude, raising concerns in scenarios where collusion is                        We will later describe how this can be easily achieved by
+feasible. Given these challenges, it is crucial to focus on solutions                   encrypting the user id, but this is not the main technical
+that emphasize single-operator architectures, which can streamline                      focus.
+communication and enhance privacy.
+   The work of Massacci et al. [14] proposes a distributed exchange               Definition 2.1 (Neighboring Input Configurations). Two
+based on a multi-step functionality, including a dark pool compo-              input configurations 𝐶 and 𝐶b are neighboring if except for one user 𝑖,
+nent. Their experiments show that the system can support up to                 all orders of other users are identical, and for user 𝑖, only the quantity
+
+
+
+
+                                                                        1672
+Research Paper Track                                                                              AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+may differ by at most 1, i.e. |𝑥𝑖 − 𝑥b𝑖 | ≤ 1. We denote 𝐶 ∼𝑖 𝐶b in this             P0 on Ω0 , a refinement bP0 of P0 (with respect to F ) is a distribution
+case.                                                                                on F such that for every 𝑖 ∈ Ω0 , P0 (𝑖) = 𝑗:(𝑖,𝑗 ) ∈ F b
+                                                                                                                                 Í
+                                                                                                                                             P0 (𝑖, 𝑗).
+                                                                                        A refinement for a distribution on Ω1 is a distribution on F defined
+   We review some basic probability tools that are commonly used
+                                                                                     analogously.
+in differential privacy [9]. A divergence is used to quantify how
+close two distributions on the same sample space are to each other.
+                                                                                        Refinement 𝑃෠0                                                  Refinement 𝑃෠1
+                                                                                                   0.4                                                     0.1
+   Definition 2.2 (Symmetric Hockey-Stick Divergence). Given                                                            0.3            0. 5            0.1     0.3
+                                                                                            0. 5
+distributions 𝑃 and 𝑄 on the same sample space Ω and 𝛾 ≥ 0, the                                    0.1                                                     0.1
+                                                                                                 0.05
+symmetric hockey-stick divergence is defined as:                                                     0.05                                              0.05
+                                                                                        𝑃0 0.2                          0.1 𝑃1     𝑃0 0.2                 0.05      0.1 𝑃1
+                                                                                                 0.1
+                                                                                                  0.2                                                         0.4
+      HS𝛾 (𝑃 ∥𝑄) := sup max{𝑄 (𝑆) − 𝛾 · 𝑃 (𝑆), 𝑃 (𝑆) − 𝛾 · 𝑄 (𝑆)}.                                  0.1                                                 0.2
+                    𝑆 ⊆Ω                                                                    0.3                         0.6            0.3                          0.6
+
+  Remark 2.3. The hockey-stick divergence is related to the well-
+known (𝜖, 𝛿)-differential privacy inequality.                                        Figure 2: Refinement Pair. The figure shows an example of a
+  Specifically, HS𝑒 𝜖 (𝑃 |𝑄) ≤ 𝛿 if and only if for all subsets 𝑆 ⊆ Ω,               bipartite graph (Ω0, Ω1 ; F ), where each node has a probability
+  𝑄 (𝑆) ≤ 𝑒 𝜖 · 𝑃 (𝑆) + 𝛿 and 𝑃 (𝑆) ≤ 𝑒 𝜖 · 𝑄 (𝑆) + 𝛿.                               mass. Each subfigure shows the probability distribution refinement
+                                                                                     on each side.
+   Definition 2.4 (Differential Privacy). Suppose when a match-
+ing protocol is run on a configuration 𝐶, the adversary can observe
+some information that is denoted by some random object View(𝐶).                         Definition 2.7 (Closest Refinement Pair). Given distributions
+Then, the protocol is (𝜖, 𝛿)-differentially private if for all neighboring           P0 and P1 on sample spaces that are equipped with some relation F
+                                                                                     and a divergence notion D, the divergence between P0 and P1 with
+input configurations 𝐶 and 𝐶, b
+                                                                                     respect to F is defined to be:
+   HS𝑒 𝜖 (View(𝐶)|View( b  𝐶)) ≤ 𝛿.
+   Note that the maximum number of matched units can differ by 1                                            D F (P0 ∥P1 ) = inf D( P
+                                                                                                                                  b0 ∥b
+                                                                                                                                      P1 ),
+for neighboring input configurations. Therefore, to use the conven-                                                              (b   P1 )
+                                                                                                                                  P0 ,b
+tional notion of differential privacy, the matching protocol cannot                    where the infimum is taken over all refinements P
+                                                                                                                                       b0 and b
+                                                                                                                                              P1 of P0
+guarantee that an optimal number of matched units is returned. In                    and P1 , respectively.
+fact, it is not hard to see that to achieve (𝜖, 𝛿)-DP, the protocol will                Remark 2.8. As we shall see, in our dark pool application, the
+need to match the number of units that is about 𝑂 ( 𝜖1 log 𝛿1 ) smaller              relation F in Ω0 × Ω1 , is actually much simpler. In particular, each
+than the maximum possile value.                                                      node from one side has at most one neighbor on the other side. Hence,
+Truncated geometric distribution. Let 𝑍 be an even integer,                          for the distribution on each side, there is only one possible refinement.
+and 𝛼 > 1. The truncated geometric distribution Geom𝑍 (𝛼) has                        Even though the concept of closest refinement pair is not needed for
+support with the integers in [0..𝑍 ] such that its probability mass                  this application, we still give a more general Definition 2.11 which
+                                                 𝑍
+function at 𝑥 ∈ [0..𝑍 ] is proportional to 𝛼 − | 2 −𝑥 | . Specifically, the          may be relevant in future applications.
+probability mass function at 𝑥 ∈ [0..𝑍 ] is
+                                                                                        Fact 2.9 (Universal Closest Refinement Pair [7]). Given the
+                            𝛼 −1             𝑍                                       above distributions P0 and P1 , together with the relation F on their
+                                     𝑍
+                                       · 𝛼 − 2 −𝑥 .
+                       𝛼 + 1 − 2𝛼 − 2                                                corresponding sample spaces, there exists a universal refinement pair
+  Fact 2.5 (Geometric Distribution and DP). For 𝜖 > 0 and 0 ≤                        (b    P1 ) that minimizes D( P
+                                                                                      P0 , b                     b0 ∥bP1 ) for all divergences D satisfying
+                                                             𝑍 𝜖                     the data-processing inequality1 (which includes the hockey-stick di-
+            2 𝑁 1isa random variable with distribution Geom (𝑒 ),
+𝛿 < 1, suppose
+                                                                                     vergence HS).
+where 𝑍 ≥ 𝜖 ln 𝛿 is even. Then, for any integer 𝑛,
+  HS𝑒 𝜖 (𝑛 + 𝑁 ∥𝑛 + 1 + 𝑁 ) ≤ 𝛿.                                                     Intuition. To fit the above notation to our problem, let us consider
+                                                                                     a pair of neighboring input configurations 𝐶 0 and 𝐶 1 , in which the
+2.1     Indifferential Privacy: A Relaxed Notion                                     quantities of some user 𝑖 differ by 1. For instance, in 𝐶 0 , the user 𝑖
+High-Level Goal. We would like to design a protocol that always                      has 𝑛 0 > 0 units, while in 𝐶 1 , the user has 𝑛 1 = 𝑛 0 + 1 units.
+returns the optimal number of matched units, but we will relax the                      For those two input configurations, the corresponding sample
+conventional notion of differential privacy such that the bidding                    spaces of the adversary’s views are Ω0 and Ω1 , which may not be the
+quantity 𝑥𝑖 of a user 𝑖 does not need privacy protection if the order                same, because the supports of the views for the two configurations
+is fully executed.                                                                   may be different.
+Closest Refinement Pair. To describe this new privacy notion, we                        Next, let us look at each point in the sample space more care-
+will need some technical notation. The recent work [7] considers                     fully. As the protocol is being executed, the adversary gains more
+finite sample spaces which are sufficient for our purposes.                          information step-by-step. Hence, each point 𝜎 in the sample space
+                                                                                     is a time-series sequence 𝜎 = (𝜎1, 𝜎2, . . .).
+   Definition 2.6 (Refinement). Suppose Ω0 and Ω1 are sample                         1 A divergence D satisfies the data processing inequality if for any pair of joint dis-
+spaces and F ⊆ Ω0 × Ω1 is a binary relation, which can also be                       tributions (𝑋 0 , 𝑌0 ) and (𝑋 1 , 𝑌1 ) , the corresponding marginal distributions satisfy
+interpreted as a bipartite graph (Ω0 ∪ Ω1, F ). Given a distribution                 D(𝑋 0 ∥𝑋 1 ) ≤ D( (𝑋 0 , 𝑌0 ) ∥ (𝑋 1 , 𝑌1 ) ) .
+
+
+
+
+                                                                              1673
+Research Paper Track                                                                           AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+   Definition 2.10 (Indifference Relation). Given the sample                             (1) Sample non-negative noise 𝑁𝑖 ∈ Z according to the trun-
+spaces Ω0 and Ω1 of the adversary’s views corresponding to neighbor-                         cated geometric
+                                                                                                               distribution Geom𝑍 (𝑒 𝜖 ), for some even
+ing input configurations 𝐶 0 and 𝐶 1 as above, we define an indifference                     𝑍 ≥ 𝜖2 ln 𝛿1 .
+relation F ⊆ Ω0 × Ω1 as follows, where a pair of time sequences                          (2) Create 𝑦𝑖 := 𝑥𝑖 + 𝑁𝑖 nodes of type (𝜏𝑖 , 𝑝𝑖 ), where the type is
+(𝜎 (0) , 𝜎 (1) ) ∈ F is related iff                                                          known to the server.
+     • The two sequences 𝜎 (0) = 𝜎 (1) are the same; or                                      Out of the 𝑦𝑖 nodes, 𝑥𝑖 are real nodes and 𝑁𝑖 are fake nodes.
+     • The two time sequences 𝜎 (0) and 𝜎 (1) have a maximal com-                            Each node contains encrypted information of whether it is
+         mon prefix 𝜌 such that 𝜌 implies that 𝑛 0 units of user 𝑖’s order                   real or fake.
+         have been matched, i.e., in 𝐶 0 , the order of user 𝑖 is fully exe-                 The list of created nodes are sent to the server, where all real
+         cuted.                                                                              nodes appear before the fake nodes. Observe that the server
+                                                                                             cannot distinguish between the real and the fake nodes.
+   With the mathematical concepts formalized, we are ready to
+                                                                                      Cryptographic Assumptions. Depending on what security guar-
+introduce our new notion of privacy.
+                                                                                      antee of the final protocol is needed, we can assume different prop-
+   Definition 2.11 (Indifferential Privacy (IDP)). Suppose when                       erties of the ciphertext.
+a matching protocol is run on a configuration 𝐶, the adversary can                        • To achieve just our notion of indifferential privacy, the en-
+observe some information that is denoted by some random object                              crypted information of a node can be achieved by a non-
+View(𝐶). Then, the protocol is (𝜖, 𝛿)-indifferentially private (IDP) if                     malleable commitment scheme [12]. In practice, we can also
+for all neighboring input configurations 𝐶 and 𝐶b with the appropriate                      use a hash function such as AES.
+indifference relation F defined,                                                            Ideal Commitment Scheme. For ease of exposition, we
+   HS𝑒F𝜖 (View(𝐶) ∥View( b 𝐶)) ≤ 𝛿.                                                         describe our protocol using an ideal commitment scheme.
+                                                                                            A user creates a commitment of a message, which is an
+Intuition. In Definition 2.10, if we only have the first bullet 𝜎 (0) =                     opaque object whose contents the adversary cannot observe.
+𝜎 (1) , then this reduces to the usual differential privacy. The second                     At a later time, the user can choose to open the commit-
+bullet says the indifference relation specifies when the user 𝑖 is                          ment, which must return the original message. In particular,
+indifferent about whether the adversary can distinguish between                             a cryptographic commitment scheme has these key prop-
+the two views in a pair (𝜎 (0) , 𝜎 (1) ) ∈ F .                                              erties: (1) Hiding: The value stays secret until revealed. (2)
+    In our application scenario, this captures the idea that when                           Binding: The committed value can’t be changed. (3) Unforge-
+a user’s order is fully executed, then the privacy of its bidding                           ability: No one can forge or tamper with the commitment.
+quantity no longer needs protection.                                                        (4) Correctness: The committed value is always correctly
+Information Theoretic vs Computational IDP. When we de-                                     revealed.
+scribe our protocol, we will use the ideal functionality of crypto-                       • Assuming the shuffler model, the server does not know
+graphic primitives and prove the privacy under Definition 2.11 that                         which nodes come from which user. Hence, in this case,
+is information theoretic. If we replace the ideal functionality with                        each node also contains encrypted information about the
+the real-world cryptographic construct, we can achieve the follow-                          user ID. However, the server still knows which nodes origi-
+ing notion of computational IDP that is analogous to SIM-CDP                                nate from the same user, and the nodes from the same user
+introduced in Mironov et al. [16].                                                          are sorted in a list such that real nodes appear first before
+                                                                                            the fake nodes.
+   Definition 2.12 (Computational IDP (CIDP)). A protocol Π is                        Node Popularity. In any case, the server can create an ordering on
+(𝜖, 𝛿)-CIDP if there exists a protocol Π ′ that is (𝜖, 𝛿)-IDP such that Π             the nodes on the buyer and the seller sides according to the price.
+and Π ′ are computationally indistinguishable.                                        For a buy node, a higher price is more popular; for a sell node, a
+Technical Focus. In this work, we focus on showing our proto-                         lower price is more popular. On each side, the most or the least
+col using ideal functionality of cryptographic primitives satisfies                   popular price is known as an extreme price.
+Definition 2.11. It is straightforward to apply standard hybrid ar-                   Matching Graph. The algorithm maintains a bipartite graph 𝐺 =
+guments [16] to replace an ideal functionality with the real-world                    (B, S; 𝐸), where there is an edge between a buy and a sell node if
+cryptographic primitive to show that the resulting protocol satisfies                 the prices are compatible, i.e., the buying price is at least the selling
+Definition 2.12.                                                                      price. As some nodes are matched during the process, we assume
+                                                                                      that the algorithm will immediately remove any isolated node that
+                                                                                      no longer has a neighbor.
+3    INDIFFERENTIALLY PRIVATE MATCHING                                                Maximum Matching Problem. Given a bipartite graph 𝐺 =
+     PROTOCOL                                                                         (B, S; 𝐸), a matching 𝑀 ⊆ 𝐸 is a subset of edges such that no
+We describe the components of our private matching protocol.                          two edges in 𝑀 are incident on the same node. The maximum
+Bid Type. For a user 𝑖 with Id𝑖 , its bid has a type 𝜏𝑖 ∈ {Buy, Sell}                 matching problem aims to find a matching 𝑀 with the maximum
+with price 𝑝𝑖 and quantity 𝑥𝑖 ∈ Z ≥0 .                                                number of edges. We next describe a strategy to find a maximum
+Bid Submission. Given the bid (Id𝑖 , 𝜏𝑖 , 𝑝𝑖 , 𝑥𝑖 ) from user 𝑖, suppose              matching on a bipartite graph induced by buyer and seller nodes.
+a user wants to achieve (𝜖, 𝛿)-IDP. Then, it performs the following                   Polar Opposite. Suppose the current matching graph 𝐺 has no
+during bid submission.                                                                isolated nodes. For an arbitrary side, observe that any node on this
+
+
+
+
+                                                                               1674
+Research Paper Track                                                                       AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+side with the most popular price has an edge connected to any                      Algorithm 1: Matching Protocol with Fake Nodes
+node on the other side with the least popular price. We say that
+                                                                                  1   Matching graph 𝐺 ← (B, S; 𝐸)
+two such nodes from the two sides are polar opposite of each other.
+                                                                                  2 𝑢 ← NULL
+The following fact shows that an optimal matching can be returned
+by iteratively matching polar opposites.                                          3  𝑀←∅
+                                                                                  4  while 𝐸 ≠ ∅ do
+   Fact 3.1. Suppose a matching graph 𝐺 has no fake or isolated                    5    if 𝑢 = NULL then
+nodes, and 𝑢 and 𝑣 are any two nodes from the different sides that are             6          From any side and any extreme price on that side,
+polar opposite of each other. Then, there exists a maximum matching                            select the next node 𝑢.
+in 𝐺 in which 𝑢 and 𝑣 are matched.                                                 7    end
+                                                                                   8    Select the next node 𝑣 that is a polar opposite to 𝑢.
+   Proof. Without loss of generality, suppose 𝑢 has the most pop-
+                                                                                   9    The algorithm announces that an attempt is made to
+ular price on its side, while 𝑣 has the least popular price on its
+side. Suppose 𝑀 is a maximum matching in which 𝑢 and 𝑣 are not                            match 𝑢 and 𝑣.
+                                                                                  10    The owners of the two nodes open their commitments
+matched to each other. We will modify 𝑀 without decreasing the
+matching size such that 𝑢 and 𝑣 are matched to each other in the                          (if they have not already done so) and reveal whether
+following steps.                                                                          the nodes are real or fake.
+                                                                                  11    The algorithm infers that if an owner reveals a fake
+    (1) If 𝑢 is not matched to any node, we can make 𝑢 replace any
+                                                                                          node, all the remaining nodes by the same owner are
+        other node on its side, because it has the most popular price.
+                                                                                          also fake.
+        Hence, we may assume that 𝑢 is matched in 𝑀.
+                                                                                  12    if either 𝑢 or 𝑣 is fake then
+    (2) If 𝑣 is not matched in 𝑀, then we can replace the partner
+                                                                                  13          Any fake node and its incident edges are removed
+        of 𝑢 with 𝑣 to make 𝑢 and 𝑣 matched to each other.
+                                                                                               from 𝐺.
+    (3) Otherwise, we have 𝑢 is matched to some 𝑣 ′ and 𝑣 is matched              14    else
+        to some 𝑢 ′ . Observe that if 𝑢 ′ is compatible with the least            15          if both 𝑢 and 𝑣 are real then
+        popular price on the other side, then it must be compatible               16              The pair (𝑢, 𝑣) is matched and added to 𝑀;
+        with 𝑣 ′ . Hence, 𝑢 and 𝑢 ′ can swap partners such that 𝑢 and                              remove 𝑢 and 𝑣 from 𝐺.
+        𝑣 become matched.                                                         17          end
+                                                                    □             18    end
+                                                                                  19    Remove any isolated node from 𝐺.
+Matching with Fake Nodes. With our assumption, for each node
+                                                                                  20    If exactly one of 𝑢 and 𝑣 is still unmatched and remains
+type, we assume that the nodes are sorted such that the nodes from
+                                                                                          in the graph, set 𝑢 to be that node; otherwise, set 𝑢 to
+the same user are together and its real nodes appear first.
+                                                                                          NULL.
+   In each step, the server picks nodes 𝑢 and 𝑣 from the two sides                21 end
+that are polar opposite of each other. The owners of nodes 𝑢 and 𝑣
+                                                                                  22 return matching 𝑀
+will participate in the following protocol:
+   (1) If the node of an owner is real, the owner will open its
+       commitment to reveal the node is real.
+   (2) If the node of an owner is fake, this implies that all real nodes
+                                                                                  3.1    Privacy Analysis
+       of that owner are already matched and the owner will reveal                We show that our dark pool auction protocol satisfies IDP.
+       all its fake nodes.                                                        Neighboring Input Configurations. Recall that we consider
+   (3) If both the nodes 𝑢 and 𝑣 are opened to be real, the nodes 𝑢               neighboring input configurations 𝐶 0 and 𝐶 1 in which exactly one
+       and 𝑣 are mathced and removed from the matching graph.                     user 𝑖 has different bidding quantities. Suppose in 𝐶 0 , the quantity
+   (4) If one of the nodes is real and the other node is fake, the real           is 𝑛 0 and in 𝐶 1 , the quantity is 𝑛 1 = 𝑛 0 + 1.
+       node will be considered in the next iteration if it still has a            Adversarial View. We decompose the view space into Γ ×Λ, where
+       polar opposite in the remaining graph.                                     Γ corresponds to the number of nodes created by user 𝑖, and Λ
+Correctness Intuition. The protocol is outlined in Algorithm 1;                   includes (i) the bid submissions by all other users, and (ii) any
+note that any arbitrary unspecified choice made by the algorithm                  random bits used to make choices in the matching procedure in
+can either be randomized or deterministic according to some addi-                 Algorithm 1. The distributions on Γ differ in 𝐶 0 and 𝐶 1 , but in the
+tional rules.                                                                     two scenarios, the distributions on Λ are identical and independent
+                                                                                  of the Γ component.
+   Lemma 3.2. Algorithm 1 returns a maximum matching between                         Note that any other information observed by the adversary can
+real buy and sell nodes in the matching graph.                                    be recovered by a point in Γ × Λ.
+                                                                                  Indifference Relation. We define an almost trivial relation on
+   Proof. Comparing with the case with no fake nodes, observe
+                                                                                  Γ × Λ, namely, (𝛾 0, 𝜆0 ) ∼ (𝛾 1, 𝜆1 ) iff 𝛾 0 = 𝛾 1 and 𝜆0 = 𝜆1 . This
+that whenever a fake node is encountered, it will be removed im-
+                                                                                  means that the same number of nodes are submitted by user 𝑖 in the
+mediately. Hence, the matching behavior is exactly the same as the
+                                                                                  two scenarios; moreover, all other users submit exactly the same
+case with no fake nodes. From Fact 3.1, a maximum matching is
+                                                                                  bids in the two scenarios, and the also the same random bits are
+returned.                                                        □
+                                                                                  used in the matching process.
+
+
+
+
+                                                                           1675
+Research Paper Track                                                                         AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+   However, this does not mean that the views of the adversary                       Both the non-private and Indifferentially Private (IDP) protocols
+are the same in both scenarios, because the number of real nodes                  were incorporated into ABIDES [4],2 an open-source high-fidelity
+for user 𝑖 are different in 𝐶 0 and 𝐶 1 . Nevertheless, if the views              simulator tailored for AI research in financial markets such as
+are different, it must be because 𝑛 0 real nodes of user 𝑖 have been              stock exchanges. ABIDES is ideal for this purpose, as it supports
+matched in both scenarios, and the algorithm tries to match the next              simulations with tens of thousands of clients interacting with a
+node from user 𝑖. This is consistent with the indifference relation               central server for transaction processing, along with customizable
+described in Definition 2.10.                                                     pairwise network latencies to simulate real-world communication
+                                                                                  delays. We run the simulations on a personal x64-based Windows
+  Lemma 3.3. Using an ideal commitment scheme, the dark pool                      PC equipped with a single Intel Core i5-10210U processor running
+auction protocol is (𝜖, 𝛿)-IDP.                                                   at 1.6 GHz and 16 GB of DDR4 memory.
+                                                                                     ABIDES employs the cubic network delay model, where the
+                                                                                  latency is determined by a base delay (within a specified range)
+    Proof. Recall that from Definition 2.11, our goal is to prove an              and a jitter that influences the percentage of messages arriving
+upper bound for: HS𝜖F (View(𝐶 0 ) ∥View(𝐶 1 )).                                   within a designated timeframe, thereby shaping the tail of the delay
+    Because of the ideal commitment scheme, during the bid submis-                distribution. Our experiments were conducted using three distinct
+sion, the server can only see how many nodes are created by each                  network settings: local (client machines in NYC), global (client
+user. From user 𝑖, the information collected at this stage is a point             machines from NYC to Sydney), and very wide network (client
+in Γ. Suppose that in 𝐶 0 , the distribution of the number of created             machines across the world). For each setting, we configured the
+nodes by user 𝑖 is 𝑃0 ; and in 𝐶 1 , the corresponding distribution is            base delay according to Table 1 while employing the ABIDES’s
+𝑃1 . Note that 𝑃 0 and 𝑃1 are both distributions on Γ. From Fact 2.5,             default parameters for jitter.
+we have: HS𝑒 𝜖 (𝑃0 ∥𝑃1 ) ≤ 𝛿.
+    According to the above discussion, for both 𝐶 0 and 𝐶 1 , we have                          Network Setting             Base Delay (ms)
+the same distribution 𝑄 on Λ that represents other users’ bids and                            Local (Within NYC)              0.021 - 0.1
+the random bits used by the server during the matching process.                             Global (NYC to Sydney)              21 - 53
+    As argued above, a point in Γ × Λ is sufficient to recover the view             Very Wide Network (Across the World)       10 - 100
+of the adversary. Hence, we have:                                                  Table 1: Base delay for different network configurations.
+    HS𝑒F𝜖 (View(𝐶 0 ) ∥View(𝐶 1 )) = HS𝑒 𝜖 ((𝑃0, 𝑄) ∥ (𝑃 1, 𝑄)).
+    Moreover, observe that if (𝛾 0, 𝜆0 ) = (𝛾 1, 𝜆1 ) correspond to two
+points in Γ × Λ under configurations 𝐶 0 and 𝐶 1 , respectively, it
+                                                                                     In our non-private implementation, clients submit their orders
+must be the case that during bid submission, exactly 𝛾 0 = 𝛾 1 nodes
+                                                                                  without concealing their identities. These orders are organized
+are created by user 𝑖. Furthermore, everything is identical in both
+                                                                                  into two doubly linked lists: one for buy orders and another for
+scenarios, except that the (𝑛 0 + 1)-st node in user 𝑖’s list is fake in
+                                                                                  sell orders. Our implementation follows the maximum matching
+𝐶 0 and is real in 𝐶 1 . Therefore, the adversary either has identical
+                                                                                  algorithm explained in Section 3. Once matches are identified, they
+views in both scenarios (because at most 𝑛 0 nodes in user 𝑖’s list
+                                                                                  are sent back to the clients for execution.
+have been attempted to be matched), or else it must be the case
+                                                                                     For our IDP implementation, clients generate an array of sorted
+that all real nodes of user 𝑖 in 𝐶 0 have been fully matched; this is
+                                                                                  orders, with a few randomly numbered fake ones to ensure indif-
+consistent with the indifference relation F .
+                                                                                  ferential privacy. They commit to their identity and whether the
+    Note that 𝑄 is independent of the Γ component. In general, the
+                                                                                  order is real or fake using the Cryptodome library in Python based
+hockey-stick divergence (as well as other commonly used diver-
+                                                                                  on AES. The maximum matching algorithm is employed and if the
+gences) satisfies the property that observing the same extra inde-
+                                                                                  match contains the order that the individual client has placed, the
+pendent randomness should not change the value of the divergence.
+                                                                                  client opens the commitment to the server to reveal whether the
+Hence, we have: HS𝑒 𝜖 ((𝑃0, 𝑄) ∥ (𝑃1, 𝑄)) = HS𝑒 𝜖 (𝑃0 ∥𝑃1 ), which we
+                                                                                  order is real or fake. Then, the server requests the client to reveal
+have already shown is at most 𝛿. This completes the proof.             □
+                                                                                  the identity or tries to find a new match. Once both the parties have
+                                                                                  opened their identity and revealed it to the server, the orders are
+   Corollary 3.4. Replacing the ideal commitment scheme with a                    executed and the next round of matching starts.
+real-world commitment scheme (such as [12]), the dark pool auction
+protocol is (𝜖, 𝛿)-computational IDP.
+                                                                                  4.2     Experimentation
+                                                                                  Performance comparison with non-private implementation.
+                                                                                  To evaluate the performance of our order matching system, we
+4 IMPLEMENTATION AND EVALUATION                                                   compared the total time required to match orders using both the
+4.1 Implementation                                                                non-private and Indifferentially Private (IDP) implementations in
+We provide a comprehensive end-to-end implementation of our                       all three different network settings. We conducted experiments
+indifferentially private dark pool auction. We have also imple-                   with a range of parties each generating 23 orders, starting from 4
+mented a non-private auction to compare the total computation                     parties (25 orders) and extending up to 1024 parties (213 orders).
+and communication time. Our code is available at https://github.                  2 ABIDES has also been used in simulating privacy preserving federated learning
+com/adyaagrawal/idp-darkpool.                                                     protocols such as the most recent work of [13].
+
+
+
+
+                                                                           1676
+Research Paper Track                                                                                                                                                    AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+                           25             Total Time Taken vs Total Orders                                          25             Total Time Taken vs Total Orders                                          25             Total Time Taken vs Total Orders
+                                     Non Private Auction                                                                      Non Private Auction                                                                      Non Private Auction
+                           23        Indifferentially Private Auction                                               23        Indifferentially Private Auction                                               23        Indifferentially Private Auction
+
+
+
+    Total Time (seconds)                                                                     Total Time (seconds)                                                                     Total Time (seconds)
+                           21                                                                                       21                                                                                       21
+                           21                                                                                       21                                                                                       21
+                           23                                                                                       23                                                                                       23
+                           25                                                                                       25                                                                                       25
+                           27                                                                                       27                                                                                       27
+                                25   26    27     28     29     2 10    2 11   2 12   2 13                               25   26    27     28     29     2 10    2 11   2 12   2 13                               25   26    27     28     29     2 10    2 11   2 12   2 13
+                                              Total Orders (Powers of Two)                                                             Total Orders (Powers of Two)                                                             Total Orders (Powers of Two)
+
+                                            (a) Local setting.                                                                      (b) Global setting.                                                            (c) Very Wide Network setting.
+
+                                                                             Figure 3: Comparison of Time Taken Across Different Settings.
+
+
+   The data generation process is designed to ensure that each set                                                                                          Orders Non-Private Time (secs) IDP Time (secs)
+of randomly generated orders consistently achieves a matching                                                                                                  40              0.019698                0.046887
+rate of 70% to 80%.3 For instance, each client generates 8 sorted                                                                                             213              3.887790               13.328184
+orders, with 5 to 7 being real and 1 to 3 being fake. The prices for                                                                                    Table 2: Comparison of Non-Private and IDP total running
+buy orders are randomly selected between 99 and 101, while sell                                                                                         times for a small (40) and large size (213 ) of orders. The
+orders are priced between 98 and 100.                                                                                                                   throughput (orders per second) for the non-private case is
+   From Figure 3, we can see that the total time taken using indiffer-                                                                                  2031 and 2107 and for the indifferential private case is 853 and
+ential privacy auction does not deviate greatly from the non-private                                                                                    615 for 40 and 213 orders, respectively.
+real world implementation. In Table 2 we also mention the orders
+per second for two different scenarios.
+Performance comparison with FHE implementation. Consid-
+ering throughput as the number of orders per second, FHE-based                                                                                           protocol scales linearly with the increased workload. We provide
+solutions can only process around 0.07 orders per second, as shown                                                                                       these additional benchmarks in the full version [19] of the paper.
+in Table 4 of [15] for 40 orders, using threshold fully homomorphic
+encryption (tFHE) implemented via the GPU FHE library of [3].                                                                                            5       CONCLUSION
+Moreover, the actual runtime is even longer, as Table 4 does not                                                                                        In this work, we addressed the limitations of existing privacy-
+account for the additional overhead from threshold decryption and                                                                                       preserving auctions in high-frequency trading, such as dark pools,
+key management, which increases with the number of clients (as                                                                                          where auctioneers can be untrustworthy. Previous methods, like
+highlighted in Table 2 of [1]).                                                                                                                         fully homomorphic encryption, were impractical due to their over-
+   For context, according to [1], running a comparison on encrypted                                                                                     head. Our approach, based on the new notion of Indifferential Pri-
+data for a large amount of orders, 213 orders, takes 7.6 seconds on                                                                                     vacy, provides an efficient, privacy-preserving continuous double
+CPU, while our system processes and matches all orders in 13.32                                                                                         auction that enables maximum matching while minimizing risks.
+seconds in total (see Table 2), not just performing a comparison                                                                                        This makes our system a practical and secure alternative addressing
+on a single order. The FHE-based solution requires at least one                                                                                         both performance and security concerns in modern trading.
+comparison operation per matching attempt, adding to its compu-
+tational burden. Furthermore, the FHE-based timings from [15] are                                                                                        ACKNOWLEDGMENTS
+measured on GPUs; actual performance on CPUs would be even                                                                                              T-H. Hubert Chan was partially supported by the Hong Kong RGC
+slower, whereas our experiments are conducted entirely on CPUs.                                                                                         grants 17201823 and 17202121. This paper was prepared for infor-
+   This illustrates that FHE solutions are an overkill, even with the                                                                                   mational purposes by the Artificial Intelligence Research group of
+benefit of GPU acceleration, while our approach offers a practical                                                                                      JPMorgan Chase & Co. and its affiliates ("JP Morgan”) and is not
+solution. Last but not least, as shown in Table 4 of [15], the latest                                                                                   a product of the Research Department of JP Morgan. JP Morgan
+multi-operator solution, based on secure multiparty computation,                                                                                        makes no representation and warranty whatsoever and disclaims all
+is capable of processing only 26 orders per second, even on high-                                                                                       liability, for the completeness, accuracy or reliability of the informa-
+performance hardware.                                                                                                                                   tion contained herein. This document is not intended as investment
+Scalability with larger datasets. In the experiments above, we                                                                                          research or investment advice, or a recommendation, offer or solici-
+compared the run-times of our protocol with a real-world auction                                                                                        tation for the purchase or sale of any security, financial instrument,
+protocol for up to 1,024 clients, each submitting 8 orders (resulting                                                                                   financial product or service, or to be used in any way for evalu-
+in a total of 213 orders). We have also extended our experiments to                                                                                     ating the merits of participating in any transaction, and shall not
+include scenarios where both the number of orders per client and                                                                                        constitute a solicitation under any jurisdiction or to any person, if
+the total number of clients double incrementally, scaling up to a                                                                                       such solicitation under such jurisdiction or to such person would
+total of 262K orders. Our results show that the differentially private                                                                                  be unlawful.
+
+3When the % of matches is lower, the total running time naturally decreases, as fewer
+matches result in less overhead.
+
+
+
+
+                                                                                                                                              1677
+Research Paper Track                                                                                          AAMAS 2025, May 19 – 23, 2025, Detroit, Michigan, USA
+
+
+
+REFERENCES                                                                                              International Workshops: CoDecFin, DeFi, VOTING, and WTSC, Virtual Event,
+ [1] Gilad Asharov, Tucker Hybinette Balch, Antigoni Polychroniadou, and Manuela                        March 5, 2021, Revised Selected Papers 25. Springer, 348–363.
+     Veloso. 2020. Privacy-Preserving Dark Pools. In Proceedings of the 19th Inter-                [11] Justin Hsu, Zhiyi Huang, Aaron Roth, Tim Roughgarden, and Zhiwei Steven
+     national Conference on Autonomous Agents and Multiagent Systems, AAMAS                             Wu. 2016. Private Matchings and Allocations. SIAM J. Comput. 45, 6 (2016),
+     ’20, Auckland, New Zealand, May 9-13, 2020, Amal El Fallah Seghrouchni, Gita                       1953–1984.
+     Sukthankar, Bo An, and Neil Yorke-Smith (Eds.). International Foundation for                  [12] Huijia Lin and Rafael Pass. 2015. Constant-Round Nonmalleable Commitments
+     Autonomous Agents and Multiagent Systems, 1747–1749. https://doi.org/10.                           from Any One-Way Function. J. ACM 62, 1 (2015), 5:1–5:30.
+     5555/3398761.3398969                                                                          [13] Yiping Ma, Jess Woods, Sebastian Angel, Antigoni Polychroniadou, and Tal
+ [2] Samiran Bag, Feng Hao, Siamak F Shahandashti, and Indranil Ghosh Ray. 2019.                        Rabin. 2023. Flamingo: Multi-Round Single-Server Secure Aggregation with
+     SEAL: Sealed-bid auction without auctioneers. IEEE Transactions on Information                     Applications to Private Federated Learning. In 44th IEEE Symposium on Security
+     Forensics and Security 15 (2019), 2042–2052.                                                       and Privacy, SP 2023, San Francisco, CA, USA, May 21-25, 2023. IEEE, 477–496.
+ [3] Tucker Balch, Benjamin E. Diamond, and Antigoni Polychroniadou. 2020. Se-                          https://doi.org/10.1109/SP46215.2023.10179434
+     cretMatch: inventory matching from fully homomorphic encryption. In ICAIF                     [14] Fabio Massacci, Chan Nam Ngo, Jing Nie, Daniele Venturi, and Julian Williams.
+     ’20: The First ACM International Conference on AI in Finance, New York, NY, USA,                   2018. FuturesMEX: secure, distributed futures market exchange. In 2018 IEEE
+     October 15-16, 2020, Tucker Balch (Ed.). ACM, 15:1–15:7. https://doi.org/10.1145/                  Symposium on Security and Privacy (SP). IEEE, 335–353.
+     3383455.3422569                                                                               [15] Sahar Mazloom, Benjamin E. Diamond, Antigoni Polychroniadou, and Tucker
+ [4] David Byrd, Maria Hybinette, and Tucker Hybinette Balch. 2020. ABIDES: To-                         Balch. 2023. An Efficient Data-Independent Priority Queue and its Application
+     wards High-Fidelity Multi-Agent Market Simulation. In Proceedings of the 2019                      to Dark Pools. Proc. Priv. Enhancing Technol. 2023, 2 (2023), 5–22. https://doi.
+     ACM SIGSIM Conference on Principles of Advanced Discrete Simulation, SIGSIM-                       org/10.56553/POPETS-2023-0038
+     PADS 2020, Miami, FL, USA, June 15-17, 2020, Jason Liu, Philippe J. Giabbanelli, and          [16] Ilya Mironov, Omkant Pandey, Omer Reingold, and Salil P. Vadhan. 2009. Com-
+     Christopher D. Carothers (Eds.). ACM, 11–22. https://doi.org/10.1145/3384441.                      putational Differential Privacy. In CRYPTO (Lecture Notes in Computer Science,
+     3395986                                                                                            Vol. 5677). Springer, 126–142.
+ [5] John Cartlidge, Nigel P. Smart, and Younes Talibi Alaoui. 2019. MPC Joins The                 [17] Chan Nam Ngo, Fabio Massacci, Florian Kerschbaum, and Julian Williams. 2021.
+     Dark Side. In Proceedings of the 2019 ACM Asia Conference on Computer and                          Practical witness-key-agreement for blockchain-based dark pools financial trad-
+     Communications Security, AsiaCCS 2019, Auckland, New Zealand, July 09-12, 2019,                    ing. In Financial Cryptography and Data Security: 25th International Conference,
+     Steven D. Galbraith, Giovanni Russello, Willy Susilo, Dieter Gollmann, Engin                       FC 2021, Virtual Event, March 1–5, 2021, Revised Selected Papers, Part II 25. Springer,
+     Kirda, and Zhenkai Liang (Eds.). ACM, 148–159. https://doi.org/10.1145/3321705.                    579–598.
+     3329809                                                                                       [18] Antigoni Polychroniadou, Gilad Asharov, Benjamin Diamond, Tucker Balch, Hans
+ [6] John Cartlidge, Nigel P. Smart, and Younes Talibi Alaoui. 2021. Multi-party                        Buehler, Richard Hua, Suwen Gu, Greg Gimler, and Manuela Veloso. 2023. Prime
+     computation mechanism for anonymous equity block trading: A secure imple-                          Match: A { Privacy-Preserving } Inventory Matching System. In 32nd USENIX
+     mentation of turquoise plato uncross. Intell. Syst. Account. Finance Manag. 28, 4                  Security Symposium (USENIX Security 23). 6417–6434.
+                                                                                                   [19] Antigoni Polychroniadou, T.-H. Hubert Chan, and Adya Agrawal. 2025. Indif-
+     (2021), 239–267. https://doi.org/10.1002/ISAF.1502
+                                                                                                        ferential Privacy: A New Paradigm and Its Applications to Optimal Matching in
+ [7] T.-H. Hubert Chan and Quan Xue. 2024. Symmetric Splendor: Unraveling Uni-
+                                                                                                        Dark Pool Auctions. arXiv:2502.13415 [cs.CR] https://arxiv.org/abs/2502.13415
+     versally Closest Refinements and Fisher Market Equilibrium through Density-
+                                                                                                   [20] Antigoni Polychroniadou, Gabriele Cipriani, Richard Hua, and Tucker Balch.
+     Friendly Decomposition. CoRR abs/2406.17964 (2024).
+                                                                                                        2024. Atlas-X Equity Financing: Unlocking New Methods to Securely Obfuscate
+ [8] Mariana Botelho da Gama, John Cartlidge, Antigoni Polychroniadou, Nigel P.
+                                                                                                        Axe Inventory Data Based on Differential Privacy. In Proceedings of the 23rd
+     Smart, and Younes Talibi Alaoui. 2022. Kicking-the-Bucket: Fast Privacy-
+                                                                                                        International Conference on Autonomous Agents and Multiagent Systems, AA-
+     Preserving Trading Using Buckets. In Financial Cryptography and Data Security -
+                                                                                                        MAS 2024, Auckland, New Zealand, May 6-10, 2024, Mehdi Dastani, Jaime Simão
+     26th International Conference, FC 2022, Grenada, May 2-6, 2022, Revised Selected
+                                                                                                        Sichman, Natasha Alechina, and Virginia Dignum (Eds.). International Foun-
+     Papers (Lecture Notes in Computer Science, Vol. 13411), Ittay Eyal and Juan A.
+                                                                                                        dation for Autonomous Agents and Multiagent Systems / ACM, 1585–1592.
+     Garay (Eds.). Springer, 20–37. https://doi.org/10.1007/978-3-031-18283-9_2
+                                                                                                        https://doi.org/10.5555/3635637.3663019
+ [9] Cynthia Dwork. 2006. Differential Privacy. In ICALP (2) (Lecture Notes in Computer
+                                                                                                   [21] Sec. [n. d.]. Dark Pool Misrepresentations. https://www.sec.gov/newsroom/press-
+     Science, Vol. 4052). Springer, 1–12.
+                                                                                                        releases/2018-193.
+[10] Hisham S Galal and Amr M Youssef. 2021. Publicly verifiable and secrecy pre-
+     serving periodic auctions. In Financial Cryptography and Data Security. FC 2021
+
+
+
+
+                                                                                            1678
+

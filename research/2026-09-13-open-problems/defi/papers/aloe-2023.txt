@@ -1,0 +1,429 @@
+    Autonomous Lending Organization on Ethereum
+                with Credit Scoring
+                           1st Thomas H. Austin∗ , 2nd Katerina Potika∗ , and 3rd Chris Pollett∗
+                                                 ∗ Department of Computer Science
+
+                                     San José State University, San Jose, CA, United States
+                           Email: thomas.austin@sjsu.edu, katerina.potika@sjsu.edu, chris@pollett.org
+
+
+   Abstract—We propose the Autonomous Lending Organization               We design our system to work on the Ethereum
+on Ethereum (ALOE) system, which enables unsecured borrow-            blockchain [1]. We include an off-chain notary that ties social-
+ing of funds on Ethereum. We incorporate a credit scoring             security numbers to Ethereum addresses, and which assigns
+approach that extends in the DeFi world the one that is used
+by traditional banks in order to quantify the risk of a borrower      an initial credit score derived from the user’s real-world FICO
+defaulting on a loan. As part of the loan process, first, we have a   score (discussed in Section II-A). The real-world identity is
+registration phase, where a notary verifies the real identity of a    divided into secret shares and stored with third-party, off-chain
+borrower and delegates to a set of auditors the task of storing a     auditors, and the notary then forgets the association between
+share of the real identity of a borrower to an Ethereum account       the user’s Ethereum address and their identity. Thus, as long as
+while preserving anonymity. In the next phase, the Credit Bureau
+Smart Contract connects lenders to borrowers and updates credit       the user does not violate the terms of any loans they receive,
+scores. We automatically compute and update credit scores on-         their anonymity is preserved.
+chain using the k-nearest neighbors algorithm.                           Once the identity is established, a CreditBureau smart
+   Index Terms—Credit scores, Decentralized Finance, Decen-           contract matches borrowers and lenders, tracks the repayments,
+tralized Autonomous Organization, Loan, k-nearest neighbors           and maintains credit scores for registered users.
+algorithm, cold start problem, smart contracts
+                                                                         In particular, we propose a system called the Autonomous
+                                                                      Lending Organization in Ethereum (ALOE)1 , that allows a
+                       I. I NTRODUCTION
+                                                                      borrower to create a loan application on the blockchain to
+   Cryptocurrencies are an important, relatively new medium           which investors can contribute capital until the loan funds,
+of exchange. These currencies offer some advantages over              obviating the need of a bank. If the loan funding quantity is
+traditional currencies. They usually operate without relying          not reached within a window of time, the funds are returned
+on a central authority such as a government. They often               to the investors. Otherwise, if the loan is funded, the borrower
+have built-in to their infrastructure the ability to create smart     receives the funds and is expected to make regular payments
+contracts that can be algorithmically carried out and verified.       with interest.
+   One important class of real-world contracts is the loaning of         To make our cryptocurrency based loan process successful,
+money from one individual or group of individuals to another.         we need to propose mechanisms that solve many of the
+In traditional systems, a bank serves as a middle man. It             challenges that a traditional bank faces in deciding whether
+decides the risks it will take when it loans money, and it profits    to loan to a borrower and with what risk. One of these is that
+on the difference between the interest it pays its depositors         the lenders need to know the borrowers likelihood of repaying
+versus the interest it charges to its borrowers. Typically, the       their debt. This likelihood is influenced by the borrowers’
+bank uses a credit score provided by a trusted credit bureau          total outstanding debts, and to know this, the lender needs to
+to measure the credit worthiness of borrowers.                        establish some facts about the identity of the borrower in such
+   While loan systems also currently exist in the cryptocur-          a way that makes it hard for the borrower to fool the system
+rency space, the anonymous nature of most blockchain-based            by creating false identities. In the cryptocurrency setting these
+cryptocurrencies limits the types of loans to either micro-loans,     are ideally established in an anonymizing way, such as via
+where money is borrowed and returned in the same block, or to         a zero knowledge proof and homomorphic encryption so
+collateralized loans where a user secures their loan by staking       as to maintain privacy. As the digital and real-world and
+another type of cryptocurrency asset. Since tracking a user’s         their finances are inextricably intertwined, any mechanism for
+identity is difficult, lenders do not take into consideration the     estimating the likelihood of repaying debts must allow for a
+credit history of that user.                                          way to incorporate measurements of real world debt. From the
+   In this paper, we seek to track a user’s credit score and to tie   perspective of investors the process of investing should be as
+their cryptocurrency account to their real-world identity, but        easy as possible. In the case of a traditional bank, one merely
+without sacrificing the anonymity of well-behaved borrowers.          deposits money in the bank; a depositor has some choice in
+With this design, lenders can offer more generous terms to            the kind of bank account and the interest rate that they receive.
+borrowers, knowing that they can legally pursue the real-world
+borrower if they default on their loan.                                 1 https://github.com/taustin/cryptoCreditBureau/
+   We propose two main mechanisms to solve these problems          and multiplication so could be anonymized using a homo-
+for cryptocurrencies. The first is an identity and credit bureau   morphic encryption scheme such as the Paillier cryptosystem.
+system for the blockchain that solves the problem of mea-          The overall structure of this score can be thought of as
+suring the likelihood of loans to be repaid. The second is a       a single perceptron computation of its inputs, so it is not
+mechanism for categorizing loan smart contracts with similar       surprising that neural net based attempts at computing scores
+properties and aggregating these into a larger contract that an    anonymously such as Aldolfo, et al. [5] have been considered.
+investor can choose to invest in and receive payments from.        We single out the Paillier cryptosystem because it is relatively
+   We now discuss the organization of the rest of the paper.       simple compared to more general homomorphic cryptosystems
+In Section II, we provide some background on a traditional         such as those derived from Gentry [6], hence, the operations
+way to obtain credit scores and an overview of the decen-          computed on the encrypted data will tend to be cheaper in
+tralized finance (DeFi) market. In Section III we present our      terms of gas. Operations on the blockchain are generally
+mechanism by establishing a pseudo-anonymous identity with         visible to everyone, but if a credit score is initially encrypted,
+a crypto credit bureau. In Section IV we describe the credit       and the operations used to update it can be on the encrypted
+score computations. Finally, we conclude in Section V.             data, then we can ensure the borrower, or potential borrower,
+                                                                   has some modicum of privacy if they use our system.
+         II. P RELIMINARIES AND R ELATED W ORK
+   Bitcoin [2] first introduced the world to the power of the      B. Decentralized finance (DeFi) overview
+blockchain for maintaining a ledger without a central authority.      Decentralized finance (DeFi) products can be built on the
+It included the Bitcoin Script language for its transactions,      Ethereum platform. Examples of products include decentral-
+giving it a limited degree of flexibility in the type of trans-    ized lending, borrowing, trading, insurance, payment, ex-
+actions it could conduct. Ethereum [1] builds on Bitcoin’s         changes, tokenized physical assets, etc. These are implemented
+ideas to include a quasi-Turing-complete virtual machine to the    on Ethereum as decentralized applications and smart contracts.
+blockchain. Solidity [3] is currently the most popular language    A decentralized autonomous organization (DAO) is a crypto
+for writing Ethereum smart contracts [4].                          credit organization that has a flat hierarchy rather than tree
+   A few features of both Ethereum and Solidity need to            like hierarchy; every participant has a stake and no single
+be emphasized in order to better understand our design. In         participant controls the organization in the conventional way.
+Ethereum, there are two types of accounts: an externally           DAOs use smart contracts, with participants using governance
+owned account (EOA) is associated with a public key, and           tokens to vote on topics such as fund allocation.
+hence owned by an external user, while a contract account is          MakerDAO2 is a DAO that provides loans at predetermined
+associated with some code. Critically, all transactions must be    interest rates. The basic steps of the loaning process are that
+initiated by an EOA. Within Solidity, the EOA that initiated       the user deposits ether as collateral into a Maker smart con-
+a transaction is identified by the variable tx.origin. The         tract, and the protocol lets one borrow/mint from MakerDAO
+caller of a smart contract (which may be either an EOA or a        a coin called DAI. Borrowing creates a Collateralized Debt
+contract account) is identified by msg.sender. Transactions        Position (CDP) as DAI itself is a stablecoin pegged to the
+may send data and/or ether; if ether is sent, the amount of        US dollar. Compound3 is another leader in DeFi. Compound
+ether transferred is specified by msg.value.                       introduced their own blockchain – Compound Chain. Aave
+                                                                   (formerly ETHLend)4 is the DAO with the largest asset
+A. Traditional Credit Scores                                       diversity. It also has lower collateral requirements as compared
+   We describe a common way of calculating a credit score          to MakerDAO. Aave offers products such as “DeFi blue chips”
+for a traditional loan. After our description, we briefly point    and “flash loans”, which are trustless, and uncollateralized
+out the arithmetical operations that it contains and how they      loans where both the borrowing and the repayment must
+are amenable to homomorphic encryption.                            happen in the same Ethereum block. Cred Protocol 5 is a start
+   The Fair Isaac corporation (now called FICO) is a data          up working on providing decentralized credit score to the Aave
+analytics firm responsible for some of the more popular credit     protocol.
+scores. The FICO Score 8, often used for home loans, consists         Some application require from users identity-related in-
+of the following five components (for now we ignore how these      formation. Verifying identity-related information typically re-
+are calculated): Payment History (PH), Debt Burden (DB),           quires a trusted third party that vouches for the correctness
+Length of Credit History (LoCH), Types of Credit used (ToC),       of the information and is done off-chain. One solution that
+and Recent Credit Searches (RCS). Using these components           is proposed is creating anonymous credentials. These are im-
+the following weighted score, W S, is calculated:                  plemented with the use of zero-knowledge proofs that makes
+                                                                   it possible to create credential verification without revealing
+0.35 · P H + 0.3 · DB + 0.15 · LoCH + 0.1 · T oC + 0.1 · RCS.
+                                                                   sensitive identity attributes of the user to the verifier [7], [8].
+FICO 8 then applies a proprietary function f : [0, 1] →              2 https://makerdao.com/
+[350, 850] to W S to obtain the final FICO 8 score. This score       3 https://compound.finance/
+is supposed to be positively correlated with the probability of      4 https://aave.com/
+
+non-default. The computation of WS only involves addition            5 https://www.credprotocol.com/
+   Similar to our approach for the borrower registration mech-        •  The auditors are responsible for storing shares of the real-
+anism are digital identities and verifiable credentials discussed        world identity associated with a borrower. We trust that
+in [9]. A digital identity is a digital way to identify a person.        they do not release their share of the secret, except as
+This person can prove that this digital identity belongs to them         specified by the protocol. For simplicity, we assume that
+with the use of verifiable credentials.                                  the set of auditors is small, fixed, and publicly known.
+   Microsoft Azure provides a decentralized approach6 for                With additional infrastructure, these assumptions could
+trust between banks. They propose the deployment of an ef-               be relaxed.
+ficient private Ethereum PoA (Proof of authority) blockchain,          • The Credit Bureau Smart Contract (CBSC) stores a map-
+where member banks can establish their own nodes on a dis-               ping between Ethereum addresses and associated credit
+tributed ledger technology, where the credit score information           scoring information. This additional information consists
+of users are kept.                                                       of the credit score associated with the hash identity, a
+   Another system that is related to our borrower registration           timestamp of when this association was made, as well
+mechanism is Hyperledger Indy [10], which is a decentralized             as a point in our credit scoring space. The CBSC is
+credential management system where these credentials are re-             responsible for connecting lenders and borrowers, for
+alized based on Camenisch Lysyanskaya (CL) signatures [11].              tracking loans and repayments, and for updating the
+Hyperledger Indy contains various tools that help with creating          borrower’s credit score. The notary is the only one able
+digital identities on blockchains or other distributed ledgers           to invoke certain methods of this smart contract.
+and they are interoperable across different administrative do-         For the registration phase, significant trust is put on the
+mains, applications, and any other silos.                           notary. If they fail to report accurate scores, a borrower’s
+                                                                    address may have a better credit score than it deserves.
+      III. AUTONOMOUS L ENDING O RGANIZATION ON
+                                                                    Likewise, if the notary records the mapping between the
+                  E THEREUM (ALOE)
+                                                                    borrower’s SSN and their Ethereum address, the borrower’s
+   In the ALOE system, a client’s anonymity is maintained, but      anonymity is not protected. Since the notary’s service is
+their credit score is publicly associated with their Ethereum       likely to be performed manually, it is not possible to enforce
+address. The process begins with a registration step, which         this forgetting. However, we note that if a notary performs
+assigns an initial credit score to an Ethereum address based        their duties properly, they cannot be compelled to reveal the
+on the client’s real-world credit score. Once a new loan has        borrower’s Ethereum address after the fact.
+been created, borrowers and lenders connect to it to either            In our system, there can be multiple notaries operating
+request or invest funds. When the amount of the loan is met         independently. We further assume that the notaries are selected
+with sufficient demand from borrowers and with sufficient           and paid by the borrowers. As a result, market conditions
+investment from lenders, the terms of the loan begin. The           help to ensure that notaries perform their role honestly, since
+borrowers can then get their requested ether from the loan          a notary with a bad reputation is unlikely to receive new
+smart contract and later repay it. Should the borrower default      business.
+on the loan, their real-world identity may be publicly revealed,       With this design, the auditors can collectively tie a user’s
+hence allowing the lenders to pursue them for debt collec-          Ethereum address to their real-world identity (as represented
+tion. The code for our implementation is being developed at         by the user’s SSN). However, no individual auditor can do so.
+https://github.com/taustin/cryptoCreditBureau/.                        We have implemented the CBSC as an Ethereum smart
+A. Borrower Registration                                            contract, called CreditBureau. CreditBureau supports the
+                                                                    following functions relevant to registration:
+   In the registration phase, the client shares their real-world       • construct() creates an Ethereum account for a credit
+identity in the form of their social security number (SSN) with          bureau. The creator of the CreditBureau (identified
+the credit bureau. Registration involves the following entities:         by msg.sender) also acts as the notary for verifying
+   • A borrower is a real person that has a unique SSN and               borrowers. The notary is the only person allowed to
+     an Ethereum address.                                                invoke the method initScoreLedger.
+   • A notary is a trusted real-world entity that validates the        • verifyUnusedAddress(borrower_account)
+     user’s identity, credit score, and Ethereum address. It then        verifies that an address has not previously been used.
+     divides the user’s identity among various auditors, and             This method prevents a borrower from resetting their
+     invokes the credit bureau smart contract to initialize a            credit score by revisiting the notary.
+     credit score for the borrower. This initial score consists        • initScoreLedger(borrower_account,
+     of the saved real world score together with a point in a            ficoScore, timestamp) sets up the scoring
+     credit space that we will describe in the next section. We          for a given borrower_account. The score
+     trust that the notary does not store the association between        ledger can be thought of as a ledger recording real
+     the borrower and their Ethereum address, except for the             world FICO scores, borrowed amounts in the crypto
+     secret shares sent to the auditors.                                 setting, loan repayments, etc. This method calls
+  6 https://docs.microsoft.com/en-us/azure/architecture/example-         verifyUnusedAddress(borrower_account)
+scenario/apps/decentralized-trust                                        to ensure that the address has not been used previously.
+   Figure 1 shows the registration process, detailed below: The         gas. Similarly, the findLoan operation above cost gas
+borrower (1) sends their SSN and their Ethereum address to              to compute and may have already computed the same
+the notary who (2) verifies all real-world information. The             getScore. To avoid expensive recomputations, these
+notary then (3) sends the Ethereum address of the borrower to           calls may be cached.
+the CBSC. The CBSC verifies that it does not already have a           • isReady() returns whether or not the loan has funded.
+credit score associated with the specified address. The notary        • get$$$() transfers the amount of ether previously
+then (4) divides up the SSN using a secret sharing scheme               requested by the borrower once the loan has funded.
+and sends it to the auditors. These messages should include           • makePayment(uint amount) is used by the bor-
+the client’s Ethereum address, the share of their SSN, the hash         rower to make a payment towards a loan. This method
+of the SSN (for verifying results), and the signature of the            succeeds if msg.sender has the necessary funds. As
+hash signed by the notary. This message is (5) repeated for all         part of its implementation, this methods also changes the
+additional auditors. The notary (6) calls initScoreLedger               borrower’s credit score.
+with the borrower’s address, their credit score, and a timestamp      • withdraw(uint amount) allows the investor to
+to register the borrower with an initial score. The notary should       withdraw money from the account up to the invested
+now discard all real-world information about the borrower.              amount plus interest. However, the lender cannot with-
+                                                                        draw until after the loan funds; they may also use
+B. Creating a loan
+                                                                        withdraw to reclaim their funds if the loan fails to
+   Creating a new loan must be initiated by an EOA, who is              either get enough lenders or borrowers.
+responsible for specifying the terms of the loan. We refer to
+                                                                      In this section, we review the process of a borrower taking
+this EOA as the loan creator. Since this operation requires
+                                                                    out a loan and later repaying it. We assume that the loan has
+ether from the loan creator, they may claim a fee from the
+                                                                    been created already, but that it has neither been fully funded
+interest of ether paid by the borrowers. Should there be any
+                                                                    or gathered the full amount of borrowers needed.
+additional ether due to a lender claiming their fund early, the
+                                                                      To track the credit scores, we update the CreditBureau
+additional interest also goes to the loan creator.
+                                                                    smart contract with the following functions:
+C. Borrowing and Lending                                              • updateScoreBorrow(uint amount) tells the
+   The CBSC is responsible for connecting lenders and bor-              credit bureau that a loan has been made of the given
+rowers together by creating a new Loan smart contract. A                amount. When a borrower receives a loan, the loan will
+lender is assumed to have an Ethereum account with some                 in turn invoke this method on the CBSC. The transaction
+amount of ether. We add the following functions to our                  originator can then be used by this method to determine
+CreditBureau smart contract:                                            whose scores should be updated.
+   • createLoan(uint totalAmount, uint                                • updateScoreRepayment(uint amount) tells the
+     intRatePerMil, uint numPayments,                                   CBSC that a loan has received a payback payment of
+     uint secondsBetweenPayments, uint                                  amount. When a borrower makes a payment to a loan,
+     minCreditScore, uint fund_date) public                             the loan will in turn invoke this method on the CBSC. The
+     returns (Loan) creates a new loan that borrowers                   transaction originator (tx.origin) can then be used by
+     and lenders can associate with. If the number of lenders           this method to determine whose scores should be updated.
+     and borrowers is not met by the fund_date of the                   We currently do not support an EOA paying off the loan
+     loan, this money can be reclaimed by the lender. In our            of another EOA, though that support could be added with
+     system, lenders are able to make withdrawals from loans            additional complexity.
+     after investing based on the reserve value.                      • getScore(address client, uint amtRequested, uint in-
+   • findLoan(uint amountNeeded) finds all loans                        tRatePerMil, uint numPayments, uint secondsBe-
+     registered to the credit bureau that could lend the amount         tweenPayments) returns client’s credit score given
+     needed given the user’s requirements.                              the parameters on the amount requested. Details on the
+   Our Loan smart contract supports the following contracts:            calculations for scores are discussed in Section IV.
+   • invest() withdraws the amount msg.value from the                  Figure 2 shows a sequence diagram illustrating this process.
+     lender (msg.sender), adding the balance to the loan            The borrower (1) writes a transaction invoking the Loan smart
+     smart contract. If sufficient funds have been received, then   contract (LoanSC) and requesting a loan. LoanSC (2) calls
+     the time of this transaction is used as the starting time      the CBSC, which (3) responds with the credit score of the
+     of the loan. This timestamp is used to calculate interest      borrower. LoanSC then (4) verifies that the borrower meets
+     accrued.                                                       the loan requirements; if so, it adds the borrower to the list of
+   • borrow(uint amount) is used by the borrower                    borrowers for this loan and (5) updates the borrower’s score
+     (msg.sender) to request a loan; The borrower’s credit          with the CBSC. We note that the borrower’s score is updated
+     score and the amount requested must meet the loan              at this point as if they had already taken the loan.
+     requirements. This method involves a call to getScore             After the above transaction is complete, the borrower must
+     which we will describe below and which might cost              wait until the loan is ready, meaning that there must be
+                                                       Fig. 1. Client Registration
+
+
+
+sufficient lenders and borrowers. Borrowers will repeat steps         on a loan, their real-world identity is essentially revealed to
+1-5. Lenders will instead (step 8) call the invest function.          all users.
+To determine whether the funds are available yet, the borrower           Once the borrower’s real-world identity is revealed, lenders
+may call the isReady function.                                        may pursue the borrower in more traditional manners to recoup
+  In steps 6-7 show the process the loan is not yet ready.            their losses.
+However, after the final lender has invested (step 8), the client
+may call the get$$$ function and receive their tokens (steps                         IV. C REDIT S CORE FORMULAS
+11-12). When the borrower is ready to repay their loan, either           We now describe our credit scoring mechanism and how the
+in part or in whole, they call the makePayment function.              function getScore is computed. Our mechanism is based on
+LoanSC then contacts CBSC, updating the borrower’s credit             the k-nearest neighbors algorithm and is carried out on-chain.
+score accordingly.                                                    We deliberately chose that our system was to be computed on
+                                                                      chain. This design allows the operations involved in the credit
+D. Loan Default                                                       scoring to be publicly carried out and verified by the chain
+   If a client fails to repay a loan the lender may contact           mechanism. If we perform the operations off-chain, we would
+the auditors to reveal the client’s identity. We assume that          need to verify on-chain that the score was updated honestly.
+an external automated process periodically checks for loan            While this might allow us to use a more sophisticated model,
+defaults, and then writes a transaction whenever a loan default       it introduces significant extra complexity.
+is detected. (By Ethereum’s design, a smart contract can only            Certain global properties of our model are computed period-
+be triggered by a transaction.)                                       ically every fixed number of times createLoan is called. We
+   The steps are as follows: A transaction (1) is written to the      imagine that createLoan is called less frequently than the
+CBSC notifying it of the loan default. The CBSC (2) verifies          borrowing, lending, withdrawing, or make payment operations.
+the default and contacts the auditors with proof of the loan          An individual calling the createLoan operation needs to
+defaults. Each auditor (3) verifies the proof and responds with       pay the transaction fee so that there is sufficient gas to carry
+their share of the user’s social security number (or other real-      out these updates; on the other hand, as we detail elsewhere,
+world identification). Any lender involved in the defaulted loan      the caller of createLoan is entitled to any leftover interest
+may then (4) call the CBSC to get the shares of the user’s            payments made by borrowers after all lenders have withdrawn
+social security number. Off chain, the lender (5) combines the        their share along with an interest premium.
+identity slices to reveal the identity of the client.                    Our nearest neighbor model tracks five main ratios moti-
+   We note that anyone who could view the blockchain could            vated by the component of FICO 8 as well as a set of window
+also see the identity of the defaulted user, regardless of the        ratios. We store ratios in the smart contract using pairs of
+permissions of the function to get the shares. If a user defaults     integers to avoid Ethereum dust. For each ratio, we also keep
+                                                      Fig. 2. Borrowing Process
+
+
+
+track of the last time it was updated and other bookkeeping              need to compute a square root of sum of squares of the
+information needed to incrementally update it without having             differences outstanding debts and the AOB. Each term
+to store histories of all operations. Our nearest neighbor model         in this sum would change any time that AOB changes.
+consists of the following quantities:                                    We would also like to avoid computing floating point
+                                                                         operations like square root. So instead we compute a
+  • Underpay Ratio (UPR). The ratio of time that the
+                                                                         quantity we call Total Approximate Error (TAE). This
+    amount an individual owes is more than the amount that
+                                                                         starts out as 0 and when we update COB and AOB,
+    they should owe versus the total time span of all loans that
+                                                                         we add to it the current value of ∆T · |COB − AOB|
+    that individual has ever carried. This component captures
+                                                                         where ∆T is the change in time since the last update. We
+    an individual’s payment history as a single number. To
+                                                                         then define a “pseudo”-standard deviation in AOB to be
+    compute this, the credit bureau needs to known the
+                                                                         T AE/F LT . If CDBR is bigger than 1, we set its value
+    timestamp of the first loan of a borrower (FLT). Whenever
+                                                                         to 1 when using it. This number captures the average debt
+    a payment is made, it can also update based on the
+                                                                         burden of an individual.
+    payment the total time the amount owed was greater than
+                                                                       • Current Payment Burden Ratio (CPBR). The ratio of
+    what should have been owed (TOT). This ratio is then
+        T OT                                                             the current payment per day not to be behind on the
+    N OW −F LT .                                                         loan versus the user’s average payment per day not to be
+  • Current Debt Burden Ratio (CDBR). The ratio of cur-
+                                                                         behind on the loans (since first loan was taken) plus three
+    rent outstanding debt (COB) to the average outstanding
+                                                                         “pseudo” standard deviations. This quantity is computed
+    debt (AOB) plus three “pseudo” standard deviations. The
+                                                                         using techniques similar to what we just described for
+    average outstanding debt can be computed as the total
+                                                                         CDBR. If this ratio is bigger than 1, we set its value to
+    ever loaned (TEL) divided by TOT. Both COB, TEL,
+                                                                         1 when using it. This number captures on how big the
+    and AOB can be update on payments and new loans.
+                                                                         current payment is compared to the payment the user has
+    To compute the standard deviation in AOB, we would
+    traditionally had and captures to some degree the effect        The ranges of each of our five quantities are between 0 and
+    of different interest amounts.                                  1; during the training phase one can tune the accuracy of the
+  • Repayment Age Ratio (RAR). The loan size weighted               starting and subsequent models by choosing to scale the size
+    age of all loans a user has had versus time since their first   of individual components.
+    loan received. Let Li and Ti denote the amount of the              k-d trees are an obvious choice to store (UPR, CDBR,
+    ith loan received by the user and the time at which this        CPBR, RAR, ANCL) vectors as they allow for logarithmic
+    loan was made. Then this quantity is 1/(N OW − T0 ) ·
+    P                                                               lookup times of nearest neighbors. However, the use of such
+       i Li ·(N OW −Ti ). It can be incrementally updated each      a structure would also entail a logarithmic overhead any time
+    P a loan is made, by updating TEL, and W T EL :=
+    time                                                            such a vector needs to be updated. This latter operation we
+       i Li · Ti . From these quantities, we compute RAR as         would expect to occur with each loan payment, and hence,
+    1/(N OW −T0 )·(N OW ·T EL−W T EL). This quantity                more frequently than getScore calls. For this reason, and
+    is intended to correlate with length of credit history and      because it is simpler to implement, especially on-chain, we
+    recentness of debt.                                             chose the brute force implementation of k-nearest neighbors
+  • Average Number of Credit Lines (ANCL). The quantity             in which vectors are stored in an array indexed by hash of
+    tracks the average number of loans the user has had             the user’s address. So updating a vector for a user on a loan
+    since the user’s first loan. Let Si denote the number of        payment is an O(1) operation. On the other hand, finding the
+    simultaneous loans held when the ith loan was made.             k-nearest neighbors requires a linear scan of all our vectors.
+    In the sequence of Ti of times of loans imagine we                 The use of the brute force algorithm for nearest neighbors
+    append one additional
+                        PN OWtime TN OW . We compute this as        means that the cost to compute getScore increases in time
+    1/(N OW − T0 ) · i           Si · (Ti+1 − Ti ). This roughly    and in gas as more loans are made. Currently, gas costs around
+    tracks with a user maintaining a variety of kinds of credit.    20-30 gwei [12] and the gas needed to compute the distance
+  • Odds Stay Current w-day window (OSC-w) The                      between two vectors and then compare to either insert or not
+    fraction of time that for the next window period, the           insert into the priority queue of the current best k neighbors
+    user never owed more than they should have if regular           in typically in the low to medium hundreds, say 300. The cost
+    payments were made. We compute OSC-w for 1 day, 2               to run a credit score in the real-world is usually less than say
+    days, 4 days, 8 days, 16 days, 32 days, 64 days, 128 days,      $50. Together these give a bound on the number of points to
+    256 days, 512 days, 1024 days, 2048 days, 4096 days,            keep in our model for a comparable cost in the low tens of
+    8192 days, and 16384 days (about 45 years).                     thousands. Using sampling, we size our initial model to meet
+                                                                    these criteria. Thereafter, to maintain a limit on memory size
+Although we track these quantities, getScore’s value                we use two models for each loan duration window: an old
+is not the weighted sum of these scores. We com-                    and a new model. As new loan data arrive they are used to
+pute a user’s score with the amount requested parameters            adjust the new model. A linearly weighted sum of the two
+from createLoan: amtRequested, intRatePerMil,                       models is used as the score based on the ratio of sizes of the
+numPayments, secondsBetweenPayments, and calcu-                     two models. When the size of the new model reaches that of
+late what would be the user’s values for UPR, CDBR, CPBR,           the old model, the old model is discarded and the new model
+RAR, NCLR if the loan were approved. We then make a vector          becomes the old model. Finally a new, new model is started.
+(UPR, CDBR, CPBR, RAR, ANCL) and look up for the k
+nearest neighbors by Euclidean distance, their OSC-w’s that                    V. C ONCLUSION AND F UTURE W ORK
+bracket the loan period and take the inverse distance weighted         ALOE allows for lenders and borrowers to connect in
+average of these OSC-w’s over the neighbors as the score.           order to conduct loans. Loan credit scores are computed
+To allow a user who has no credit history, and hence no score       based on ongoing borrower behavior. Lenders are guaranteed a
+vector, to obtain a loan, if the loan amount is below a threshold   minimum score for the loans they invest in so they can choose
+(for example, less than $1000 worth of ether), and the loan         the amount of risk they are comfortable with. Furthermore,
+payment for the loan is less than a different threshold (for        we allow the identity of borrowers to be revealed should they
+example, less than the equivalent of $100 per month), then          default on a loan, while preserving the anonymity of well-
+the score returned by getScore is just the FICO score over          behaving borrowers.
+1000. So a FICO score of 850 in this case, would be returned           In future work, we plan to include more advanced forms
+by getScore as 0.850.                                               of encryption. Proxy re-encryption [13] allows data to be
+  To solve the cold start problem, the quantities above can be      encrypted on the cloud and re-encrypted for new users, with
+calculated for loan data in other currencies than Ethereum.         obvious applications for storage on a public blockchain. Ho-
+In particular, public domain data sets such as the national         momorphic encryption [14] allows some operations to be car-
+database model program, Kaggle, etc. can be used to populate        ried out on data without decrypting it. Zhou and Wornell [15]
+an initial model for use in the CBSC. From this initial model,      provide a simpler homomorphic encryption scheme for integer
+the value of k for the number of neighbors to consider can          vectors that would be implementable on chain.
+be computed by root mean square error estimation. These                An additional direction to explore would be to integrate an
+computations to create an initial model can be done off-chain.      off-chain oracle for the k-nearest neighbor work, potentially
+reducing the cost of the calculations significantly. However,
+providing the same security guarantees with this approach
+introduces some additional challenges.
+   Zero-knowledge proofs [16] could provide further
+anonymity so that only the minimum score is proved during
+borrowing. Additionally, our design assumes a single address
+per borrower. A borrower might want several addresses or to
+change an address over time. With additional infrastructure,
+we could tie these addresses to a single credit score. With
+these features, we hope to bring more traditional financial
+structures into the world of decentralized finance.
+                              R EFERENCES
+ [1] G. Wood, “Ethereum: A secure decentralised generalised transaction
+     ledger,” 2014.
+ [2] “Bitcoin: A peer-to-peer electronic cash system,” 2009.
+ [3] “The solidity contract-oriented programming language.” https://github.
+     com/ethereum/solidity, accessed November 2020.
+ [4] N. Szabo, “Formalizing and securing relationships on public networks,”
+     First monday, 1997.
+ [5] L. Andolfo, L. Coppolino, S. D’Antonio, G. Mazzeo, L. Romano,
+     M. Ficke, A. Hollum, and D. Vaydia, “Privacy-preserving credit scoring
+     via functional encryption,” in International Conference on Computa-
+     tional Science and Its Applications, pp. 31–43, Springer, 2021.
+ [6] C. Gentry, “Fully homomorphic encryption using ideal lattices,” in
+     Proceedings of the Forty-First Annual ACM Symposium on Theory of
+     Computing, STOC ’09, (New York, NY, USA), p. 169–178, Association
+     for Computing Machinery, 2009.
+ [7] R. Muth, T. Galal, J. Heiss, and F. Tschorsch, “Towards smart contract-
+     based verification of anonymous credentials,” Cryptology ePrint Archive,
+     2022.
+ [8] C. Lin, M. Luo, X. Huang, K.-K. R. Choo, and D. He, “An efficient
+     privacy-preserving credit score system based on noninteractive zero-
+     knowledge proof,” IEEE systems journal, 2021.
+ [9] J. Sedlmeir, R. Smethurst, A. Rieger, and G. Fridgen, “Digital identities
+     and verifiable credentials,” Business & Information Systems Engineering,
+     vol. 63, no. 5, pp. 603–613, 2021.
+[10] T. Kuhrt, “Hyperledger indy.” Hyperledger Foundation, 2022 (accessed
+     August 12, 2022).
+[11] J. Camenisch and A. Lysyanskaya, “A signature scheme with efficient
+     protocols,” in International Conference on Security in Communication
+     Networks, pp. 268–289, Springer, 2002.
+[12] R. deBest, “Average daily gas price of ethereum from august 2015 to
+     may 16, 2022,” 2022.
+[13] S. S. D. Selvi, A. Paul, S. Dirisala, S. Basu, and C. P. Rangan, “Shar-
+     ing of encrypted files in blockchain made simpler,” in Mathematical
+     Research for Blockchain Economy, pp. 45–60, Springer, 2020.
+[14] A. Acar, H. Aksu, A. S. Uluagac, and M. Conti, “A survey on
+     homomorphic encryption schemes: Theory and implementation,” ACM
+     Computing Surveys (Csur), vol. 51, no. 4, pp. 1–35, 2018.
+[15] H. Zhou and G. Wornell, “Efficient homomorphic encryption on integer
+     vectors and its applications,” in 2014 Information Theory and Applica-
+     tions Workshop (ITA), pp. 1–9, 2014.
+[16] Y. Han, H. Chen, Z. Qiu, L. Luo, and G. Qian, “A complete privacy-
+     preserving credit score system using blockchain and zero knowledge
+     proof,” in 2021 IEEE International Conference on Big Data (Big Data),
+     pp. 3629–3636, 2021.
+

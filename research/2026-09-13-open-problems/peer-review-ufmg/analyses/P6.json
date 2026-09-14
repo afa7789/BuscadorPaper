@@ -1,0 +1,88 @@
+{
+  "reviewer": "P6",
+  "ideas": [
+    {
+      "id": 1,
+      "relevance": 7.6,
+      "originality": 6.5,
+      "feasibility": 5.2,
+      "main_objection": "A vantagem só pode ser avaliada após compor pertencimento com autorização, valores e nullifier preservando a segurança do Zswap.",
+      "confidence": "medium",
+      "weighted": 6.495
+    },
+    {
+      "id": 2,
+      "relevance": 8.0,
+      "originality": 6.2,
+      "feasibility": 8.2,
+      "main_objection": "SnarkPack já compara agregação com batching; falta demonstrar uma pergunta específica do Zswap além da integração.",
+      "confidence": "medium",
+      "weighted": 7.43
+    },
+    {
+      "id": 3,
+      "relevance": 8.1,
+      "originality": 6.7,
+      "feasibility": 8.7,
+      "main_objection": "A desigualdade conservadora é simples e a anterioridade exata de certificados por faixa permanece sem resolução.",
+      "confidence": "medium",
+      "weighted": 7.79
+    },
+    {
+      "id": 4,
+      "relevance": 7.6,
+      "originality": 7.0,
+      "feasibility": 4.2,
+      "main_objection": "A adaptação pode exigir conceber um protocolo criptográfico, contrariando a preferência de evitar novas primitivas.",
+      "confidence": "low",
+      "weighted": 6.37
+    },
+    {
+      "id": 5,
+      "relevance": 8.5,
+      "originality": 7.0,
+      "feasibility": 5.4,
+      "main_objection": "Autenticidade da resposta ao cliente não garante uma apresentação verificável por terceiros vinculada à base e época aceitas.",
+      "confidence": "medium",
+      "weighted": 7.045
+    },
+    {
+      "id": 6,
+      "relevance": 8.1,
+      "originality": 7.0,
+      "feasibility": 6.3,
+      "main_objection": "Recuperação completa exige delimitar retenção, falhas e transição entre camadas; custo e vazamento da composição estão desconhecidos.",
+      "confidence": "medium",
+      "weighted": 7.175
+    }
+  ],
+  "ranking": [
+    3,
+    2,
+    6,
+    5,
+    1,
+    4
+  ],
+  "recommended": 3,
+  "backup": 2,
+  "sources": [
+    "https://ppgcc.dcc.ufmg.br/wp-content/uploads/2025/10/Edital-Regular_Ciencia-da-Computacao_MD_2026.pdf",
+    "https://ppgcc.dcc.ufmg.br/docentes/",
+    "https://ppgcc.dcc.ufmg.br/editais/",
+    "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+    "https://github.com/felix-engelmann/zswap-code",
+    "https://kohweijie.com/articles/23/semacaulk.html",
+    "https://eprint.iacr.org/2022/957",
+    "https://eprint.iacr.org/2021/529",
+    "https://eprint.iacr.org/2025/1802",
+    "https://eprint.iacr.org/2026/832",
+    "https://eprint.iacr.org/2023/1830",
+    "https://www.usenix.org/system/files/usenixsecurity26-edalatnejad.pdf",
+    "https://eprint.iacr.org/2025/2177",
+    "https://eprint.iacr.org/2022/1362",
+    "https://www.usenix.org/system/files/usenixsecurity26-shuhan.pdf",
+    "https://www.usenix.org/system/files/usenixsecurity26-liang.pdf",
+    "https://eprint.iacr.org/2026/910"
+  ]
+}

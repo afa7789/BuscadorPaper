@@ -1,0 +1,1460 @@
+   InstantOMR: Oblivious Message Retrieval with
+     Low Latency and Optimal Parallelizability
+Haofei Liang, Shanghai Jiao Tong University; Zeyu Liu, Yale University; Eran Tromer,
+ Boston University; Xiang Xie, Primus Labs; Yu Yu, Shanghai Jiao Tong University
+         https://www.usenix.org/conference/usenixsecurity26/presentation/liang
+
+
+
+
+         This paper is included in the Proceedings of the
+                35th USENIX Security Symposium.
+                    August 12–14, 2026 • Baltimore, MD, USA
+                                ISBN 978-1-939133-58-8
+
+
+                        Open access to the Proceedings of the
+                          35th USENIX Security Symposium
+                                  is sponsored by
+                             InstantOMR: Oblivious Message Retrieval
+                           with Low Latency and Optimal Parallelizability
+
+
+            Haofei Liang                                          Zeyu Liu                                 Eran Tromer B
+    Shanghai Jiao Tong University                              Yale University                            Boston University
+       lianghaofei@sjtu.edu.cn                               zeyu.liu@yale.edu                             tromer@bu.edu
+                            Xiang Xie B                                         Yu Yu B
+                            Primus Labs                               Shanghai Jiao Tong University
+                     xiexiangiscas@gmail.com                               yyuu@sjtu.edu.cn
+
+                         Abstract                                 all messages. This introduces a significant communication
+                                                                  and computation burden for resource-limited recipients (e.g.,
+Oblivious message retrieval (OMR) addresses the expensive
+                                                                  apps running on mobile devices).
+secure message retrieval process in anonymous messaging
+systems and private blockchains: It enables resource-limited         For such recipients, it is desirable to outsource this to a pow-
+recipients to outsource detection and retrieval of their mes-     erful server in a private way. Oblivious Message Retrieval
+sages, while preserving privacy.                                  (OMR) [28] addresses this problem, using homomorphic en-
+                                                                  cryption in the single-server setting.
+   This work introduces InstantOMR, a novel OMR scheme
+that combines TFHE functional bootstrapping with standard         Summarized system model. We first briefly summarize
+RLWE operations in a hybrid design. InstantOMR is specifi-        the OMR system model. In the system, there exist senders
+cally optimized for low latency and high parallelizability. Our   who want to send messages to the recipients without leaking
+implementation, using the Primus-fhe library (and estimates       the identity of the recipients. Each message consists of a
+based on TFHE-rs), demonstrates that InstantOMR offers the        payload (the content the sender would like to send) and a
+following key advantages:                                         clue (usually a ciphertext, indicating who the recipient is in
+• Low latency: InstantOMR achieves ∼860× lower latency            a privacy-preserving way) generated using the clue key from
+  than SophOMR, the state-of-the-art single-server OMR.           the recipient. All these messages are put on a bulletin board
+  This translates directly into reduced recipient waiting time    (or board for short). When the recipients want to obtain their
+  (by the same factor) in the streaming setting, where the de-    messages, they send a detection key to an untrusted third
+  tector processes incoming messages on-the-fly and returns       party, the detector. The detector then uses the board and the
+  a digest immediately upon the recipient becoming online.        detection key to generate a digest, which the recipient decodes
+• Optimal parallelizability: InstantOMR scales near-              and obtains all the payloads pertinent to them. This workflow
+  optimally with CPU cores (by processing messages indepen-       is also visualized in Fig. 1.
+  dently), so for high core counts, it is faster than SophOMR
+                                                                  Existing OMR constructions. All prior single-server OMR
+  (whose parallelism is constrained by its reliance on BFV).
+                                                                  schemes [26, 28–30] utilize the BFV homomorphic encryp-
+                                                                  tion scheme [13, 22]. Such a construction achieves high
+1    Introduction                                                 throughput: SophOMR [26] takes only ∼1.83 minutes to do
+                                                                  retrieval over 216 messages (∼1.68ms per message), while
+In privacy-preserving message delivery systems require more       PerfOMR [30] takes ∼8.0 minutes.
+than end-to-end encryption that protects the contents of mes-        However, a major bottleneck of these constructions is la-
+sages. Leakage of metadata, exploited by traffic analysis can     tency: even when retrieving a single message, SophOMR [26]
+also reveal sensitive information [6, 33]. Thus, it is widely     takes ∼76 seconds, and PerfOMR [30] takes ∼89 seconds.
+recognized that metadata privacy should be fully protected in     This is because the throughput is achieved via amortizing
+applications like private messaging [8, 11, 20, 42] or privacy-   costs across many messages. The high latency impacts user
+preserving blockchains [9, 12, 35]                                experience in scenarios requiring frequent, small-sized re-
+   Protecting the identity of message recipients poses a chal-    trievals or real-time streaming of updates.
+lenge: from a recipient’s perspective, a message addressed to        This also causes these existing schemes to have limited
+them can appear anywhere in the message sequence (e.g., the       parallelizability: to effectively utilize c cores, [26, 30] need to
+public ledger, in blockchain applications). Therefore, to find    batch-process c · N messages for large N (e.g., 215 or 216 ) to
+their pertinent messages, they need to scan and trial-decrypt     fully utilize these c cores, due to the limitation that BFV can-
+
+
+
+USENIX Association                                                                    35th USENIX Security Symposium           4227
+not benefit much from multi-threading. Ideally, we would like
+to be able to process each individual message independently,
+implying that detector retrieval computations of nontrivial
+size can be optimally parallelized across any reasonable num-
+ber of cores (i.e., requires only c messages to fully utilize c
+cores).
+   We thus ask the following question:
+   Can we build OMR with low latency and optimal paral-
+lelizability without sacrificing much throughput?
+   This paper shows such a scheme.
+                                                                       Figure 1: Summary of system model and main paradigm.
+
+
+                                                                   1.2     Related Work
+1.1    Our Contribution
+                                                                   Oblivious message retrieval. Oblivious message retrieval
+We present InstantOMR, a novel OMR construction leverag-           (OMR) was first introduced in [28] as a solution to the prob-
+ing TFHE [16], optimized for latency and parallelizability:        lem of recipient privacy in anonymous messaging systems.
+                                                                   Group OMR [29] extends it to the group setting, where each
+• Low-Latency Per-Message Processing: InstantOMR op-
+                                                                   message may have multiple recipients. PerfOMR [30] pro-
+  erates the homomorphic retrieval circuit over individual
+                                                                   vides a more efficient OMR construction by using RLWE
+  messages rather than message batches in prior works. This
+                                                                   instead of LWE for clue generation. SophOMR [26] further
+  eliminates high-latency inherent in BFV-based designs.
+                                                                   improves the efficiency by fully exploiting the native homo-
+• Seamless Parallelism: Per-message processing also en-
+                                                                   morphic SIMD structure of the underlying HE scheme. [27]
+  ables optimal parallel scalability. In particular, only c mes-
+                                                                   focuses security against spamming/DoS attacks from mali-
+  sages are needed to fully utilize c cores.
+                                                                   cious senders, proposing a provably DoS-resistant OMR built
+• Hybrid Use of TFHE and RLWE Operations:
+                                                                   upon PerfOMR. All these works rely on BFV leveled homo-
+  InstantOMR employs a novel two-layer structure of TFHE
+                                                                   morphic encryption scheme [13, 22] and work with a single
+  functional bootstrapping for homomorphic clue decryption
+                                                                   server as our paper. We discuss multi-server-based OMR pro-
+  and checking. Regular RLWE operations are then used
+                                                                   tocols in Appx A.
+  to complete homomorphic encoding. This hybrid use of
+  TFHE and RLWE enables the above advantages without               Fuzzy message detection and Private Signaling. Fuzzy
+  significantly compromising overall performance.                  message detection (FMD) [8] and Private Signaling (PS)
+                                                                   [24, 32] are two related primitives. However, the former pro-
+Implementation. We implemented InstantOMR (available               vides weaker security and the latter assumes very strong envi-
+in [2]) using Primus-fhe [36] (and estimated using TFHE-rs         ronment assumptions. See Appx A for details.
+[43]), and evaluated it against state-of-the-art BFV-based
+OMR schemes (PerfOMR,SophOMR). Our results show:                   2     Technical Overview
+• Significant Latency Reduction: For single-message re-            This section provides a high-level overview of the
+  trieval on a single CPU core, InstantOMR achieves 864×           InstantOMR construction (with simplifications). We assume
+  lower latency than SophOMR and 1008× than PerfOMR.               readers are familiar with the OMR model and its interface
+• Optimal Parallel Scaling: InstantOMR exhibits near-              definitions (introduced in [28] and recalled in § 4), as well as
+  linear speedup with the number of cores. Using 180 cores,        the general OMR paradigm used in prior works (summarized
+  it is approximately ∼3× faster than SophOMR and ∼13×             in § 4). These are also illustrated in Fig. 1. Parameters are
+  faster than PerfOMR for 216 messages (which maximizes            summarized in Table 7 for reference.
+  SophOMR’s and PerfOMR’s efficiency). Performance can
+  approach single-message latency given 216 cores.                 Why prior works have high latency. We first discuss the is-
+• Streaming: In real-time applications with on-the-fly mes-        sues in prior constructions. Recall that the detector processes
+  sage processing, InstantOMR reduces recipient wait time          all clues to detect pertinent messages (i.e., the messages ad-
+  to < 0.1s, compared to ⪆76 seconds in prior schemes.             dressed to the recipient), by performing decryption of the clue
+                                                                   ciphertext using the recipient’s decryption key, and then check-
+   Note that these improvements are estimated when the im-         ing whether the decrypted vector is (1, 1, . . . , 1). To achieve
+plementation uses TFHE-rs [43] (see § 6.4), while the runtime      privacy, all of this is done by homomorphic encrypted evalua-
+of our implementation using Primus-fhe is roughly 3× slower        tion, under a transient detection key provided by the recipient.
+than this estimation (see § 6).                                    These homomorphic decryption and homomorphic checking
+
+
+
+4228   35th USENIX Security Symposium                                                                        USENIX Association
+steps (3a and 3b in Fig. 1 and § 4) are the main source of                        2.2 Homomorphic Decryption and Checking
+latency. Specifically, to maximize throughput, prior works                            via Tailored TFHE
+realized these steps using BFV encryption with a ring dimen-
+sion of 216 (for [26], and 215 for [30]). These steps take the                    As mentioned earlier, a natural idea to reduce latency is to use
+same amount of time whether processing a single message or                        TFHE instead of BFV for homomorphic decryption. However,
+a batch of 216 messages, and they account for a large portion                     using TFHE naively as a black-box gate evaluator is far too
+of the total runtime (approximately two-thirds). Thus, while                      inefficient. To make it practical, we first revisit TFHE boot-
+the per-message cost is as low as ∼1.5ms, the latency for a                       strapping from a slightly different perspective, and then show
+single message can still be (at least) ∼76 seconds.                               how to leverage it in our construction.
+
+Using FHEW/TFHE instead of BFV. Since the issue arises                            TFHE bootstrapping. Let the TFHE parameters be: se-
+from BFV requiring a batch of 216 messages (i.e., the ring                        cret key dimension n, ciphertext moduli q1 , q2 , and plaintext
+dimension) to maximize efficiency, a natural idea is to instead                   moduli p1 , p2 (where p1 | q1 and p2 | q2 ).
+use FHEW [21] or TFHE [16], since these work on individual                           TFHE ciphertexts are standard LWE ciphertexts. TFHE
+values. However, as noted by [28], using TFHE naively (as                         bootstrapping is usually described as standard FHE boot-
+a black-box binary gate operator) takes tens of seconds per                       strapping, which takes a valid ciphertext as input and out-
+message. This is because, although TFHE supports fast gate-                       puts another valid ciphertext encrypting the same plaintext
+level operations [16], Step 3c (see Fig. 1 and § 4) requires                      with reduced noise; or as gate bootstrapping, which, given
+approximately ∼5000 gates.1 Compared to BFV-based OMR,                            two ciphertexts encrypting bits m1 , m2 , outputs a ciphertext of
+this approach has comparable latency, and hugely reduced                          NAND(m1 , m2 ). However, we utilize a more general version,
+throughput. Our approach tailors the use of TFHE to vastly                        functional bootstrapping, as follows:
+improve both, and we summarize our techniques below.                                 Given a vector (a , b) ∈ Zn+1
+                                                                                                                 q1 , an LWE secret key sk ∈ Z ,
+                                                                                                                                                  n
+
+                                                                                  and any negacyclic function f : Z p1 → Z p2 (where “nega-
+                                                                                  cyclic” means f (x) = − f (x + p1 /2) ∈ Z p2 for all x ∈ Z p1 ),
+                                                                                  TFHE functional bootstrapping outputs a ciphertext ct =
+2.1     OMR Setup
+                                                                                  TFHE.Enc( f (m)) ∈ Zn+1   q2 , where m ← Dec(sk, (a , b)) ∈ Z p1 .
+Before diving into details, we first describe the initial setup                      Note that the decryption input (a , b) can be any vector in
+needed to use TFHE.                                                               Zn+1
+                                                                                    q1 — not necessarily a valid LWE ciphertext under sk —
+                                                                                  and still produces a valid ciphertext encrypting a plaintext in
+Setup of our solution. We follow a paradigm similar to                            the message space under sk. This is crucial because, for imper-
+prior works, where the setup phase corresponds to Step 1 and                      tinent messages in OMR, the ciphertexts are computationally
+Step 2, as visualized in Fig. 1 and summarized in § 4.                            indistinguishable from random vectors in Zn+1 q1 (with respect
+   When joining the system (Step 1), the recipient generates                      to sk), and hence are not strictly valid LWE ciphertexts. Addi-
+a key pair (PKE.pk, PKE.sk) for a lattice-based public-key                        tionally, the ability to apply any negacyclic function over two
+encryption (PKE) scheme and publishes pkclue := PKE.pk.                           potentially different moduli p1 , p2 also enables significant
+For simplicity, let this PKE be Regev05 LWE-based encryp-                         performance improvements in our construction.
+tion [38] (and this naturally extends to Ring-LWE-based                           Homomorphic decryption (Step 3a). Our first step is to ho-
+schemes, as shown in [30]). For detection, the recipient gen-                     momorphically decrypt all the clues: for pertinent messages,
+erates an FHE key pair (FHE.pk, FHE.sk), computes ctsk ←                          the ciphertexts should decrypt to v = (1, 1, . . . , 1) ∈ Zℓp2 ; for
+FHE.Enc(PKE.sk) (i.e., PKE.sk encrypted under FHE), and                           impertinent messages, the ciphertexts should decrypt to some
+sends pkdetect := (FHE.pk, ctsk ) to the detector.                                v ′ ̸= v ∈ Zℓp2 . This is achieved by bootstrapping using a spe-
+   In Step 2, the sender uses PKE.pk to encrypt ℓ ones, i.e.,                     cially designed f below.
+PKE.Enc((1, . . . , 1)), as the clue2 . This encryption serves to                      For the clue of a pertinent message, Dec(sk, (a , b)) = 1.
+identify the intended recipient.                                                  Thus, the minimum requirement for f is that f (x) = 1 for
+                                                                                  x = 1. Recall that f is negacyclic, and thus we also need
+  We now move on to the Retrieve process (Step 3), where                           f (1 + p1 /2) = −1 = p2 − 1.
+the detector helps the recipient retrieve its messages homo-                           Conversely, for an impertinent message clue (a ′ , b′ ),
+morphically: Step 3a, homomorphic decryption; Step 3b, ho-                        Dec(sk, (a ′ , b′ )) is indistinguishable from uniform over Z p1
+momorphic checking; and Step 3c, homomorphic encoding.                            (by the hardness of LWE). Thus, to distinguish pertinent from
+                                                                                  impertinent messages, we can set f (x′ ) = 0 for any x′ ̸∈ {1, 1+
+    1 For a 612-byte payload as in prior works, there are at least 4896 bits to
+                                                                                  p1 /2} (which still satisfies the negacyclic condition since
+encode into a digest per message.
+    2 For simplicity, think of Enc as encrypting each 1 into a separate cipher-
+                                                                                   f (x′ ) = 0 = −0 = f (x′ + p1 /2)).
+text, and subsequently Dec on a vector of ciphertexts outputting a vector of           To summarize, given a clue ct1 , . . . , ctℓ = PKE.Enc(vv), the
+plaintexts. See § 5.1 for how to make it more efficient.                          detector performs ct′i ← TFHE.Boot(cti , f ). In this case:
+
+
+
+USENIX Association                                                                                    35th USENIX Security Symposium           4229
+• For pertinent messages, TFHE.Dec(ct′i ) = 1 (secret key                               In other words, given ciphertexts PV := (ct′′′             ′′′
+                                                                                                                                     1 , . . . , ctD ) in-
+  implicitly taken) for all i ∈ [ℓ].                                                 dicating whether the D payloads PLD := (pld1 , . . . , pldD )
+• For impertinent messages, for all i ∈ [ℓ]:                                         are pertinent, the homomorphic encoding can be realized
+  – TFHE.Dec(ct′i ) = 0 with probability 1 − 2/p1                                    as: (PV ◦ PLD) × A, where ◦ denotes element-wise multi-
+  – TFHE.Dec(ct′i ) = 1 with probability 1/p1                                        plication, and A is a matrix of size D × O(k̄), where k̄ is the
+  – TFHE.Dec(ct′i ) = −1 with probability 1/p1                                       (expected) upper bound on the number of pertinent messages.5
+Homomorphic checking (Step 3b). After homomorphic                                    This eliminates the dependency on bootstrapping calls.
+decryption, the goal is to check if the decrypted values are v ,                     Converting LWE ciphertexts to RLWE ciphertexts.
+i.e., whether TFHE.Dec(ct′1 , . . . , ct′ℓ ) = (1, 1, . . . , 1) ∈ Zℓp2 .            Naively using LWE ciphertexts for homomorphic multiplica-
+   A naive way is to perform a homomorphic AND gate over                             tion remains costly. Each LWE ciphertext consists of n2 + 1
+all the ciphertexts in the vector (for simplicity, assume the                        elements in Zq2 but encrypts a single value in Z p2 . Therefore,
+AND gate work for −1 by treating it as 1): if the result after                       encoding a payload of, say, 100 Z p2 elements would require
+these ℓ − 1 AND gates is still an encryption of 1, the vec-                          100 · (n2 + 1) multiplications in Zq2 for just one plaintext-by-
+tor encrypts v ; otherwise, the vector encrypts some v ′ ̸= v .                      ciphertext multiplication.
+However, this introduces another ℓ − 1 gate bootstrapping.                              To improve efficiency, we convert each LWE ciphertext into
+   To reduce the cost, instead, we first sum up all the cipher-                      an RLWE [31] ciphertext before multiplications. One may
+texts and then perform another layer of bootstrapping (differ-                       observe that an RLWE ciphertext is essentially a BFV cipher-
+ent parameters and function). More formally, we first compute                        text. We use RLWE/BFV instead of TFHE here is because for
+ct′′ ← ∑i ct′i . If the message is pertinent, ct′′ encrypts ℓ ∈ Z p2 .               the step of homomorphic encoding, even for one message, we
+Otherwise, ct′′ encrypts m′′ ∈ [−ℓ, ℓ − 1] except with proba-                        can leverage the SIMD packing (unlike for the homomorphic
+bility (1/p1 )ℓ (i.e., unless all ℓ clue ciphertexts were mapped                     decryption or checking steps), thus providing significantly
+to 1 in the previous step). For reasons that will become clear                       better efficiency than directly using TFHE bootstrappings.
+shortly, we set p2 = 4(ℓ + 1).3                                                         This conversion from LWE to RLWE has been systemati-
+   Given the second-layer bootstrapping parameters (for the                          cally studied in [15], so we defer the details to § 5.6
+homomorphic check) n2 , q2 , p2 , we define the negacyclic func-                        In short, given an LWE ciphertext encrypting m ∈ Z p , we
+tion f2 : Z p2 →Z p2 for the homomorphic checking as fol-                           convert it into an RLWE ciphertext, encrypting m′ ∈ R p (see
+                            if x = ℓ                                                 the definition of m′ below), where R is a polynomial ring and
+                    1
+                    
+      4
+lows : f2 (x) = −1 if x = ℓ + p2 /2 = 3ℓ + 2 .
+                                                                                     R p := R /pR (see § 3 for definition).
+                                                                                    Homomorphic encoding. We now describe the homomor-
+                      0     otherwise
+                    
+                                                                                     phic encoding process. We adopt the core idea as in [28], but
+   Observe that any x ∈ [−ℓ, ℓ−1] = [3ℓ+4, 4ℓ+3]∪[0, ℓ−1]
+                                                                                     apply it in a slightly different way: we perform all encoding
+is not in {ℓ, 3ℓ+2}. Thus, such an f2 allows us to map all perti-
+                                                                                     using polynomial coefficients.
+nent messages to 1 and impertinent messages to 0 (except with
+                                                                                        Recall that in the RLWE setting, ciphertexts have the
+probability 1/p2 ℓ ), which is exactly the homomorphic check
+                                                                                     form (a, b) ∈ Rq2 satisfying b = as + e + ⌊(q/p) · mR ⌉q ,
+we desire. With this, we compute ct′′′ ← TFHE.Boot(ct′′ , f2 )
+                                                                                     where mR ∈ R p is represented as a polynomial mR (X) =
+to complete the homomorphic checking.
+                                                                                     ∑i∈[0,N) mi X i−1 for ring dimension N. In the LWE-to-RLWE
+                                                                                     conversion discussed earlier, we have output RLWE ciphertext
+2.3      Homomorphic encoding via RLWE                                               encrypting m′ being a constant polynomial: m′ (X) := m ∈ R p .
+                                                                                        With this, we now detail the encoding process. This step
+After the previous steps, we obtain ct′′′ , which encrypts 1 if                      follows the encoding scheme in [28], with the key difference
+and only if the message is pertinent (except for small probabil-                     that we encode messages in coefficients rather than slots.7
+ity). The next step is to homomorphically encode the payloads                        Encode the indices. The first step is to enable the recipient
+of the pertinent messages into a digest (step 3c).                                   to identify which messages are pertinent, i.e., to recover the
+   At this point, continuing to use TFHE here is wasteful,                           indices of pertinent messages. To achieve this: assuming there
+since the encoding step can take thousands of gate bootstrap-                        are k pertinent messages, the detector initializes Ns > k “buck-
+pings, and functional bootstrapping does not help here. In-                          ets”, each consisting of an “accumulator” and a “counter”,
+stead, we observe that the homomorphic encoding used in                              both of which are initialized to 0.
+prior works only involves plaintext-by-ciphertext multiplica-                           Each message i (with a corresponding PV[i] ciphertext,
+tions, which can be performed efficiently without bootstrap-                         encrypting a bit 1 or 0 to indicate pertinency, output from
+ping since LWE ciphertexts are linearly homomorphic.
+                                                                                        5 The matrix A represents a linear encoding method, detailed later.
+   3 In practice, we choose p > 4ℓ as a power of 2 for ease of implementation.          6 Looking ahead, we let the second-layer to output an RLWE ciphertext
+                             2
+Here, we use p2 = 4(ℓ + 1) for clarity of exposition.                                whose constant term encodes the desired value to avoid redundant steps.
+    4 Actually, we will set the output of f to be in Z for p ≫ p for better             7 To fully utilize the “slots”, a special plaintext modulus is needed. This is
+                                            2            p3      3     2
+efficiency in later steps (see §§ 5.2.2 to 5.2.4). For simplicity, we use p2 here.   not necessary for “coefficients”, thus enabling more flexible parameters.
+
+
+
+
+4230      35th USENIX Security Symposium                                                                                                  USENIX Association
+previous steps) is assigned uniformly at random to one of the         with the set [−q/2,q/2) ∩ Z by default. The i-th element of
+Ns > k buckets. The accumulator for that bucket is updated as         a is denoted as a[i]. Let [n] denote the set {1, . . . , n}, [a, b]
+Acc ← Acc + i · PV[i], and the counter for that bucket is up-         denote the set {a, a + 1, . . . , b − 1, b}, and [a, b) denote the set
+dated as Ctr ← Ctr + PV[i] (both updated homomorphically).            {a, a + 1, . . . , b − 1}.
+   Upon receiving all the encrypted buckets, the recipient de-           We denote the cyclotomic ring as R = Z[X]/(X N + 1),
+crypts each one. If a bucket has counter Ctr = 1, then the            where N is a power of 2. RQ = R /(QR ) represents the poly-
+accumulator value Acc reveals a single pertinent message              nomial from R with coefficients modulo Q. Elements of RQ
+index. Otherwise, the bucket contains a collision and is dis-         are represented in the form of a(X), b(X), and m(X). When
+carded. With some probability, the recipient recovers a subset        the context is clear, the polynomial notation (X) may be omit-
+of the k pertinent indices. To recover all k indices, the detector    ted, and we only use a, b, or m. The i-th coefficient of a(X)
+repeats this process independently for ℓmax trials. The choices       is denoted as ai .
+of Ns , ℓmax are detailed in § 5.4.2.                                    We use x ← D N to denote the sampling of (vector) x from
+                                                 D)
+   We encode each accumulator with ⌈ log(    log(p) ⌉ coefficients,
+                                                                      the distribution D of length N ≥ 1. For a set S, we use x ←$ S
+where p is the RLWE plaintext modulus. As prior works, we             to denote the sampling of x uniformly from all elements of
+use an additional coefficient to encode the counter.                  S. The discrete Gaussian distribution is denoted by χσ , with
+Encode the payloads. With the pertinent indices identified,           mean being 0 and standard deviation being σ.
+encoding the payloads becomes straightforward. The detector
+first samples a uniformly random matrix M ←$ ZDp ×m , and             3.1     Homomorphic Operations
+then computes the product (PV ◦ PLD) × M, resulting in m >
+k linear combinations of the pertinent payloads.                      3.1.1   TFHE Cryptosystem
+   Since the recipient knows which indices are pertinent, it          Here, we recall TFHE [16] cryptosystem in a way that is suffi-
+can use these linear combinations, along with knowledge of            cient to understand our construction without going into much
+M (represented as a seed sent to the recipient), to recover all       detail about the detailed realization of TFHE. Before recall-
+pertinent payloads via, e.g., Gaussian elimination.                   ing TFHE, we first define the LWE and RLWE ciphertexts.
+   As in the previous step, we encode both the payloads PLD
+                                                                      LWE. The LWE encryption of the message m ∈ Zt has form:
+and the matrix M in the polynomial coefficients. The choice                 t/q
+of m is discussed in more detail in § 5.4.2.                          LWEs (m) = (a , b) = (a , ⟨a , s ⟩ + qt m + e mod q), where
+                                                                      s ∈ Z is the LWE secret key, a ←$ Znq and e ← χσ .
+                                                                            n
+
+                                                                      RLWE. The RLWE encryption of the message m ∈ Rt is of
+2.4    Limitations                                                                      t/Q
+                                                                      the form: RLWEz (m) = (a, b) = (a, az + Qt m + e), where
+Reduced throughput. While InstantOMR improves latency                 z ∈ R is the RLWE secret key, a ←$ RQ and e ← χNσ .
+(i.e., the time taken to process a single message) compared              Note that a R element is represented by a polynomial. For
+to prior works [26, 30], its throughput (number of processed          example, m ∈ Rt is a polynomial m(X) = ∑i mi X i for i ∈ [0,N)
+messages per second) is lower when using a single thread.             where N is the ring dimension of R , and mi ∈ Zt .
+To match the throughput of single-core SophOMR [26], our              Remark 3.1. For brevity, we may sometimes omit t/q and
+implementation of InstantOMR requires 180 cores (and the                           t/q            t/Q
+                                                                      t/Q from LWEs (m), RLWEz (m) when context is clear.
+estimation using the faster TFHE-rs library [43] would require
+∼64 cores). Note that SophOMR itself would not benefit                Remark 3.2. The RLWE assumption says that RLWE(0) and
+much from multiple cores (< 1.5× throughput using 180                 u1 , u2 ←$ RQ are computationally indistinguishable. Since
+cores; see § 6.3). Thus, when optimizing for throughput per           the RLWE assumption is standard, we omit the details due
+core regardless of latency, prior works such as SophOMR               to space reasons and refer the readers to [30, 31] for details.
+remain preferable, as discussed below.                                Additionally, for TFHE to be secure, we need RLWE to hold
+Use-case scope. InstantOMR shines in applications where               even when (ai , bi sk + φi (sk) + ei ) is given, where φi : RQ →
+streaming or real-time updates (§ 5.5) are required, or where         RQ is a function determined prior to ai , ei and ai ←$ RQ , ei ←$
+only a small number of messages (e.g., 100c messages, for c           χσ as above. This is also standard and detailed in [34].
+being the number of CPU cores available to the server) need              Next, we briefly introduce several TFHE building blocks:
+to be processed. For large-scale applications (e.g., 10000c           “Functional Bootstrapping”, “Key Switching”, “Modulus
+messages), SophOMR [26] may still be preferred.                       Switching” and “Extract”. They together are used to build the
+                                                                      entire TFHE scheme, but for concrete efficiency, we use them
+3     Preliminaries                                                   in a modular way and thus we introduce all of them separately
+                                                                      instead of introducing the entire TFHE as a black-box.
+Notation. We will use bold lower-case letters a, b, . . .             Functional Bootstrapping.          Functional bootstrapping,
+to denote column vectors over Z. For q ∈ Z, we identify Zq            the key component of TFHE, is defined as TFHE.Boot :
+
+
+
+USENIX Association                                                                        35th USENIX Security Symposium             4231
+        p /q                      p /Q
+LWEs 1 × f × BSK → RLWEz 2 where f : Z p1 → Z p2                       For InstantOMR, the message m is in {0, 1}, product re-
+is a negacyclic function (i.e., f (x) = − f (x + p1 /2) for          sulting in either RLWEQ            Q
+                                                                                           z (0) or RLWEz (p).
+all x ∈ Z p1 ), BSK is the bootstrapping key, s , z, p0 ,
+p1 and q, Q represent the secret key, plaintext modu-
+lus and ciphertext modulus, respectively. Let us assume              4   Oblivious Message Retrieval (OMR)
+                                     p /q
+the input ciphertext be ct ∈ LWEs 1 (m), then the out-
+put ciphertext TFHE.Boot(ct, f , BSK) would be ct′ ∈                 Since the system model of OMR is summarized in § 1, in
+        p /Q                                                         this section, we recall the threat model, interfaces, and the
+RLWEz 2 ( f (m) + ∑N−1         i
+                       i=1 ri X ) where ri is some dummy             paradigm for existing solutions.
+value. The generation of bootstrapping key BSK is defined as
+TFHE.GenBootKey(s , z) (see [16] for its details, which are          Threat model. We assume a computationally-bounded ad-
+not needed for our discussion).                                      versary that can read all public information, including all
+                                                                     board messages, all public keys, and all communication be-
+Remark 3.3. We define functional bootstrapping to output a           tween the detector and the recipient. It can also generate new
+RLWE ciphertext, instead of LWE as in [16]. We describe it in        messages and post them on the board, as well as honestly
+this alternative way since for some of our TFHE bootstrapping        new clue keys and induce other parties to generate messages
+calls we do not need to extract LWE from RLWE (see below).           addressed to those keys. For soundness and completeness,
+                                                                     we require the detectors, senders, and recipients to be honest
+Key Switching. Given key switching key KSKs1 →s2 , the al-           but curious; they may collude by sharing information (defer
+gorithm FHE.KS : (R)LWEs1 × KSKs1 →s2 → (R)LWEs2 con-                the discussion on correctness/integrity against malicious de-
+verts an input (R)LWE ciphertext encrypted under the s1 to           tectors to the full version). In regard to privacy, we let all
+a ciphertext (R)LWE ciphertext encrypted under s2 without            parties in the systems be malicious and colluding, except for
+altering the message. FHE.GenKeySwitchingKey(s1 , s2 ) de-           the sender and recipient whose privacy is the protection target.
+note the generation for KSKs1 →s2 .                                     In [28], the authors have also discussed a DoS threat model.
+Modulus Switching. The modulus switching algorithm                   In short, it allows the senders and recipients to behave arbi-
+interface is defined as FHE.MSq1 →q2 : LWEq1 → LWEq2 for             trarily while ensuring that correctness and soundness hold.
+ciphertext modulus q1 , q2 .                                         In [27], the authors propose a general way to make a non-DoS-
+                                                                     resistant OMR secure in this DoS threat model, which also
+Extract. Let’s assume the RLWE dimension is N, then at
+                                                                     applies to our construction (with moderate overhead, roughly
+most N messages can be encrypted in an RLWE ciphertext.
+                                                                     20% − 30%). Therefore, similar to [26], we focus on the stan-
+Given a ciphertext ct = RLWE(∑N−1              i
+                                     i=0 mi X ) := (a, b) ∈ R ,
+                                                                2
+                                                                     dard model, which is sufficient to achieve the DoS-resistant
+the algorithm FHE.Extract(ct, i) will return an LWE cipher-
+                                                                     OMR using techniques in [27].
+text which encrypts mi . Note that if i ≤ ℓ, then only the first ℓ
+coefficients of b are needed.                                        Definition. OMR has the following PPT algorithms:
+                                                                     • pp ← GenParam(1λ , εp , εn ): takes a security parameter λ,
+3.1.2     Homomorphic Trace                                            a false positive rate εp , a false negative rate εn (see our full
+                                                                       version for terms), and outputs a public parameter pp.
+FHE.HomTrace: given a ciphertext RLWE(m + ∑N−1            i
+                                                  i=1 mi X ),        • (sk, pk = (pkclue , pkdetect )) ← KeyGen(pp) : takes the pub-
+outputs RLWE(m) (using trace keys TraceKey ←                           lic parameter pp; outputs a secret key sk and a public key pk
+FHE.GenTraceKey(z) with secret key z). The realiza-                    consisting of a clue key pkclue and a detection key pkdetect .
+tion is deferred to our full version due to space                    • c ← GenClue(pp, pkclue , x) : takes the public parameter pp,
+                                                                       a clue key pkclue , and a payload x ∈ P where P := {0,1}P
+3.1.3     RLWE Plaintext Multiplication                                for some P > 0; outputs a clue c ∈ C .
+                                                                     • M ← Retrieve(pp, BB, pkdetect , k̄) : takes public parameter
+Given a plaintext polynomial p(X) ∈ Rt and a ciphertext                pp, a bulletin board BB = {(x1 ,c1 ), . . . , (xD ,cD )} for size
+                            t/Q
+ct := (a, b) ∈ RLWEz (m), RLWE.ConstMul(ct, p) yields                  D, a detection key pkdetect , and a bound k̄ on the number of
+                           t/Q                                         pertinent messages to that recipient; outputs digest M.
+(a · p, b · p) ∈ RLWEz (m · p).
+   This property enables efficient multiplication in a Single-       • PL ← Decode(pp, M, sk) : takes the public parameter pp,
+Instruction-Multiple-Data (SIMD) manner: We can express a              the digest M and the secret key sk; outputs either a de-
+vector (p1 , . . . , pN−1 ) ∈ ZtN in a single polynomial as p(X) =     coded payload list PL ⊂ P k or an overflow indication
+∑N−1          i                                                        PL = overflow.
+  i=0 pi · X ∈ Rt and multiply it by an RLWE ciphertext en-
+crypting a constant m ∈ Zt . The resulting ciphertext encrypts          Formal OMR definition also includes completeness, sound-
+pi · m for each i ∈ [0, N) when m is a constant polynomial.          ness, privacy, and compactness. Since our scheme focuses on
+Notably, this SIMD-like multiplication is far more efficient         concrete realization and efficiency improvement, we defer the
+than performing N separate LWE multiplications.                      formal definition to the full version.
+
+
+
+4232      35th USENIX Security Symposium                                                                        USENIX Association
+Prior FHE-based OMR Constructions. We now briefly                     ping framework, where each layer employs different parame-
+recap existing constructions of OMR using the model outlined          ters to perform different functions. The TFHE scheme, which
+in above. All existing single-server OMR schemes [26,28,30]           utilizes both LWE and RLWE simultaneously (see § 3.1.1),
+follow this paradigm (also visualized in Fig. 1):                     typically requires an LWE secret key and an RLWE secret key.
+1. KeyGen: The recipient generates a key pair                         Thus, during the setup, we generate four keys, an LWE secret
+    (PKE.pk, PKE.sk) using a lattice-based PKE scheme                 key and an RLWE secret key per layer.
+    PKE, and sets its clue key as pkclue := PKE.pk. It also              The recipient executes KeyGen with the PKE parameter
+    generates an FHE key pair (FHE.pk, FHE.sk) using                  pp, generating a secret key sk and a public key pk. The secret
+    some FHE scheme FHE, and sets its detection key as                key sk comprises the LWE secret keys s 1 ∈ Zn1 and s 2 ∈ Zn2 ,
+    pkdetect := (FHE.pk, FHE.Enc(PKE.sk)).                            along with the RLWE secret keys z1 ∈ R /(X N1 + 1) and z2 ∈
+2. GenClue: The sender uses pkclue = PKE.pk to encrypt a              R /(X N2 + 1), used to generate the public keys below.8
+    vector of ℓ ones: v := (1, 1, . . . , 1) ∈ {0,1}ℓ . It computes
+                                                                      Clue key generation. The public key pk includes a clue key
+    the clue ciphertext as ct ← PKE.Enc(pkclue , v ). At a high
+                                                                      pkclue and a detection key pkdetect , where pkclue is used by the
+    level, this ciphertext decrypts to v under PKE.sk if the
+                                                                      sender, and pkdetect is used by the detector.
+    message is pertinent to the recipient, and to some v ′ ∈
+    {0,1}ℓ , where v ′ ̸= v , with overwhelming probability if it        We start with the clue key pkclue . For better performance,
+    is not. This is because an honestly generated secret key not      similar to [30], pkclue is a RLWE public key generated by
+    matching pkclue will fail to correctly decrypt the ciphertext.    treating the LWE secret key s 1 in R , as shown in Alg 1.
+    In other words, this ciphertext serves to indicate whether
+    the message is intended for the recipient: the recipient          Algorithm 1 Generate Clue Key GenClueKey
+    could decrypt each clue and compare the result with v to          Input: secret key s 1 ∈ Zn1 (viewed as s1 ∈ Rq1 ,n1 )
+    determine pertinency.                                             Input: parameters (n1 , q1 , σck ) ∈ pp
+3. Retrieve: The goal of this phase is to let the detector check      Output: clue key pkclue
+    message pertinency on behalf of the recipient. This step is        1: Sample a ← Rq1 ,n1 randomly
+    the primary efficiency bottleneck and our main focus:              2: Sample e ∈ Rq1 ,n1 according to N (0, σ2ck )
+     (a) The detector uses pkdetect to homomorphically de-             3: return pkclue = (a, b = as1 + e) ∈ (Rq1 ,n1 , Rq1 ,n1 )
+         crypt each clue ciphertext cti , producing decResi =
+         FHE.Enc(v ′i ).
+     (b) It then homomorphically tests whether v ′i = v , out-        Detection key generation. The detection key pkdetect is
+         putting PV[i] = FHE.Enc(1) if so, and FHE.Enc(0)             slightly more involved. It comprises two bootstrapping keys
+         otherwise. The resulting vector PV of length D               for our two-layers of bootstrapping. In addition, it includes
+         (called the pertinency vector) indicates which mes-          one key-switching key for the first layer and one trace key
+         sages are relevant to this recipient.                        for the second layer. The goal of the key-switching key and
+     (c) Finally, using PV and the payloads from the database         trace key will become clearer as we proceed, but in summary,
+         BB, the detector homomorphically generates a digest          they are used to improve our concrete efficiency. These keys
+         M (encrypted under FHE.sk), such that only the pay-          enable the detector to perform retrieval operations on behalf
+         loads of BB[i] with PV[i] = FHE.Enc(1) are included          of the recipient and to generate a digest composed of mes-
+         (and encoded). This is done through homomorphic              sages pertinent to the recipient. The detection key generation
+         encoding, which we describe in detail later.                 algorithm is detailed in Alg 2.
+4. Decode: In this final step, the recipient simply decrypts M
+    using FHE.sk to recover the relevant payloads.                    Algorithm 2 Generate Detection Key GenDetectKey
+                                                                      Input: public parameters pp
+5     Our Construction, InstantOMR                                    Input: secret key s 1 ∈ Zn1 , s 2 ∈ Zn2 , z1 ∈ R /(X N1 + 1), z2 ∈
+                                                                          R /(X N2 + 1)
+We now dive directly into InstantOMR and expand the high-             Output: detection key pkdetect
+level summary explained in § 2 (parameters summarized in               1: BSK1 ← TFHE.GenBootKey(s 1 , z1 )
+Table 7 as reference).                                                 2: KSKz 1 →s 2 ← FHE.GenKeySwitchingKey(z 1 , s 2 )
+                                                                       3: BSK2 ← TFHE.GenBootKey(s 2 , z2 )
+                                                                       4: TraceKey ← FHE.GenTraceKey(z2 )
+5.1    Setup
+                                                                       5: Let pkdetect = (BSK1 , KSKz 1 →s 2 , BSK2 , TraceKey)
+We start with the setup. In particular, we discuss the keys            6: return pkdetect     ▷ See § 3.1 for details about each key
+generated by the recipient and specify the public parameters.
+Secret key generation.       As mentioned in the technical               8 Once the public key has been generated, the recipient need only retain
+
+overview § 2, InstantOMR employs a two-layer bootstrap-               z2 ∈ R /(X N2 + 1) to decode the digest for Step 4.
+
+
+
+
+USENIX Association                                                                           35th USENIX Security Symposium               4233
+   When the recipient needs to retrieve the messages ad-             (recalled in § 3.1.1) to get ℓ LWE ciphertexts c0 , . . . , cℓ−1 en-
+dressed to them on the board, they first transmit the detection      crypt 1. Then we execute the “first-layer bootstrapping” on
+key to the detector. Looking ahead, as we will discuss in § 5.2,     every LWE ciphertext respectively.
+the detector performs a series of homomorphic operations                 The TFHE homomorphic encryption scheme supports func-
+with the detection key to generate a digest of the pertinent         tional bootstrapping (see § 3.1.1). Recall that the cipher-
+messages, which is then sent back to the recipient. Upon re-         texts c0 , . . . , cℓ−1 extracted from the clue ciphertext, all of
+ceiving the digest, the recipient can decode it and get the          which decrypt to 1 for pertinent messages, and decrypt to
+payloads of the pertinent messages.                                  [0, 2, . . . , p1 − 1] for impertinent messages. Thus, ideally, the
+   The complete InstantOMR.KeyGen protocol, encompass-               following function(distinguishes pertinent and impertinent
+ing the generation of secret keys, clue keys, and detection                                      1 if x = 1
+keys, is detailed in line 4 of Alg 8.                                messages: f (x) =
+                                                                                                 0 if x = 0 or x ∈ [2, p1 )
+   Now that the algorithms for generating all necessary keys
+                                                                         Intuitively, all the pertinent messages, after bootstrapping
+have been introduced, we will proceed to explain how the
+                                                                     using this function, have the corresponding output ciphertexts
+sender utilizes the clue key to generate clues for their mes-
+                                                                     all encrypting 1’s, while all the impertinent messages have ci-
+sages, and how the detector employs the detect key to assist
+                                                                     phertexts encrypting all 0’s. This then allows us to distinguish
+the recipient in retrieving their pertinent messages.
+                                                                     these two kinds of messages. However, this function can-
+Clue generation. Now we discuss the sender’s clue gener-             not be straightforwardly implemented: as recalled in § 3.1.1,
+ation after obtaining pkclue from the intended recipient. At a       the functions that can be executed in TFHE’s functional boot-
+high-level, similar to [30], instead of using ℓ LWE ciphertexts      strapping must satisfy the condition: f (m + p1 /2) = − f (m).9
+each encrypting a single 1 (as described in § 2 for simplicity),     If we desire the output to be LWE(1) when the input is
+we use RLWE to encrypt ℓ 1’s in a single RLWE ciphertext to          LWE(1),       the function actually being executed is as follows:
+reduce the clue size. We formalize this process in Alg 3.                                  if x = 1
+                                                                                   1
+                                                                                   
+                                                                      f (x) = −1 if x = 1 + p1 /2 .
+Algorithm 3 Generate Clue GenClue                                                  
+                                                                                     0     otherwise
+                                                                                   
+Input: clue key pkclue = (a, b) ∈ (Rq1 ,n1 , Rq1 ,n1 )
+                                                                         Then, if the message is pertinent to the recipient, the output
+Input: number of encrypted bits per clue ℓ ∈ pp                                                                                p /Q
+                       p /q                                          of line 5 Alg 4 should yield ℓ ciphertexts in LWEz 12 1 (1).
+Output: clue RLWEs 11 1 (∑ℓ−1       i         ′     ′′
+                               i=0 X ) = (a , b ) with the
+                                                                     Conversely, if the message is impertinent, the ciphertexts
+    length of b′′ is ℓ
+                                                                     c0 , . . . , cℓ−1 are encrypted under another recipient’s public
+ 1: Sample r ← Rq1 ,n1 with binary coefficients randomly
+                                                                     clue key. Then c0 , . . . , cℓ−1 are computationally indistinguish-
+ 2: Sample e0 ,e1 ∈ Rq1 ,n1 according to N (0, σ2ck )
+                                                                   able from random ciphertexts (i.e., uniform over Rq1 × Zℓq1 ),
+ 3: Let (a′ , b′ ) =   ra + e0 , rb + e1 + qp11 (∑ℓ−1  i
+                                                  i=0 X )   ▷ Take   which can thus be seen as a ciphertext encrypting a random
+    only the first ℓ coefficients of b′ .                            value in Z p1 . Therefore, the output of the bootstrapping will
+                 ℓ−1
+ 4: Let b′′ = ∑i=0 b′i X i                                                          p /Q                                  p /Q
+                                                                     be LWEz 12 1 (1) with probability p11 , LWEz 12 1 (−1) with
+ 5: return (a′ , b′′ )                                                                              p /Q
+                                                                     probability p11 , and LWEz 12 1 (0) with probability 1 − p21 .
+                                                                        Next, as intuitively explained in § 2, we aggregate all ℓ
+                                                                     ciphertexts. For a pertinent message, this results in a cipher-
+                                                                                     p /Q
+5.2 Retrieval Algorithms Run by the Detector                         text of LWEz 12 1 (ℓ). For an impertinent message, we obtain
+                                                                                               p /Q
+As mentioned in the § 2, InstantOMR performs the “first-             a ciphertext of LWEz 12 1 (r), where −ℓ ≤ r ≤ ℓ − 1, with
+                                                                                                                         p /Q
+layer bootstrapping” (Step 3a in § 4) for “homomorphic de-           probability 1 − ( p11 )ℓ , or a ciphertext of LWEz 12 1 (ℓ) with
+cryption” and the “second-layer bootstrapping” for “homo-            probability ( p11 )ℓ . By selecting appropriate values for p1 and
+morphic checking” (Step 3b in § 4). Then, it performs “homo-         ℓ, ( p11 )ℓ can be made negligible.
+morphic encoding” via standard RLWE operations to leverage              The last step in Alg 4 transforms the resulting ciphertext to
+the power of SIMD.                                                   use the secret key s 2 and modulus q2 instead. The reduced di-
+                                                                     mension of s 2 is to accelerate the second-layer bootstrapping.
+5.2.1   The First-layer Bootstrapping
+The focus now shifts to the first-layer bootstrapping, which         5.2.2     The Second-layer Bootstrapping
+is used to “homomorphically decrypt” the clue string. In                                        p /q
+§ 5.1, we see that the sender generates a ciphertext ct =            Now, we obtain LWEs 22 2 (ℓ) for the pertinent message with
+RLWE(m(X) = ∑ℓ−1         i                                           overwhelming probability, but only negligible probability for
+                    i=0 X ) which encrypts ℓ 1’s as clue string
+(since the clue only contains the first ℓ coefficients of the ring      9 We defer the discussion on full-domain functional bootstrapping to the
+
+element b′′ ). The detector performs FHE.Extract(ct, i)i∈[0,ℓ)       full version.
+
+
+
+
+4234    35th USENIX Security Symposium                                                                                USENIX Association
+Algorithm 4 FirstLayerBoot                                           Algorithm 5 SecondLayerBoot
+Input: clue: ct = (a, b) where b’s dimension is ℓ                                                                  p /q
+                                                                     Input: First-layer result: c = LWEs 22 2 (r)r∈[−ℓ, ℓ]
+Input: BSK1 ,KSKz1 →s2 ∈ pkdetect                                    Input: BSK2 ,TraceKey ∈ pkdetect
+Input: p2 > 4ℓ being a power-of-2                                                       p /Q
+                p /q                                                 Output: RLWEz23 2 (1)           for   pertinent       message,
+Output: LWEs 22 2 (ℓ)        for     pertinent    message,                       p3 /Q2
+         p2 /q2                                                          RLWEz2 (0) for impertinent message
+   LWEs 2 (r)r∈[−ℓ, ℓ−1) for impertinent message                                                                              p /Q
+               p /Q
+                                                                      1: t ← TFHE.Boot(c, g, BSK2 )                 ▷ RLWEz23 2
+ 1: t ← LWEz12 1 (0)                 ▷ A trivial encryption of 0                                                              p /Q
+                                                                      2: t ′ ← FHE.HomTrace(t, TraceKey)            ▷ RLWEz23 2
+ 2: for i = 0 to ℓ − 1 do
+                                                                      3: return t ′
+ 3:     ci = FHE.Extract(ct, i)
+                                                            p /Q
+ 4:    ti ← TFHE.Boot(ci , f , BSK1 )            ▷ RLWEz12 1
+                                                        p /Q
+ 5:    ti′ ← FHE.Extract(ti , 0)                   ▷ LWEz12 1        5.2.3    Encode the pertinent message indices
+ 6:    t ← t + ti′
+                                                            p /Q     After performing “homomorphic decryption” and “homomor-
+ 7: t ← FHE.KS(t, KSKz1 →s2 )                      ▷ LWEs 22 1
+                                                         p /q        phic checking” on clue string of each message on the board,
+ 8: return FHE.MSQ1 →q2 (t)                        ▷ LWEs 22 2       the detector subsequently performs “homomorphic encod-
+                                                                     ing” (Step 3c in § 4) to generate a digest, which includes
+                                                                     encoded pertinent indices and encoded pertinent payloads. In
+                                                                     this section, we will elaborate on how to encode the pertinent
+the impertinent message. Subsequently, we need to perform a          message indices for the recipient.
+“homomorphic checking” to determine whether the ciphertext              In contrast to single-message LWE encryption, RLWE en-
+encrypts ℓ as mentioned in § 2. To avoid the constraints im-         ables multiplications in a SIMD manner (see § 3.1.3) when
+posed by the negacyclic function, the plaintext modulus p2           we encrypt a constant polynomial. This is why we output an
+must satisfy the condition p2 /2 > 2ℓ.                               RLWE ciphertext encrypting a constant polynomial in Alg 5.
+                                                                        For D messages, let the output ciphertexts of the two-
+   We use the following function
+                             to bootstrap this ciphertext           layer bootstrapping be PV := (ct0 , . . . , ctD−1 ) which indicates
+                            1
+                                if x = ℓ                            whether the D payloads PLD := (pld0 , . . . , pldD−1 ) are per-
+(again, negacyclic): g (x) = −1 if x = ℓ + p2 /2 .                   tinent. Recall that each cti has plaintext modulus p3 (e.g.,
+                            
+                            
+                              0  otherwise                           cti = RLWE(m(i) ) where m(i) ∈ {0, 1} ⊂ R p3 ).
+                                                                        As discussed in § 2, to encode the pertinent indices, we ini-
+  It’s easy to see that p2 − ℓ = p2 /2 + p2 /2 − ℓ > p2 /2 + ℓ.      tialize many buckets consisting of the so-called accumulators
+Hence, the input ciphertext encrypts the message x ∈ [−ℓ,ℓ] =        and counters, and then randomly assign each message to one
+[p2 − ℓ,p2 ) ∪ [0,ℓ] is not in {ℓ + p2 /2}, which means that the     of these buckets. Now we discuss how we encode them using
+functional bootstrapping over g would never output Enc(−1).          coefficients and how the random assignment works.
+                                                                        First, we decompose each message index k (k ∈ [0, D)) into
+   After this bootstrapping procedure, we obtain a ciphertext        its base-p3 digits: k = ∑d−1             i
+        p /Q                                                                                      i=0 ki · p3 , where d is the smallest
+                                 2 −1
+RLWEz23 2 (m(x) = m0 + ∑Ni=1          ri X i ) whose constant-term                          d
+                                                                     integer satisfying p3 ≥ D. For each index k, we construct a
+m0 represents whether the message is pertinent to the recip-         corresponding polynomial: Poly(k) = k0 +k1 · X +· · ·+kd−1 ·
+ient while ri ’s are irrelevant values. To further compute, we       X d−1 + 1 · X d , where the final term, 1, acts as a counter.10
+                           p /Q
+need to obtain RLWEz23 2 (m0 ) (i.e., the constant polyno-              In total, we initialize Ns buckets (Ns choice discussed in
+mial, zeroing out all the other coefficients), allowing better       § 5.4.2). We call these Ns buckets a segment. Each segment
+performance in the homomorphic encoding step as discussed            takes (d + 1) · Ns coefficients to encode. WLOG, assume
+in § 2 (and detailed § 5.2.3).                                       (d + 1) · Ns < N2 , the number of coefficients available per
+                                                                     ciphertext (otherwise, simply extend to use more ciphertexts).
+   The classic approach in [16, Section 6.2] achieves what              Next, for the k-th message, we generate a random shift rk en-
+we need with a large sized key and more ring multipli-               suring rk < Ns . We then multiply the polynomial by X (d+1)·rk ,
+cations. To minimize key size and runtime, we employ                 producing: Shifted(k) = k0 ·X (d+1)·rk +k1 ·X (d+1)·rk +1 +· · ·+
+the FHE.HomTrace function, which uses only (log N2 )ℓauto            kd−1 · X (d+1)·rk +d−1 + 1 · X (d+1)·rk +d . This means that the k-
+RLWE ciphertexts as TraceKey. This greatly reduced the size          th index is rotated to the rk -th bucket.
+of the key. Let the output of the TFHE.Boot be RLWE(m +
+  N2 −1                                                                 For encryption, we multiply Shifted(k) by the ciphertext
+∑i=1    mi X i ). As discussed in § 3.1.2, FHE.HomTrace will         ctk . If the message is pertinent, this results in:
+then yield RLWE(m), where m equals either 0 or 1, 1 for the
+pertinent message and 0 for the impertinent message. In the            10 Following prior works, we assume the total number of pertinent messages
+
+Alg 5, we show our second layer of bootstrapping.                    k < p3 , which is true for the parameter choices in prior works [26, 28, 30].
+
+
+
+
+USENIX Association                                                                          35th USENIX Security Symposium                  4235
+             k0 · X (d+1)·rk + k1 · X (d+1)·rk +1 + . . .
+                                                         
+                                                                            Recall that k̄ is the (expected) bound on the number of
+RLWE                                                       . Other-
+            +kd−1 · X (d+1)·rk +d−1 + 1 · X (d+1)·rk +d                  pertinent messages, and let m > k̄ (see § 5.4.2 for m). We
+wise, the output is simply RLWE(0).                                      generate a weight matrix W ∈ Zm×D   p3    with a random seed.
+    Aggregating  all resulting RLWE ciphertexts, we obtain:                 Subsequently, we decompose each payload into digits with
+                                                                         p3 as the basis, t0 + t1 · p3 + t2 · p3 2 + · · · . This is encoded
+                                                          
+                                 ...
+          +a0 · X (d+1)·ra + a1 · X (d+1)·ra +1 + . . .                into a polynomial pldi = t0 +t1 · X +t2 · X 2 + · · · ∈ R p3 ,N2 . We
+RLWE     +ad−1 · X (d+1)·ra +d−1 + ad · X (d+1)·ra +d .
+                                                           
+                                                                         obtain a column vector PLD = [pld0 , · · · , pldD−1 ] ∈ R pD3 ,N2
+                                +...                                     encoding all payloads.
+    Here shows the ra -th bucket with coefficients a0 to ad .               We then compute the weighted payload:
+• If ad = 0 (the bucket counter is 0), this indicates that no                                                                 
+                                                                                       w0,0        w0,1     ···      w0,D−1
+   index was added to positions a0 through ad−1 .                                     .            .       ..          .      
+                                                                                                                                ⊗ PLD
+                                                                                Wp = 
+                                                                                      ..           .           .       .
+• If ad = 1, this signifies that exactly one unique index was                                       .                   .      
+                                                                                      wm−1,0     wm−1,1     · · · wm−1,D−1
+   accumulated across a0 to ad−1 .                                                                                                               
+                                                                                       w0,0 · pld0       w0,1 · pld1      ···     w0,D−1 · pldD−1
+• If ad ≥ 2, multiple indices collide in this bucket, in which                              .                  .                         .
+                                                                                   =
+                                                                                     
+                                                                                            .                  .          . ..           .
+                                                                                                                                                  
+   case we discard this bucket and check subsequent buckets.
+                                                                                                                                                  
+                                                                                           .                  .                         .        
+                                                                                      wm−1,0 · pld0     wm−1,1 · pld1     · · · wm−1,D−1 · pldD−1
+    The original index a (detected as pertinent) can be recov-
+ered via: a ← ∑d−1            i (if a = 1).                                            ∈ (R p3 ,N2 )m×D
+                  i=0 ai · p3         d
+    Due to possible collision, the detector needs to repeat the
+                                                                            Next, we multiply Wp and PV := (ct0 , . . . , ctD−1 ) obtained
+aforementioned steps multiple times independently for the
+                                                                         from Alg 5, yielding the encoded pertinent message payloads,
+recipients to recover all indices. The number of repetitions is          denoted as Cp ∈ RLWEm (a column vector of m RLWE’s).
+denoted by ℓmax (see § 5.4.2 for how ℓmax is determined).
+    The aforementioned process describes the method of en-                         
+                                                                                    wp0,0   wp0,1    ···    wp0,D−1
+                                                                                                                       
+coding a single pertinent indices vector using RLWE. In prac-                Cp = 
+                                                                                     ..      ..     ..        ..
+                                                                                                                        · PV
+                                                                                                                       
+                                                                                       .       .        .       .
+tice, we can partition the polynomial space into multiple
+                                                                                   wpm−1,0 wpm−1,1 · · · wpm−1,D−1
+segments, each of which encodes a group of buckets, since                          D−1                              
+(d + 1)Ns ≪ N2 (which is indeed the case for parameters in                          ∑i=0 RLWE.ConstMul(cti , wp0,i )
+§ 6). The algorithm of index encoding is presented in Alg 6.                                      ..                          m
+                                                                                =                                    ∈ RLWE
+                                                                                                                    
+                                                                                                   .
+                                                                                     ∑D−1
+                                                                                      i=0 RLWE.ConstMul(cti , wpm−1,i )
+Algorithm 6 EncodePertinentIndices
+Input: Homomorphic                checking        result:       PV :=       The seed and Cp are then both sent to the recipient. Recall
+                                       p /Q                              that the recipient has already ascertained which indices are
+    (ct0 , . . . , ctD−1 ) ∈ RLWEz23 2 (0 or 1)
+Input: Segment count ℓs                                                  pertinent. With k (k ≤ k̄) such relevant messages, the recipient
+Input: Buckets count per segment Ns , satisfying (d + 1) · Ns ·          removes all columns from matrix W (recoverable by a random
+    ℓs < N2 (otherwise, view α > 1 ciphertexts as a single               seed) that do not correspond to these indices, resulting in
+    ciphertext and have (d + 1) · Ns · ℓs < α · N2 )                     a new weight matrix W′ ∈ Zm×k    p3 . It now suffices to solve
+Input: Round bound ℓmax                                                  the system of equations W′ · x = FHE.Dec(Cp) to obtain x,
+Output: Encoded pertinent indices res                                    thereby retrieving the payloads of the messages on the board
+ 1: for j = 1 to ⌈ℓmax /ℓs ⌉ do                                          that are pertinent to the recipient. A formal description of
+ 2:
+                              p /Q
+        Acc ← RLWEz23 2 (0) ▷ A trivial encryption of 0                  payload encoding is given in Alg 7.
+ 3:     for k = 0 to D − 1 do
+                Parse k = ∑d−1             i                             Algorithm 7 EncodePertinentPayloads
+ 4:                            i=0 ki · p3
+ 5:             Poly(k) = k0 + k1 · X + · · · + kd−1 · X d−1 + 1 · X d   Input: Homomorphic             checking    result:         PV :=
+                                                                                                           p3 /Q2
+ 6:             ∀i ∈ [0, ℓs ), sample ri randomly such that ri < Ns          (ct0 , . . . , ctD−1 ) ∈ RLWEz2 (0 or 1)
+                                  ℓs −1                                  Input: Payloads list PLD = [pld0 , pld1 , · · · , pldD−1 ] ∈ R pD3 ,N2
+ 7:             Shifted(k) = ∑i=0       Poly(k) · X (d+1)·(iNs +ri )
+ 8:             Acc+ = ConstMul(ctk , Shifted(k))▷ See § 3.1.3           Input: Parameter (p3 , m) ∈ pp
+ 9:     Push Acc into res (empty before the loop)                        Output: seed and payloads combinations Cp
+                                                                          1: Sample a seed and a weight matrix W ∈ Zm×D      p3   with seed
+10: return res
+                                                                          2: Construct diagonal matrix diag(PLD) from PLD, where
+                                                                             diag(PLD)[i,i] = PLD[i].
+                                                                          3: Wp ← W · diag(PLD) ∈ (R p3 ,N2 )m×D
+                                                                                                         m
+5.2.4   Encode the pertinent message payloads                             4: Cp ← Wp · PV ∈ RLWE
+                                                                          5: return (seed, Cp)
+With previous step, the recipient can recover all pertinent
+messages’ indices. Now, we will discuss encoding payloads.
+
+
+
+4236    35th USENIX Security Symposium                                                                                         USENIX Association
+5.3    Our Full Construction                                            times N (the ring dimension, which is polynomial in λ the
+                                                                        security parameter) times ciphertext modulus Q plus index
+The full construction of InstantOMR is shown in Alg 8.                  size times N times Q. Then, for k pertinent messages, there
+Theorem 5.1. Let λ > 0, D > 0, 1 > εn ,εp > 0, k < p3 , Alg 8           are at most Õ(k + εp · D) messages, and by [28], the encoding
+is an Oblivious Message Retrieval scheme, assuming the hard-            blowup is poly(k + εp · D, λ). Thus, in total, for k messages,
+ness of RLWE assumption (with circular security).                       the digest size is poly(λ, (k + εp · D, log(D))).
+
+Proof. Completeness: A pertinent message is successfully
+retrieved if
+1. The clue RLWE ciphertext decrypts correctly using TFHE
+                                                                        Algorithm 8 InstantOMR: Oblivious Message Retrieval
+    bootstrapping.
+2. The second layer of bootstrapping correctly maps all perti-           1: procedure InstantOMR.GenParam(1λ , εp , εn )
+    nent clues to 1 and the rest to 0.                                   2:    Choose pp according to strategy in § 5.4.2
+3. The homomorphic encoding is done correctly without er-                3:    return pp
+    ror.                                                                 4: procedure InstantOMR.KeyGen(pp)
+4. No accumulator counter overflow.                                      5:    Sample LWE secret key s 1 ∈ Zn1 and s 2 ∈ Zn2 accord-
+5. The pertinent indices are retrieved correctly via decoding,              ing to pp
+    given no counter overflow.                                           6:     Sample RLWE secret key z1 ∈ R /(X N1 + 1) and z2 ∈
+6. All the linear combinations are linearly independent.                    R /(X N2 + 1) according to pp
+    The first condition is guaranteed by condition 5 in § 5.4.2,         7:     pkclue ← GenClueKey(pp, s 1 )                      ▷ Alg 1
+except for false negative rate εn . For the second and the third         8:     pkdetect ← GenDetectKey(pp, s 1 , s 2 , z1 , z2 ) ▷ Alg 2
+conditions, we need that TFHE and the following RLWE ho-                 9:     return (sk = z2 , pk = (pkclue , pkdetect ))
+momorphic operations are done currently, which happens                  10: procedure InstantOMR.GenClue(pp, pkclue )
+unless the noise overflow, which happens with negligible                11:     return GenClue(pp, pkclue )                        ▷ Alg 3
+probability, given the noise analysis in § 5.4, as also guar-
+                                                                        12: procedure InstantOMR.Retrieve(pp, BB, pkdetect , k̄)
+anteed by condition 2 in § 5.4.2. The fourth condition is
+                                                                        13:     Parse BB = {(pld0 , ct0 ), · · · ,(pldD−1 , ctD−1 )}
+guaranteed by k < p3 . The fifth condition is guaranteed by
+                                                                        14:     Let payloads list PLD = {pld0 , · · · , pldD−1 }
+1 − ∏k̄i=1 (1 − ( N1s )ℓmax ) = negl(λ). The sixth condition is guar-   15:     PV = []
+anteed by ∏m   i=m−k̄+1
+                          (1 − 1/p3 i ) = 1 − negl(λ). The last two     16:     for i = 0 to D − 1 do
+are set in § 5.4.2.                                                     17:         ct′i ← FirstLayerBoot(pp, cti , pkdetect ) ▷ Alg 4
+    Soundness: Soundness follows directly from (1) the cor-             18:         ct′′i ← SecondLayerBoot(ct′i , pkdetect ) ▷ Alg 5
+rectness (as guaranteed by condition 2 in § 5.4.2) of TFHE              19:         Push ct′′i into PV
+bootstrapping, and (2) 1/p1 ℓ ≤ εp (as guaranteed by condition          20:     digestindices ← EncodePertinentIndices(PV, pp) ▷
+4 in § 5.4.2).                                                              Alg 6
+    Privacy: We argue privacy via a hybrid argument.                    21:     (seed,                  digestpayloads )                ←
+• Hyb0 : our construction.                                                  EncodePertinentPayloads(PV, PLD, pp)                   ▷ Alg 7
+• Hyb1 : BSK1 , BSK2 (Alg 2) are replaced with random ring              22:     return digest = (seed, digestindices , digestpayloads )
+   elements in ring RN1 ,Q1 and RN2 ,Q2 respectively.
+                                                                        23: procedure InstantOMR.Decode(digest, sk = z2 )
+• Hyb2 : pkclue (Alg 1) is replaced with two uniformly random
+   Rq1 ,n1 elements.                                                    24:     Generate W ∈ Zm×D  p3   with seed
+• Hyb3 : clue c = (a′ , b′′ ) (Alg 3) is replaced with a uniformly      25:     Decode FHE.Dec(z2 , digestindices ), to obtain the k
+   random Rq1 ,n1 element and a uniformly random Zℓq1 vector.               pertinent indices
+It is easy to see that Hyb3 is trivially secure because the clue        26:     Extract W′ ∈ Zm×k p3 from W ∈ Z p3
+                                                                                                                     m×D with k pertinent
+
+does not include any information about the recipient. Hyb2                  indices columns
+and Hyb3 are indistinguishable by the RLWE assumption,                  27:     Solve       the       equations       of     W′ · x =
+since the clue is simply a (truncated) RLWE sample given that               FHE.Dec(z2 , digestpayloads )
+the clue keys are two uniformly random Rq elements. Hyb2                28:     return x or if any of the step fail, return overflow
+and Hyb1 are indistinguishable by the RLWE assumption,
+since the clue is exactly an RLWE sample. Lastly, Hyb1 and
+Hyb0 are indistinguishable by the security guarantee of TFHE
+(which is guaranteed by RLWE with circular security [16]).              5.4   Parameter Analysis
+    Compactness: As shown in § 5.4, the noise growth is O(D),
+and thus the digest size is only linear in log(D). Therefore,           There remains to discuss the parameter analysis, including
+the digest size for a single pertinent message is payload size          noise analysis and the choice of parameters for encoding.
+
+
+
+USENIX Association                                                                         35th USENIX Security Symposium           4237
+5.4.1   FHE Noise Analysis                                              Alg 5) be parameterized by ring dimension N2 , ciphertext
+                                                                        modulus Q2 , secret key z2 , noise variance σ2out2 . Let the
+We start with the former. We need to make sure that the
+                                                                        payloads count be D and the payload size is ñ-bits. Let
+noise budget is enough to complete the entire FHE circuit
+                                                                        the “Encode Pertinent Message Payloads” be parameterized
+evaluation. This differs greatly from prior works since they
+                                                                        by combined payloads count per ciphertext ℓcmb . Then the
+use BFV, which can be more easily (heuristically) bounded
+                                                                        noise variance of the encoded pertinent message payloads is
+using the multiplicative depth. When using TFHE, we need
+                                                                        Dℓcmb ⌈log(ñ)/ log(p3 )⌉ p3 2 σ2out2 .
+to bound the noise more carefully, as follows. The proof
+for why the following noise analysis holds is deferred to the
+full version for space reasons, and since the analysis follows          5.4.2   Parameter-choosing Strategy
+[17, 41].
+                                                                        Now, we discuss how InstantOMR parameters are chosen.
+The noise of the clues. Let the noise variance of the clue key
+pkclue be σ2ck . The noise variance of the clues is (n1 + 1)σ2ck .      Parameters for bootstrapping. We select the parameters
+                                                                        satisfying the following property: (1) security has λ bits; (2)
+First layer bootstrapping.             Let the input RLWE cipher-
+                                                                        the final noise does not exceed Q2 /2p3 except for negl(λ)
+text be parametrized by dimension n1 , plaintext modulus p1 ,
+                                                                        probability (i.e., the noise does not exceed the noise bound
+ciphertext modulus q1 and the binary secret key s 1 . Let the
+                                                                        after all steps using the analysis above) and the noise bound
+bootstrapping key be parametrized by ring dimension N1 , ci-
+                                                                        holds for each step (i.e., TFHE bootstrapping succeeds except
+phertext modulus Q1 , ternary secret key z1 , noise variance
+                                                                        with negl(λ) probability); (3) n1 , n2 , N1 , N2 are selected to
+σ2bsk1 , gadget basis B1 and gadget length d1 ≤ logB1 Q1 . Let
+                                                                
+                                                                        minimize the bootstrapping runtime; (4) 1/p1 ℓ ≤ εp for false
+the key switching key be parameterized by dimension n2 ,
+                                                              2         positive rate εp ; (5) the first level of bootstrapping maps a
+ciphertext modulus Q1 , secret key s 2 , noise  variance σks , gad-   pertinent LWE ciphertext to 1 with probability εn /ℓ for false
+get basis Bks and gadget length dks ≤ logBks Q1 . Then the
+                                                                        negative rate εn . Concrete selection is shown in Table 1.
+noise variance of the output ciphertext of the first-layer boot-
+                          2                                             Parameters for homomorphic encoding. Lastly, we briefly
+strapping is σ2out1 = Qq2 2 (ℓ · σ2br1 + σ2ks ) + σ2ms where the key
+                         1                                              discuss how we choose parameters for homomorphic en-
+                               B2 +2
+switching noise σ2ks is dks N1 ks12 σ2ksk and the modulus switch-       coding, specifically segment size Ns , number of segments
+ing noise σ2ms is n224+2 . The total noise σ2br1 is shown below.        ℓmax (see § 5.2.3) and the number of linear combinations
+                B2 +2
+                                        2d 
+                                  Q 2 −B 1
+                                                                       m (see § 5.2.4). For indices, we require 1 − ∏k̄i=1 (1 −
+σ2br1 = d1 n1 N1 16 σ2bsk1 +n1 1 2d11 1 + N21 + n116N1 + 16   n1
+                                                                        ( N1s )ℓmax ) = negl(λ) ( [28, pp. 21]). For payloads, we require
+                                   24B1
+Second layer bootstrapping.                Let the input LWE ci-        ∏m  i=m−k̄+1
+                                                                                      (1 − 1/p3 i ) = 1 − negl(λ) ( [28, pp. 25]) for p3 be-
+phertext be parametrized by dimension n2 , plaintext mod-               ing a prime. The selection of ℓmax , Ns , and m must ensure
+ulus p2 , ciphertext modulus q2 and the binary secret key               that the recipient can decode the digest with overwhelming
+s 2 . Let the bootstrapping key be parametrized by ring di-             probability. We select the largest ℓs , ℓcmb to minimize digest
+mension N2 , ciphertext modulus Q2 , ternary secret key z2 ,            size. Similarly, they are summarized in Table 1.
+noise variance σ2bsk2 , gadget basis B2 and gadget length
+d2 ≤ logB2 Q2 . Let the trace key be parameterized by N2 ,
+                                                                        5.5     Streaming Updates
+Q2 , z2, noise variance
+                        σ2ak , gadget basis Bak and gadget length
+dak ≤ logBak Q2 . Then the noise variance of the second layer           As discussed in [28, Section 7.5], in practice, the applications
+bootstrapping is σ2out2 = σ2br2 + σtr 2 . The σ2 bears similarity       may prefer streaming updates. In the streaming setting, a
+                                               br2
+to the σbr1 from the first layer, as illustrated below: σ2br2 =
+           2                                                            recipient uploads the detection key to the detector in advance
+          B2 +2          Q 2 −B 2
+                                 2d                                   (before making any retrieval requests). The detector processes
+d2 n2 N2 26 σ2bsk2 + n2 2 2d22 1 + N22 + n216N2 + 16    n2
+                                                           , where      messages on-the-fly as they arrive, and is ready to serve the
+                         24B2
+                 N2 2 −1 2                     B2 +2                    digest at low additional cost when the recipient shows up.
+σtr satisfy σtr ≤ 3 σauto where σ2auto = dak N2 ak12 σ2ak .
+ 2           2
+                                                                            While this setting is already discussed in [28], unfortu-
+Encode Pertinent Message Indices.           Let the pertinent           nately, all the existing BFV-based OMR constructions do not
+vector PV output by the second layer bootstrapping(see Alg 5)           fit in this setting well. Specifically, the existing OMR schemes
+be parameterized by ring dimension N2 , ciphertext mod-                 accumulate N messages before performing the homomorphic
+ulus Q2 , secret key z2 , noise variance σ2out2 . Let the pay-          retrieval process (for N being the ring dimension, either 32768
+loads count be D. Let the “Encode Pertinent Message In-                 or 65536), since this maximizes their overall efficiency. How-
+dices” be parameterized by segment count ℓs . Then the noise            ever, if the recipient becomes online with only t < N messages
+variance
+      of the  encoded   pertinent message indices vector is           have accumulated, the detector then needs to perform the ho-
+Dℓs log p3 D + 1 p3 2 σ2out2 .
+                   
+                                                                        momorphic retrieval with these t messages. In this case, no
+Encode Pertinent Message Payloads.               Let the perti-         matter t = 1 or t = N − 1, the recipient needs to wait for a
+nent vector PV output by the second layer bootstrapping(see             long time (at least ∼52 seconds as shown in § 6).
+
+
+
+4238    35th USENIX Security Symposium                                                                              USENIX Association
+                                                                                                                           Parameters
+   InstantOMR, on the other hand, avoids the latency induced                                                   n1     q1                 s1        p1    ℓ     σck
+                                                                                   Clue key
+by large batches in this streaming setting, since it processes                                                 512    2048               Binary    23    7     0.8293
+                                                                                                               N1     Q1                 z1        B1    d1    σbsk1    p2
+                                                                                   First bootstrapping
+exactly one message at a time. Thus, no message accumulates.                                                   1024   134215681          Ternary   25    4     3.1859 25
+                                                                                                               n2     Qks                s2        Bks   dks   σksk
+When the recipient comes online, the digest is ready since                         Key switching
+                                                                                                               670    134215681          Binary    2     26    2.0329 × 210
+all messages are processed. In some cases, during the very                         Modulus switching
+                                                                                                               q2
+                                                                                                               4096
+second that the recipient is online, t ′ ≥ 1 new messages arrive.                  Second bootstrapping
+                                                                                                               N2     Q2                 z2        B2    d2    σbsk2     p3
+                                                                                                                                                   27
+Recipient wait time is t ′ · T where T is the time InstantOMR                                                  2048
+                                                                                                               N2
+                                                                                                                      1125899906826241
+                                                                                                                      Q2
+                                                                                                                                         Ternary
+                                                                                                                                         z2        Bak
+                                                                                                                                                         6
+                                                                                                                                                         dak
+                                                                                                                                                               0.3908
+                                                                                                                                                               σak
+                                                                                                                                                                         257
+                                                                                   HomTrace
+takes to process a single message. Concretely, for Bitcoin-                                                    2048   1125899906826241   Ternary   22    24    0.3908
+                                                                                                               ℓmax   Ns                 ℓs        d
+scale application, t ′ < 7 [1], and the maximum recipient wait                     Encode pertinent indices
+                                                                                                               25     120                5         2
+                                                                                                               m      ℓcmb
+time is < 1 second for a single-core server, and < 100ms for                       Encode pertinent payloads
+                                                                                                               55     2
+a t ′ -core server (see § 6 for more details), compared to at
+least ∼52 seconds for prior works. Thus, our scheme is highly                                      Table 1: Parameters for InstantOMR.
+preferable for streaming update setting.11
+   For large D, a hybrid solution can be used (see § 6.2).
+                                                                                  standard LWE-estimator [3]; and let k̄ = k = 50, payload size
+Remark 5.2. For all the discussion in § 5.5, we assume the                        be 612 bytes, false negative probability be 2−30 , and false
+recipient also sends k̄ (i.e., the expected number of pertinent                   positive probability be 2−20 as the prior works [26,28,30]. For
+messages) in advance in addition to the detection key. Oth-                       pertinent indices encoding, we partition the ring polynomial
+erwise, since the homomorphic encoding is dependent on                            with dimension N2 into ℓs groups of buckets, every group
+k̄, the digest generation in the streaming process cannot be                      takes Ns buckets and every bucket takes d +1 coefficients, and
+achieved (similar to all prior single-server OMR construc-                        ℓmax groups of buckets will be encoded for correctness. These
+tions [26, 28, 30]).                                                              buckets can be encoded in ⌈ℓmax /ℓs ⌉ RLWE ciphertexts. The
+    As discussed in [28], this seems to be a reasonable assump-                   linear combination count (for pertinent payloads encoding)
+tion that a client can estimate the upper bound on the number                     is m, and we can encode ℓcmb combinations in one RLWE
+of messages they receive (and this bound can be conservative,                     ciphertext at the same time.
+only influencing the communication cost but not the compu-
+tation cost).
+                                                                                  6.2         Benchmark
+6     Evaluation                                                                  We benchmark InstantOMR scheme using Google Compute
+                                                                                  Cloud “c3d-highcpu-360”, equipped with 180 cores and 708
+6.1     Methodology                                                               GB of memory.12 We conducted comprehensive experiments
+                                                                                  evaluating the runtime of the detector under varying thread
+We implement the InstantOMR schemes with Primus-fhe                               count and message count. For improved readability and ana-
+[36] library. Then we compare its performance against                             lytical clarity, we have selected and presented a representative
+PerfOMR and SophOMR, the state-of-the-art FHE-based                               subset of the data in the following tables and figures. For
+OMR constructions. Our focus lies in optimizing scenarios                         Table 2 and Figs. 3 and 4, we use D = 216 messages as [26],
+where the total number of messages is relatively small (or                        and for Fig. 2, we vary D, the total number of messages.
+the detector processes incoming messages on-the-fly), aim-                           Table 2 presents the runtime data of InstantOMR
+ing to reduce the overall latency. We present comprehensive                       (Primus-fhe), InstantOMR (TFHE-rs), PerfOMR and
+benchmark data for our scheme.                                                    SophOMR, where InstantOMR (TFHE-rs) is the estimated
+   For PerfOMR [30] and SophOMR [26], we run their code                           runtime of InstantOMR if it were implemented using
+on our instance. Note that for these prior works, if the total                    TFHE-rs , which will be discussed in more detail in § 6.4. It
+number of messages D is smaller than the ring dimension                           is easy to see that our implementation of InstantOMR has
+N of the underlying BFV scheme, their range-check compo-                          a much better latency (∼277×), but worse in terms of the
+nent (i.e., Steps 3a and 3b in § 4) remains the same as for N                     total runtime for a single core (∼163×). This disadvantage
+messages, so we list range-check-time + D/N× (total-time −                        of throughput decreases with sufficient number of cores,
+range-check-time). Note that this is estimated to their favor,                    which we discuss in more detail in § 6.3. A prior work
+since there are other components that remain the same as for                      Homerun [25] focuses on two-server OMR, so we do not
+N messages, but sufficient to demonstrate our advantages.                         directly compare to it in this section. See the full version for
+Parameters. Table 1 presents a set of parameters chosen                           a more detailed discussion.
+according to § 5.4.2 satisfying 128-bit security using the                           Table 2 also shows the key size, clue size and digest size of
+                                                                                  InstantOMR, PerfOMR and SophOMR. Compared to prior
+   11 For all the discussion above (including for prior works), we assume the
+
+recipient also sends k̄ in advance. See the full version for details on why and     12 InstantOMR requires only ≤3GB of memory even when processing
+
+what happens if not.                                                              216 messages even with 180 cores.
+
+
+
+
+USENIX Association                                                                                             35th USENIX Security Symposium                           4239
+                                                                Latency   Detector Time    Recipient Time   Clue Key Size   Clue Size   Detection Key Size    Digest Size
+                                                                   (ms)       (ms/msg)               (ms)         (Bytes)     (Bytes)                (MB)           (KB)
+              PerfOMR [30]                                       88,742             7.34               12           2197        2191                  171            567
+              SophOMR [26] (1 core)                              76,065             1.68               14           2576        2570                  114            263
+              SophOMR (180 cores)                                52,846             1.38               14           2576        2570                  114            263
+              InstantOMR (Primus-fhe, 180 cores)                    274             1.69              201            720         714                  113            825
+              InstantOMR (estimated TFHE-rs, 180 cores)              88             0.55              201            720         714                  113            825
+              InstantOMR (Primus-fhe, 1 core)                       274          274.51               201            720         714                  113            825
+              InstantOMR (estimated TFHE-rs, 1 core)                 88           88.39               201            720         714                  113            825
+
+
+Table 2: Performance of OMR Schemes (D = 216 , k = 50). Latency is measured for one message. Detecttor time is ms-per-msg
+(total-time/D) following PerfOMR [26], the state-of-the-art OMR construction. , Latency is defeind to be the detector runtime
+taken to process a single (new) message, which is equivalent to the runtime taken to run D = 1 message. Detector time, following
+prior works [26, 30], is defined to be the total detector runtime divided by D messages, which is equivalently the inverse of
+throughput. Recipient time is the recipient runtime for the digest generated from all these D messages and k pertinent messages.
+We discuss multi-threading for prior works and our construction in § 6.3.
+
+                                   Total   First-layer Boot   Second-layer Boot   Encode
+                                   (ms)                (ms)                (ms)     (ms)
+ InstantOMR (Primus-fhe, 1 core)    274                 164                 110    0.127
+  InstantOMR (TFHE-rs, 1 core)       88                  69                  19    0.127
+
+
+
+      Table 3: Runtime/msg Breakdown for InstantOMR
+
+
+works, we show smaller clue key and clue sizes, comparable
+detection key size, and larger digest size. Note that in terms
+of sizes, clue size could be considered as a practical concern
+in some applications. For example, in Zcash Sapling protocol
+[23], a transaction itself is around 1.39 KB, and the clue sizes
+in prior works are even larger than the transaction itself, thus
+inefficient. Thus, InstantOMR has additional advantages for                                                 Figure 2: Benchmark of detector total runtime.
+schemes that have small payload sizes.
+   Fig. 2 illustrates the detector time of InstantOMR,
+PerfOMR and SophOMR across varying message payload                                               Parallelizability for prior works. Prior works do not benefit
+count and thread count.                                                                          much from multi-threading for the following two reasons:
+Runtime breakdown. Lastly, we briefly discuss how our                                            (1) The OMR schemes in [26, 30] only naturally support
+detector runtime breaks down. The runtime breakdown for                                          multi-threads when there are > N messages (for N being
+detecting a single message in InstantOMR is presented in                                         the ring dimension, either 32768 or 65536), which means
+Table 3. The “Total” column is the sum runtime of last three                                     that for smaller N, their runtime is close to that of running
+columns. The “First-layer Boot” column represents the sum                                        N messages even for multi-threading. Under such a multi-
+of 7 times the values in the “First bootstrapping” column                                        threading method, to fully utilize a machine with 180-cores
+of Table 4 plus the FHE.KS time. The “Second-layer Boot”                                         as ours, more than ten million messages are needed to be
+column corresponds to the sum of the values in the “Second                                       processed at a time. (2) The BFV scheme [13, 22] itself does
+bootstrapping” column of Table 4 and the FHE.HomTrace                                            not benefit much from multi-threading. In particular, the only
+time. It is evident that the most time-consuming operation is                                    effective way known is to parallelize BFV operations over the
+the two-layers bootstrapping (taking > 99.85% of the total                                       RNS limb, which is essentially the multiplicative depth (or
+runtime). The runtime of “Encode”, which generates the di-                                       half of it for the parameters of [30]) [7]. However, the depth
+gest, is very small compared to two-layers bootstrapping (only                                   is only < 20 even for the full circuit of [26, 30]. Furthermore,
+< 0.15% of the total time). Thus, any future improvement on                                      when the homomorphic circuit proceeds, the depth becomes
+functional bootstrapping (§ 3.1.1) could significantly improve                                   smaller. Specifically, for [26], about 1/2 of the runtime is over
+our scheme as well.                                                                              ciphertexts with multiplicative depth 1 or 2. Thus, even for
+                                                                                                 180 cores, the most optimistic improvement one can hope for
+                                                                                                 is about 2-4x.
+6.3      Multithreading
+                                                                                                    In fact, the implementation of SophOMR [26] does support
+Additionally, InstantOMR supports optimal multi-threading,                                        multi-threading (since the library it builds on, OpenFHE [7]
+further improving detection efficiency—an advantage                                               natively supports it). With the same machine, their runtime is
+unattainable in previous BFV-based schemes.                                                       only < 1.5× faster in terms of latency and about 1.2× faster
+
+
+
+4240      35th USENIX Security Symposium                                                                                                                     USENIX Association
+                                                                                              n2    q2       s2    p2              σ
+                                                                             LWE
+                                                                                             863   264   Binary    24   2.15 × 10−6
+                                                                                              N2   Q2        z2    B2             d2           σbsk2
+                                                                             RLWE
+                                                                                            2048   264   Binary   223              1   2.85 × 10−15
+                                                                                              n2    q2       s2   Bks            dks            σksk
+                                                                             Keyswitching
+                                                                                             863   264   Binary    23              5    2.15 × 10−6
+
+
+                                                                            Table 6: TFHE-rs parameters for the second bootstrapping.
+
+
+                                                                            that we need to use TFHE-rs for our two layers of bootstrap-
+                                                                            ping (i.e., line 4 of Alg 4 and line 1 of Alg 5). Thus, we
+                                                                            benchmark TFHE-rs with parameters (Tables 5 and 6) similar
+Figure 3: Benchmarked detector total time of InstantOMR,                    to the parameters (see Rmk 6.1 below) we use for our two
+with Primus-fhe                                                             layers of bootstrapping. Given the parameter ℓ = 7 (i.e., the
+                                                                            number of bootstrapping calls for the first layer), when using
+                First bootstrapping (ms)     Second bootstrapping (ms)      TFHE-rs, we obtain the speed difference for the two layers
+ Primus-fhe              22.83                        106.07                of bootstrapping is 22.83×7+106.07
+ TFHE-rs                  9.82                         15.18                                      9.82×7+15.18 ≈ 3.17 (see also Table 4
+                                                                            for how this calculation is obtained). Consequently, using
+                                                                            TFHE-rs, we estimate that our scheme can earn > 3× speed
+Table 4: Bootstrapping Performance: Primus-fhe [36] vs                      up (since these two layers take > 99.85% of total runtime as
+TFHE-rs [43]                                                                shown in Table 3).
+
+                                                                            Remark 6.1. Table 5 and Table 6 present the parameters used
+in terms of total runtime, which matches the intuition above.
+                                                                            to estimate the bootstrapping of TFHE-rs scheme. These two
+Our throughput. With this in mind, Figs. 2 and 3 demon-                     parameter sets are used in the TFHE-rs library. The parameter
+strate that by increasing the number of threads, InstantOMR                 Ni (where i ∈ {1, 2}) corresponds to those in Table 1, while
+achieves significantly higher throughput. With 180 cores, our               ni (where i ∈ {1, 2}) is larger than the respective parameter
+implementation has similar throughput as [26] with the same                 specified in Table 1. Additionally, the benchmark results for
+number of cores. If the server is strong enough (with D                     TFHE-rs in Table 4 comprises both bootstrapping and key-
+cores), our total runtime can be as low as retrieving a single              switching times, whereas those for Primus-fhe doesn’t contain
+messages, thus showing essentially optimal parallelizability.               key-switching times.
+The minor anomaly of 180 cores in Fig. 3 is due to that we                     Even under these two adverse conditions ((1) larger ni and
+benchmark with D always being a power-of-two. Note that                     (2) TFHE-rs’ benchmark result contains key-switching times),
+multi-threading is only used to improve throughput not latency              TFHE-rs still outperforms Primus-fhe by this factor. Thus,
+of InstantOMR.                                                              we believe that it is safe to conclude that when implemented
+                                                                            using TFHE-rs, InstantOMR can at least be 3× faster than
+6.4    Estimation with TFHE-rs                                              the current implementation.
+
+                                                                            Remark 6.2. We use Primus-fhe [36] instead of TFHE-rs
+InstantOMR using TFHE-rs. The TFHE-rs FHE library
+                                                                            [43] since Primus-fhe is easier to modify for our non-black-
+[43] is generally faster than the Primus-fhe library we use in
+                                                                            box TFHE usage. TFHE-rs is very suitable for black-box use
+our implementation, but TFHE-rs could not be directly used
+                                                                            by application developers, and has better efficiency optimiza-
+since it is not amenable to our non-black-box TFHE usage
+                                                                            tions, but is not amenable to the requisite structural changes,
+(see Rmk 6.2 for details). Nonetheless, we obtain estimates of
+                                                                            such as having input vs. output ciphertexts with different pa-
+performance for our scheme if it were implemented using a
+                                                                            rameters, including secret key dimension, ciphertext modulus,
+suitable extension of TFHE-rs, by the following methodology:
+                                                                            and plaintext modulus.
+ To replace Primus-fhe with TFHE-rs, the only difference is
+
+                                                                            Performance. As shown in Table 2 and Fig. 2, with this esti-
+                   n1    q1       s1    p1            σck                   mation using TFHE-rs, InstantOMR has even smaller latency
+ LWE
+                  630   232   Binary    23    3.05 × 10−5
+                   N1   Q1        z1   B1               d1          σbsk1   (∼865× compared to single-core SophOMR and ∼600×
+ RLWE                                                                       compared to 180-core SophOMR). Our throughput is also
+                 1024   232   Binary    27               3   2.98 × 10−8
+ Keyswitching
+                   n1    q1       s1   Bks             dks           σksk   improved, now ∼53× smaller than SophOMR with single-
+                  630   232   Binary    22               8   3.05 × 10−5
+                                                                            thread, but ∼2.5× larger than SophOMR when 180 cores
+                                                                            are used. We also show in Fig. 4 on how InstantOMR with
+  Table 5: TFHE-rs parameters for the first bootstrapping.                  TFHE-rs estimation scales with the number of cores.
+
+
+
+USENIX Association                                                                             35th USENIX Security Symposium                  4241
+                                                                  can be used in a hybrid way. Specifically, SophOMR can
+                                                                  process these accumulated messages, an InstantOMR can
+                                                                  process the new incoming messages. This guarantees both
+                                                                  throughput efficiency and low-latency in real-time retrievals.
+                                                                  Furthermore, since the two schemes both use the RLWE-
+                                                                  based constructions, the digest provided by the two construc-
+                                                                  tions can potentially be merged. Of course, this may require
+                                                                  additional techniques such as ring-switching. We leave it for
+                                                                  future work to explore such use in more detail.
+Figure 4: Estimated detector total time of InstantOMR with        Streaming setting. In the streaming setting (§ 5.5), if there
+TFHE-rs                                                           are t ′ messages arrives the second that the recipient is on-
+                                                                  line, the recipient’s wait time for InstantOMR is t ′ · 88 (for
+Remark 6.3. While not a fair comparison due to different          TFHE-rs). Note that even for Bitcoin-scale applications, t ′ ≤ 7
+environment settings, we briefly compare with [25] in terms       (§ 5.5), and thus the waiting time is at most ≈ 600ms. Fur-
+of concrete efficiency for completeness (where the numbers        thermore, for a t ′ -core detector, the waiting time is as low as a
+are directly taken from the paper since they have a similar       single message (i.e., 88ms). However, for [26,30], the waiting
+instance setup). Specifically, for 215 messages, their runtime    time in the streaming setting is at least around 76 seconds,
+per message is ≈ 0.01ms per message online time, including        Thus, InstantOMR (using TFHE-rs) has a 123× advantage
+∼580MB of server-to-server communication (numbers taken           (or 864× advantage for a t ′ -core detector) compared to prior
+from [19]). This is indeed orders of magnitude more efficient     works. In general, even for a single-core detector, our scheme
+than our construction and also a lot faster than the existing     outperforms both prior works for t ′ ⪅ 900 as discussed above.
+state-of-the-art single-server OMR SophOMR. However, this            Another example application is Zcash [39]: in Zcash, if
+is achieved under two non-colluding and semi-honest servers       a client remained offline on 11/07/2025, they would have
+(where semi-honesty is required even for privacy, not only        20,408 transactions to process when they reconnect.13 In
+correctness). A very recent, concurrent and independent work      prior constructions, these transactions can be processed only
+[19] improves it to have security against malicious servers,      after the client reconnects and issues a retrieval request (since
+but the runtime becomes similar to SophOMR (about 2-3×            20,408 is smaller than the ring dimension), so the client would
+after), while still assuming two non-colluding servers.           wait roughly 2 minutes before receiving any messages. Us-
+                                                                  ing InstantOMR, the client can obtain the updates of these
+                                                                  messages essentially instantaneously (since the detector has
+6.5    Applications and Trade-offs                                already processed all the arrived messages). Furthermore,
+                                                                  even if there are more than ring-dimension number of mes-
+Latency and small D. InstantOMR demonstrates signifi-             sages (e.g., on 11/13/2025, with 73,826 Zcash transactions),
+cantly lower latency, achieving orders of magnitude improve-      a similar issue remains: a batch of 65,536 transactions can be
+ment over prior works [26, 30]. Specifically, for a single mes-   processed by SophOMR [26] in advance, However, to receive
+sage, the latency of our scheme can be around 864 times           the remaining 8290, the client still needs to wait for roughly
+smaller than using [26], the fastest existing single-server OMR   2 minutes. Again, such wait time can be eliminated by using
+scheme, and roughly 1008 times smaller than using [30], the       InstantOMR. As discussed above, one could potentially use
+existing single-server OMR with the smallest latency, if im-      SophOMR to process the large batch and use InstantOMR to
+plemented using TFHE-rs.                                          process the rest.
+   Additionally, our scheme shines when the number of mes-
+                                                                  Trade-off between the latency and throughput. In short,
+sages to-be-processed is small: This can be either that the
+recipient checks its inbox regularly, so a small amount of        InstantOMR offers a trade-off throughput with latency com-
+messages accumulates, or in the streaming setting (see be-        pared to prior works [26]. As discussed above, InstantOMR
+low). With a single-thread, Fig. 2 shows that InstantOMR          provides > 600 latency improvement (with estimated runtime
+(implemented with Primus-fhe) outperforms PerfOMR and             with TFHE-rs) compared to SophOMR and < 0.1 second of
+SophOMR for message counts below ∼256 in terms of                 waiting time for recipients who need real-time updates. On the
+both latency and runtime. When implemented with TFHE-rs,          other hand, it also puts burden to the detector: it takes 88ms
+InstantOMR maintains superior performance for message             to process a message instead of only 1.68ms as in SophOMR
+counts below ∼900 (again, single thread; multi-threading dis-     (∼53× slower). Additionally, with a super powerful server
+cussed below).                                                    (e.g., 180 cores), InstantOMR is preferred in most applica-
+                                                                  tions, since the throughput can be improved to be larger than
+Large D. For a large (e.g., D > 900 · c for c cores) number
+of accumulated messages, directly using InstantOMR is less          13 https://bitinfocharts.com/comparison/zcash-transactions.
+
+efficient. However, instead, SophOMR [26] and InstantOMR          html.
+
+
+
+
+4242   35th USENIX Security Symposium                                                                        USENIX Association
+SophOMR as well.                                                     that a recipient could otherwise execute locally. Thus, while
+                                                                     the work may improve system scalability and performance, it
+                                                                     does not alter the underlying security or privacy model.
+Acknoledgement
+                                                                     Ethical Principles. We considered the Menlo Report prin-
+Zeyu Liu is supported by Yale CADMY. Yu Yu is supported              ciples:
+by the National Natural Science Foundation of China (Grant           • Beneficence: The research benefits recipients and messag-
+Nos. 92270201 and 62125204). This paper was edited for                 ing platforms by enabling faster and more resource-efficient
+grammar using Grammarly, ChatGPT, and Google Gemini.                   communication, without introducing new risks.
+                                                                     • Respect for Persons: No human subjects are directly in-
+                                                                       volved, and the scheme does not undermine user autonomy
+Ethical Considerations                                                 or informed consent.
+                                                                     • Justice: The efficiency gains are broadly applicable and not
+Ethics Summary.
+                                                                       restricted to a privileged subset of users or providers. As
+Our work introduces InstantOMR, an oblivious message re-               demonstrated in the Open Science section below, we will
+trieval (OMR) scheme with optimal parallelizability and low            open-source our code, so it will be publicly available to all.
+latency. In general, we believe that OMR does not introduce          • Respect for Law and Public Interest: The scheme does
+additional risks, since it merely provides a more efficient            not enable violations of law; it merely improves existing
+mechanism for outsourcing message retrieval. In principle,             cryptographic protocols. However, as noted, private mes-
+the same retrieval task could always be performed locally by           saging apps may be misused by adversaries, but as argued,
+the recipient, without relying on a detector or third party. Thus,     such a risk is unlikely to be amplified by InstantOMR or
+OMR does not provide stronger privacy guarantees than those            OMR in general.
+already present in privacy-preserving messaging systems, but
+                                                                     Harms. We identify minimal risks. One hypothetical con-
+instead improves performance and usability.
+                                                                     cern is that privacy-preserving messaging systems, in general,
+   It is important to note that, as with all privacy-preserving      could be misused by malicious parties to conceal unlawful ac-
+communication tools, there exists the possibility of misuse          tivities. However, such risks are independent of the efficiency
+by adversaries who seek to hide their activities. However,           of the OMR component. OMR itself does not expand the
+this risk stems from the general availability of anonymous           adversarial capabilities—it only reduces computational and
+messaging, not from the existence of OMR specifically. The           communication overhead. However, note that such a reduc-
+improvements provided by our scheme are unlikely to cause            tion could potentially make an attacker’s malicious behaviors
+additional harm in nature: they make the system more prac-           cheaper in such a system. Specifically, in the case of our work,
+tical for legitimate users but do not fundamentally change           it allows the attacker to use the anonymous messaging system
+the adversarial threat landscape (who is more likely to have         with streaming updates on a lightweight device (and outsource
+enough resources for messaging retrieval). For these reasons,        the message retrieval process to a server). We would like to ad-
+we believe that studying and publishing more efficient OMR           ditionally note that an adversary can already use anonymous
+protocols raises no new ethical concerns.                            messaging systems with a more powerful machine, such that
+                                                                     they could process message retrieval without outsourcing.
+Detailed Stakeholder-Based Ethics Analysis                               No tangible harms (financial, psychological, or physical)
+                                                                     are introduced by our methodology or its publication, nor
+Stakeholders. The primary stakeholders include: (1) re-              violation of human rights, to the best of our knowledge.
+cipients of private messages who may benefit from efficient
+retrieval mechanisms, (2) senders of private messages whose          Mitigations. Since OMR does not alter the threat model
+privacy is indirectly preserved, (3) service providers that op-      of existing private messaging systems, no special mitigations
+erate private messaging systems, (4) the research community          seem to be required for OMR particularly. However, it is cer-
+that may build upon our proposed construction or work on             tainly worth posing additional regulations to such anonymous
+topics that could benefit from our techniques, and (5) society       systems as it becomes more efficient and affordable as OMR
+at large, which benefits from secure and efficient communica-        advances.
+tion technologies.                                                   Decision. We proceeded with this research because it offers
+Impacts.        Our contribution is the introduction of              clear technical benefits (efficiency and scalability for regular
+InstantOMR, an Oblivious Message Retrieval (OMR) scheme              lightweight clients) with minimal new ethical risks. Publica-
+with low latency and optimal parallelizability. The core impact      tion is justified because the societal benefits of disseminating
+is improved efficiency in private message retrieval systems.         an efficient primitive outweigh the small risk (if any) that
+Importantly, OMR does not expand the scope of privacy guar-          efficiency gains might indirectly facilitate malicious use of
+antees: it simply provides an efficient means to perform a task      messaging systems.
+
+
+
+USENIX Association                                                                      35th USENIX Security Symposium         4243
+Open Science                                                       [9] E. Ben-Sasson, A. Chiesa, C. Garman, M. Green,
+                                                                       I. Miers, E. Tromer, and M. Virza. Zerocash: Decentral-
+An anonymous repository is provided at [2]. The repository             ized anonymous payments from bitcoin. In 2014 IEEE
+contains the full implementation of our system and enables             Symposium on Security and Privacy, pages 459–474,
+reviewers to reproduce the evaluation results in § 6. Following        Berkeley, CA, USA, May 18–21, 2014. IEEE Computer
+the USENIX Security open-science requirements, the repos-              Society Press.
+itory will remain accessible throughout the review period.
+Upon acceptance, we will release a non-anonymized public          [10] O. Biçer and C. Tschudin. Oblivious homomorphic en-
+version and submit the artifact for evaluation of availability,        cryption. Cryptology ePrint Archive, Report 2023/1699,
+functionality, and reproducibility.                                    2023.
+
+                                                                  [11] A. Bittau, U. Erlingsson, P. Maniatis, I. Mironov,
+References                                                             A. Raghunathan, D. Lie, M. Rudominer, U. Kode,
+                                                                       J. Tinnes, and B. Seefeld. Prochlo: Strong privacy for
+ [1] YCharts.       https://ycharts.com/indicators/
+                                                                       analytics in the crowd. In Proceedings of the 26th Sym-
+     bitcoin_transactions_per_day. Accessed: 2025-
+                                                                       posium on Operating Systems Principles, SOSP ’17,
+     08-05. At most 573,275 transactions in July 2025.
+                                                                       New York, NY, USA, 2017.
+ [2] Instantomr. GitHub, 2025. https://github.com/
+     xiangxiecrypto/tfhe-omr.                                     [12] S. Bowe, A. Chiesa, M. Green, I. Miers, P. Mishra, and
+                                                                       H. Wu. ZEXE: Enabling decentralized private computa-
+ [3] M. R. Albrecht, R. Player, and S. Scott. On the con-              tion. In 2020 IEEE Symposium on Security and Privacy,
+     crete hardness of learning with errors. Journal of Mathe-         pages 947–964, San Francisco, CA, USA, May 18–21,
+     matical Cryptology (2015)., GitHub:https://github.                2020. IEEE Computer Society Press.
+     com/malb/lattice-estimator.
+                                                                  [13] Z. Brakerski. Fully homomorphic encryption without
+ [4] A. Ali, T. Lepoint, S. Patel, M. Raykova, P. Schoppmann,          modulus switching from classical GapSVP. In R. Safavi-
+     K. Seth, and K. Yeo. Communication-computation trade-             Naini and R. Canetti, editors, Advances in Cryptology –
+     offs in PIR. In M. Bailey and R. Greenstadt, editors,             CRYPTO 2012, volume 7417 of Lecture Notes in Com-
+     USENIX Security 2021: 30th USENIX Security Sympo-                 puter Science, pages 868–886, Santa Barbara, CA, USA,
+     sium, pages 1811–1828. USENIX Association, Aug. 11–               Aug. 19–23, 2012. Springer Berlin Heidelberg, Ger-
+     13, 2021.                                                         many.
+ [5] S. Angel, H. Chen, K. Laine, and S. T. V. Setty. PIR with    [14] Z. Brakerski, C. Gentry, and V. Vaikuntanathan. (lev-
+     compressed queries and amortized query processing. In             eled) fully homomorphic encryption without bootstrap-
+     2018 IEEE Symposium on Security and Privacy, pages                ping. ACM Trans. Comput. Theory, 6(3), July 2014.
+     962–979, San Francisco, CA, USA, May 21–23, 2018.
+     IEEE Computer Society Press.                                 [15] H. Chen, W. Dai, M. Kim, and Y. Song. Efficient ho-
+ [6] A. Back, U. Möller, and A. Stiglic. Traffic analysis              momorphic conversion between (ring) LWE ciphertexts.
+     attacks and trade-offs in anonymity providing systems.            In K. Sako and N. O. Tippenhauer, editors, ACNS 21:
+     In Proceedings of the 4th International Workshop on               19th International Conference on Applied Cryptography
+     Information Hiding, IHW ’01, Berlin, Heidelberg, 2001.            and Network Security, Part I, volume 12726 of Lecture
+                                                                       Notes in Computer Science, pages 460–479, Kamakura,
+ [7] A. A. Badawi, A. Alexandru, J. Bates, F. Bergam-                  Japan, June 21–24, 2021. Springer, Cham, Switzerland.
+     aschi, D. B. Cousins, S. Erabelli, N. Genise, S. Halevi,
+     H. Hunt, A. Kim, Y. Lee, Z. Liu, D. Micciancio, C. Pas-      [16] I. Chillotti, N. Gama, M. Georgieva, and M. Izabachène.
+     coe, Y. Polyakov, I. Quah, S. R.V., K. Rohloff, J. Say-           TFHE: Fast fully homomorphic encryption over the
+     lor, D. Suponitsky, M. Triplett, V. Vaikuntanathan, and           torus. Journal of Cryptology, 33(1):34–91, Jan. 2020.
+     V. Zucca. OpenFHE: Open-source fully homomorphic
+     encryption library. WAHC’2022, 2022.                         [17] I. Chillotti, D. Ligier, J.-B. Orfila, and S. Tap. Improved
+                                                                       programmable bootstrapping with larger precision and
+ [8] G. Beck, J. Len, I. Miers, and M. Green. Fuzzy mes-               efficient arithmetic circuits for TFHE. In M. Tibouchi
+     sage detection. In G. Vigna and E. Shi, editors, ACM              and H. Wang, editors, Advances in Cryptology – ASI-
+     CCS 2021: 28th Conference on Computer and Com-                    ACRYPT 2021, Part III, volume 13092 of Lecture Notes
+     munications Security, pages 1507–1528, Virtual Event,             in Computer Science, pages 670–699, Singapore, Dec. 6–
+     Republic of Korea, Nov. 15–19, 2021. ACM Press.                   10, 2021. Springer, Cham, Switzerland.
+
+
+
+4244   35th USENIX Security Symposium                                                                      USENIX Association
+[18] B. Chor, O. Goldreich, E. Kushilevitz, and M. Sudan.        [29] Z. Liu, E. Tromer, and Y. Wang. Group oblivious mes-
+     Private information retrieval. In 36th Annual Symposium          sage retrieval. In 2024 IEEE Symposium on Security and
+     on Foundations of Computer Science, pages 41–50, Mil-            Privacy, pages 4367–4385, San Francisco, CA, USA,
+     waukee, Wisconsin, Oct. 23–25, 1995. IEEE Computer               May 19–23, 2024. IEEE Computer Society Press.
+     Society Press.
+                                                                 [30] Z. Liu, E. Tromer, and Y. Wang. PerfOMR: Obliv-
+[19] H. Chu, X. Wang, and Y. Jia. Private signaling secure            ious message retrieval with reduced communication
+     against actively corrupted servers. Cryptology ePrint            and computation. In D. Balzarotti and W. Xu, edi-
+     Archive, Paper 2025/1056, 2025.                                  tors, USENIX Security 2024: 33rd USENIX Security
+                                                                      Symposium, Philadelphia, PA, USA, Aug. 14–16, 2024.
+[20] H. Corrigan-Gibbs, D. Boneh, and D. Mazières. Riposte:
+                                                                      USENIX Association.
+     An anonymous messaging system handling millions
+     of users. In 2015 IEEE Symposium on Security and            [31] V. Lyubashevsky, C. Peikert, and O. Regev. On ideal
+     Privacy, pages 321–338, San Jose, CA, USA, May 17–               lattices and learning with errors over rings. In H. Gilbert,
+     21, 2015. IEEE Computer Society Press.                           editor, Advances in Cryptology – EUROCRYPT 2010,
+                                                                      volume 6110 of Lecture Notes in Computer Science,
+[21] L. Ducas and D. Micciancio. FHEW: Bootstrapping
+                                                                      pages 1–23, French Riviera, May 30 – June 3, 2010.
+     homomorphic encryption in less than a second. In E. Os-
+                                                                      Springer Berlin Heidelberg, Germany.
+     wald and M. Fischlin, editors, Advances in Cryptology
+     – EUROCRYPT 2015, Part I, volume 9056 of Lecture            [32] V. Madathil, A. Scafuro, I. A. Seres, O. Shlomovits,
+     Notes in Computer Science, pages 617–640, Sofia, Bul-            and D. Varlakov. Private signaling. In K. R. B. Butler
+     garia, Apr. 26–30, 2015. Springer Berlin Heidelberg,             and K. Thomas, editors, USENIX Security 2022: 31st
+     Germany.                                                         USENIX Security Symposium, pages 3309–3326, Boston,
+                                                                      MA, USA, Aug. 10–12, 2022. USENIX Association.
+[22] J. Fan and F. Vercauteren. Somewhat practical fully
+     homomorphic encryption. Cryptology ePrint Archive,          [33] N. Mathewson and R. Dingledine. Practical traffic analy-
+     Report 2012/144, 2012.                                           sis: extending and resisting statistical disclosure. In Pro-
+[23] D.-E.      Hopwood, S. Bowe, T. Hornby, and                      ceedings of the 4th International Conference on Privacy
+     N. Wilcox.              Zcash protocol specification.            Enhancing Technologies, PET’04, page 17–34, Berlin,
+     https://zips.z.cash/protocol/sapling.pdf, 2024.                  Heidelberg, 2004.
+
+[24] S. Jakkamsetti, Z. Liu, and V. Madathil. Scalable private   [34] D. Micciancio and V. Vaikuntanathan. SoK: Learning
+     signaling. Cryptology ePrint Archive, Report 2023/572,           with errors, circular security, and fully homomorphic en-
+     2023.                                                            cryption. In Q. Tang and V. Teague, editors, PKC 2024:
+                                                                      27th International Conference on Theory and Practice
+[25] Y. Jia, V. Madathil, and A. Kate. HomeRun: High-                 of Public Key Cryptography, Part IV, volume 14604
+     efficiency oblivious message retrieval, unrestricted. In         of Lecture Notes in Computer Science, pages 291–321,
+     B. Luo, X. Liao, J. Xu, E. Kirda, and D. Lie, editors,           Sydney, NSW, Australia, Apr. 15–17, 2024. Springer,
+     ACM CCS 2024: 31st Conference on Computer and                    Cham, Switzerland.
+     Communications Security, pages 2012–2026, Salt Lake
+     City, UT, USA, Oct. 14–18, 2024. ACM Press.                 [35] S. Noether. Ring signature confidential transactions for
+                                                                      monero. Cryptology ePrint Archive, Report 2015/1098,
+[26] K. Lee and Y. Yeo. SophOMR: Improved oblivious                   2015.
+     message retrieval from SIMD-aware homomorphic com-
+     pression. Cryptology ePrint Archive, Report 2024/1814,      [36] primus labs. primus-fhe, 2024. https://github.com/
+     2024.                                                            primus-labs/primus-fhe.
+
+[27] Z. Liu, K. Sotiraki, E. Tromer, and Y. Wang. Snake-eye      [37] S. Pu, S. A. K. Thyagarajan, N. Döttling, and L. Hanzlik.
+     resistant PKE from LWE for oblivious message retrieval           Post quantum fuzzy stealth signatures and applications.
+     and robust encryption. Eurocrypt’25, 2024.                       In W. Meng, C. D. Jensen, C. Cremers, and E. Kirda,
+                                                                      editors, ACM CCS 2023: 30th Conference on Computer
+[28] Z. Liu and E. Tromer. Oblivious message retrieval. In            and Communications Security, pages 371–385, Copen-
+     Y. Dodis and T. Shrimpton, editors, Advances in Cryp-            hagen, Denmark, Nov. 26–30, 2023. ACM Press.
+     tology – CRYPTO 2022, Part I, volume 13507 of Lec-
+     ture Notes in Computer Science, pages 753–783, Santa        [38] O. Regev. On lattices, learning with errors, random
+     Barbara, CA, USA, Aug. 15–18, 2022. Springer, Cham,              linear codes, and cryptography. J. ACM, 56(6), Sept.
+     Switzerland.                                                     2009.
+
+
+
+USENIX Association                                                                  35th USENIX Security Symposium          4245
+[39] E. B. Sasson, A. Chiesa, C. Garman, M. Green, I. Miers,                          However, while Homerun provides an efficient OMR con-
+     E. Tromer, and M. Virza. Zerocash: Decentralized                                 struction, it (1) relies on a stronger environment assumption
+     anonymous payments from bitcoin. In Proceedings of                               than the focus of this paper, and (2) assumes both servers to be
+     the 2014 IEEE Symposium on Security and Privacy, SP                              semi-honest even for privacy, thus requiring an even stronger
+     ’14, page 459–474, USA, 2014. IEEE Computer Society.                             assumption. It also introduces the concept of “deletion” for
+                                                                                      OMR, which is out of the scope of this work. Thus, we only
+[40] J. Szefer. Survey of microarchitectural side and covert                          compare it briefly in the full version for completeness. A very
+     channels, attacks, and defenses. Cryptology ePrint                               recent work [19] introduces constructions to add malicious
+     Archive, Report 2016/479, 2016.                                                  efficiency and to improve its communication cost.
+[41] R. Wang, J. Ha, X. Shen, X. Lu, C. Chen, K. Wang,                                Fuzzy message detection. [37] introduces a post-quantum se-
+     and J. Lee. FHEW-like leveled homomorphic evalua-                                cure FMD. However, similarly, it focuses on a weaker decoy-
+     tion: Refined workflow and polished building blocks.                             based security guarantee.
+     Cryptology ePrint Archive, Paper 2024/1318, 2024.                                Private signaling. As mentioned, PS [24,32] rely on Trusted
+                                                                                      Execution Environments (TEEs). TEE-based approaches im-
+[42] D. I. Wolinsky, H. Corrigan-Gibbs, B. Ford, and A. John-
+                                                                                      pose significant environmental assumptions, as numerous
+     son. Dissent in numbers: Making strong anonymity
+                                                                                      studies demonstrate their vulnerability to side-channel at-
+     scale. In 10th USENIX Symposium on Operating Sys-
+                                                                                      tacks that compromise secrecy [40]. While the construction
+     tems Design and Implementation (OSDI 12), Hollywood,
+                                                                                      in [24] offers exceptional scalability—with runtime scaling
+     CA, Oct. 2012.
+                                                                                      poly-logarithmically relative to message volume—we exclude
+[43] Zama. TFHE-rs: A Pure Rust Implementation of the                                 direct comparisons due to its reliance on this nonstandard set-
+     TFHE Scheme for Boolean and Integer Arithmetics                                  ting. Another construction of PS in [32] relies on the exact
+     Over Encrypted Data, 2022. https://github.com/                                   same environment assumption as Homerun [25].
+     zama-ai/tfhe-rs.                                                                 Private information retrieval. Private information retrieval
+                                                                                      (PIR) [18] is a cryptographic primitive that allows the recip-
+                                                                                      ient to query specific data from the remote databases while
+                            Table 7: Parameter Table                                  completely concealing the indices or identifiers of the re-
+ Notation                   Meaning                                                   trieved information from the database server. PIR performs
+ D                          Message count on the board
+ k                          Pertinent messages count                                  a query with an index or label that is hidden from the server,
+ k̄                         Upper bound of pertinent messages count                   whereas OMR performs retrieval with the recipient’s evalu-
+ t,p,p1 ,p2 ,p3             Plaintext moduli
+ n,n1 ,n2                   LWE ciphertext dimension                                  ation key, which does not reveal the information of the mes-
+ N,N1 ,N2                   RLWE ciphertext dimension                                 sages that would be retrieved. Unlike PIR [4, 5], where the
+ q,q1 ,q2                   LWE ciphertext moduli
+ Q,Q1 ,Q2                   RLWE ciphertext moduli
+                                                                                      recipient must know the indices of messages to retrieve, OMR
+ σ,σck ,σbsk1 ,σbsk2 ,σak   Noise standard deviation                                  operates under the assumption that users lack prior knowledge
+ B1 ,Bks ,B2 ,Bak           Gadget basis
+ d1 ,dks ,d2 ,dak           Gadget length
+                                                                                      of message indices. The detector scans all messages across
+ ℓ                          The count of ones in clue                                 the board, subsequently returning every pertinent message.
+ d                          Number of coefficients per accumulator
+ ℓmax                       Max repeat count of encoding indices                      Homomorphic encryption. BFV [13, 22] or BGV [14]
+ Ns                         Buckets count of one segment                              is a leveled homomorphic encryption scheme that enables
+ m                          Matrix row count of encoding payloads
+ ℓcmb                       Combinations count encode in one ciphertext
+                                                                                      arithmetic circuit evaluations of bounded depth. [13] first pro-
+ t                          Number of messages accumulated in the streaming setting   posed an efficient LWE-based construction and [22] ports it
+ t′                         Number of messages arrived the recipient is online        to Ring-LWE setting, significantly improving computational
+                                                                                      efficiency. A key strength of BFV lies in its SIMD (Single
+                                                                                      Instruction, Multiple Data) batching capability: A single ci-
+A      Additional Related Works                                                       phertext encodes a vector of N plaintext “slots” (typically
+                                                                                      N = 214 to 216 ), enabling vectorized homomorphic opera-
+Oblivious message retrieval. There are two additional                                 tions with throughput scaling as O(N). However, this also
+works in the OMR line of work [10] and [19, 25].                                      limits its latency and parallelizability, which we discuss in
+    [10] provides an alternative way to achieve DoS-resistance                        more detail in our full version.
+(alternative to [27]). However, unfortunately, as demonstrated
+in [27], this scheme is only of theoretical interest. As noted
+in § 4, [27] is sufficient to allow InstantOMR to possess
+DoS-resistance with only moderate overhead.
+   Homerun [25] on the other hand provides an OMR con-
+struction in two-communicating-but-non-colluding servers.
+
+
+
+4246       35th USENIX Security Symposium                                                                                      USENIX Association
+

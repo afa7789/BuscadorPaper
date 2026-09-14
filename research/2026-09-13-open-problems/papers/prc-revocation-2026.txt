@@ -1,0 +1,1421 @@
+   Do You Need a Receipt? Anonymous Credential
+        Revocation at Continental Scale via
+           Private Record Certification
+Kasra EdalatNejad, Sebastian Faust, Jonas Hofmann, Philipp-Florens Lehwalder,
+           and Thomas Schneider, Technical University of Darmstadt
+      https://www.usenix.org/conference/usenixsecurity26/presentation/edalatnejad
+
+
+
+
+         This paper is included in the Proceedings of the
+                35th USENIX Security Symposium.
+                    August 12–14, 2026 • Baltimore, MD, USA
+                                ISBN 978-1-939133-58-8
+
+
+                        Open access to the Proceedings of the
+                          35th USENIX Security Symposium
+                                  is sponsored by
+    Do You Need a Receipt? Anonymous Credential Revocation at Continental Scale
+                          via Private Record Certification
+
+    Kasra EdalatNejad, Sebastian Faust, Jonas Hofmann, Philipp-Florens Lehwalder, Thomas Schneider
+                                Technical University of Darmstadt, Germany
+                            {edalat, schneider}@encrypto.cs.tu-darmstadt.de,
+              {sebastian.faust, jonas.hofmann1, philipp-florens.lehwalder}@tu-darmstadt.de
+
+
+                          Abstract                                  European Digital Identity (EUDI) Wallet initiative seeks to
+                                                                    realize these legal requirements, but has major shortcomings
+A key challenge in digital credential systems is revocation,
+                                                                    and does not yet provide the demanded privacy guarantees [6].
+that is, the ability to invalidate credentials post-issuance and
+                                                                    Anonymous credentials [20, 22, 23] have long been known
+verify their status upon presentation. While anonymous cre-
+                                                                    to achieve this securely and efficiently and future EUDIW
+dentials enhance privacy over classical credentials (e.g., by
+                                                                    iterations may adopt anonymous credentials [38].
+providing unlinkability), they complicate revocation. Existing
+                                                                       A central challenge in credential systems is revocation: the
+revocation schemes for anonymous credentials often suffer
+                                                                    ability to invalidate credentials after issuance, and to verify
+from high client or verifier computation, long delays before
+                                                                    a credential’s status during presentation. Privacy-preserving
+revocation takes effect (e.g., epoch-based settings), or require
+                                                                    revocation is not a technical nicety; it is a two-sided safe-
+updates to all users with each revocation.
+                                                                    guard. It protects citizens against identity theft, lost creden-
+We present an efficient, real-time revocation system for anony-
+                                                                    tials, misuse, and surveillance, while empowering authorities
+mous credentials with decentralized revocation authorities
+                                                                    to enforce accountability in a rights-respecting manner. For in-
+based on a novel primitive called Private Record Certification
+                                                                    stance, suspended driver’s licenses or fraudulent professional
+(PRC). PRC enables users to obtain a certificate for a record
+                                                                    certifications must be revoked without enabling pervasive
+stored in a server-managed database without the servers learn-
+                                                                    profiling of citizens. Privacy can be important for revocation
+ing which record was requested. This primitive is of indepen-
+                                                                    authorities too, especially when they are law enforcement or
+dent interest, and we construct it by combining techniques
+                                                                    government agencies (e.g., for driver’s licenses). Solutions
+from private information retrieval and secure multi-party com-
+                                                                    that rely on public revocation lists disclose the status of all cre-
+putation. Our revocation scheme outsources its computation
+                                                                    dentials, exposing unnecessary data and creating legal risks.
+to the revocation authorities and has minimal overhead for
+                                                                    Demonstrating that strong privacy and real-time accountabil-
+clients and verifiers, while ensuring the communication costs
+                                                                    ity can be achieved simultaneously is essential to counter
+are sublinear in the number of credentials. We build a proto-
+                                                                    the false trade-off between security and civil liberties, which
+type and demonstrate that our system achieves sub-second
+                                                                    often stalls adoption of privacy-preserving solutions.
+real-time latency for PRC requests, at a scale of over 1 billion
+credentials, with an online operational cost of 2.5$ per server        While anonymous credentials offer strong privacy, they
+for processing 1 million PRC requests.                              complicate revocation. Existing revocation schemes [5, 14, 16,
+                                                                    18, 21, 68, 74, 81] incur expensive client updates per revoca-
+                                                                    tion, high verifier costs, or delayed revocation via time-based
+1    Introduction                                                   epochs, which create “opportunity windows” for abuse of
+                                                                    revoked credentials.
+As governments increasingly move public services online,               We study the requirements of a practical revocation scheme.
+electronic identification (eID) is becoming a critical national     Viable systems should: 1) scale for nation-wide deploy-
+infrastructure, serving as the entry point for essential services   ment, supporting hundreds of millions of credentials, 2)
+like taxes, healthcare, mobility, and education. While eID sys-     support real-time revocation that eliminates the abuse win-
+tems ease administrative burdens for citizens, they also raise      dow, and 3) achieve low latency with 4) minimal computa-
+concerns about mass surveillance and the erosion of funda-          tional/communication overhead for clients and verifiers, en-
+mental rights, such as privacy. European regulations [39] call      abling deployment on mobile devices and constrained net-
+for privacy-preserving digital identities that provide strong       works. We align revocation privacy requirements with those
+authenticity without enabling cross-context linkability. The        of anonymous credential presentations. Since revocation in-
+
+
+
+USENIX Association                                                                      35th USENIX Security Symposium           3179
+troduces authorities absent from classic credentials, we also         demonstrating that our revocation system achieves real-time
+aim to preserve the privacy of the credential status database,        revocation while scaling to billions of credentials with sub-
+which we call database privacy. In particular, clients must           second latency for revocation status lookups. Our solution is
+prove ownership of a credential to learn its revocation status.       also cost-efficient: the online operation costs per PRC server
+   We construct a revocation scheme for anonymous creden-             for one million queries are only 2.5$, based on AWS pricing.
+tials that achieves scalability, efficiency, and real-time revoca-
+tion while maintaining strong privacy guarantees. Clients ob-
+tain a non-revocation token from a Revocation Authority (RA)          1.1    Technical Overview
+and present it, along with their credential, to verifiers. We tar-
+get an on-demand scenario where clients request a new token           We provide a high-level technical overview of our solution
+immediately before each credential presentation. Therefore,           next. We build a revocation scheme where a decentralized
+we must guarantee that non-revocation queries remain unlink-          RA keeps a private status list D, such that D[idx] ∈ {0, 1} is
+able. We require similar privacy guarantees for RAs as we due         the validity status of the credential with a private index idx
+for issuers and verifiers in credential systems. This is needed,      (see §6). When clients want to present one of their credentials,
+as otherwise the RA could track or discriminate against users         they need to prove that D[idx] = 1, while 1) binding idx to the
+based on their usage patterns, leaked attributes, or revocation       index embedded in their credential and 2) hiding idx to ensure
+status. To achieve this guarantee, we assume multiple RAs             unlinkability. To achieve this goal, we define a primitive called
+that share a replicated database in an anytrust setting, where        PRC that allows the client to interact with RAs to privately
+unlinkability is preserved as long as at least one RA remains         obtain a signed commitment linking (idx, D[idx]), also called
+honest. The client does not need to know which one is honest.         a non-revocation token. When clients present their credential,
+This is a realistic model, as in practice, the distributed RA can     they present a non-revocation token and use zero-knowledge
+be realized as a consortium of different servers, e.g., operated      proofs to link the index in the credential to the token (i.e.,
+by different governmental and non-governmental institutions.          proof of discrete log equality) and reveal the record value
+                                                                      D[idx] = 1. The verifier validates a) the credential presenta-
+   As a first step toward a revocation scheme, we introduce a
+                                                                      tion, b) the RA’s signature on the token, and c) the ZK-proof
+new primitive called Private Record Certification (PRC) that
+                                                                      proving the token corresponds to the credential. Since PRC
+enables clients to privately obtain a certificate for a record in a
+                                                                      provides unforgeability, the verifier can be certain that the
+server-managed database. Concretely, it provides a signature
+                                                                      revealed revocation status belongs to presented credential.
+on a record D[idx] together with its index idx, while hiding
+the identity of the client, the index itself, and the record value.   PRC. We define and construct a PRC scheme in §5, where
+Clients can use this signature in standard zero-knowledge             given a private index, the PRC servers compute and then sign
+proofs to demonstrate their record satisfies a desired property.      a commitment to (D[idx], idx) that binds an index to its record
+Beyond revocation, PRC is of independent interest for appli-          value. We design a PRC protocol in the following steps: 1)
+cations such as privacy-preserving proofs of credit score or          the client Boolean secret shares its index among PRC servers.
+account balance. Our PRC construction combines techniques             2) the servers convert their boolean shares of idx to arithmetic
+from Private Information Retrieval (PIR) [25, 33] with Secure         shares and compute arithmetic shares of the database record
+Multi-Party Computation (MPC) [44]. Specifically, we                  D[idx]. This step has a similar nature as PIR, and we design
+introduce a novel conversion from Boolean secret sharing              a custom optimized variant of it, which we discuss below. 3)
+to One-Hot Encoding (OHE) achieving theoretically minimal             Each server commits to its arithmetic share of the index and
+client-side complexity, logarithmic in the number of database         record value via a homomorphic commitment like Pedersen.
+records (i.e., the number of bits needed to represent the index       4) The PRC servers aggregate the homomorphic commitment.
+in cleartext). We then combine our secret sharing operations          As we deliberately choose the same group order between our
+in a new way with homomorphic commitments, enabling                   commitment and arithmetic sharing, this aggregation acts as a
+a seamless transition to asymmetric operations needed for             secret reconstruction without revealing the cleartext values to
+building a non-revocation token via a (threshold) signature.          PRC servers. 5) The PRC servers sign the final commitment.
+Contributions. We summarize our contributions below.                     We extend this scheme in §5.4 to achieve database privacy,
+   ✓ We introduce Private Record Certification (PRC), a               by requiring clients to add a ZK-proof (similar to the proof
+cryptographic primitive that enables clients to obtain a private      used for presenting a non-revocation token) showing that they
+certificate for a record in a server-managed database, along          have an authorization for the requested index.
+with formal definitions and security properties.                      Record retrieval. In step 2) of our PRC scheme, the PRC
+   ✓ We design a PRC scheme with minimal client and veri-             servers - each holding a replicated database D - obtain an arith-
+fier cost complexity, and formally prove its security.                metic sharing of the record D[idx], where idx is the client’s pri-
+   ✓ We build a privacy-preserving revocation system for              vate index. This step resembles multi-server PIR schemes [25]
+anonymous credentials, instantiated with our PRC.                     which (Boolean) secret share the OHE of the client’s index,
+   ✓ We implement and evaluate our PRC construction,                  an all-zero vector with a single 1 at position idx. The servers
+
+
+
+3180    35th USENIX Security Symposium                                                                           USENIX Association
+then compute the inner product of this vector and the database       timeliness of the revocation. In [16, 74], users can present
+and return the result to the client to reconstruct.                  a limited number of unlinkable non-revocation tokens per
+   Unlike existing schemes that avoid server interaction, our        epoch without expensive proofs or communication with the
+PRC scheme already requires intra-server communication for           RA. However, their approach requires an expensive genera-
+aggregation and signing. This allows us to leverage MPC              tion of a blacklist of all revoked tokens for the RA and high
+to support AND/multiplication on secret-shared values. In-           costs of non-inclusion checks for verifiers. Furthermore, un-
+stead of representing the database as a 1-dimensional array          linkability does not hold if the verifier colludes with the RA.
+of size N, we follow Chor √  et al.√[25] and structure it as a 2-       Distributing the RA is a prominent approach to avoid single
+dimensional table of size ( N, N). Clients send two OHE              points of failure [45,50,53]. Our scheme relies on a distributed
+selectors for the target record’s row and column, reducing           RA under an anytrust assumption, where the user’s privacy is
+retrieval to a two-layer vector-matrix multiplication. Since         guaranteed if at least one out of n RAs does not collude with
+servers know the plaintext database, the first layer is computed     the adversary. Clients do not need to know which RA is not
+locally without communication. The second layer, where both          compromised. We compare our scheme with the recent multi-
+vectors are secret shared, has a multiplicative√  depth of 1 and     party revocation scheme ALLOSAUR [53], which is based
+sublinear server-server communication of O ( N).                     on accumulators under an anytrust assumption. ALLOSAUR
+   Existing multi-server PIR schemes either use large non-           is not designed for deployments at continental scale, and we
+polylog queries [25, 33, 46] to encode the OHE selector, or          show in §7.2 that we improve revocation cost by a factor of
+rely on a Distributed Point Function (DPF) [43], which pre-          20,000× for 10M credentials and a 1% revocation rate.
+vents computing an arithmetic sharing of the index. Because          Private information retrieval. PIR allows a client to retrieve
+we employ MPC, clients can instead send Boolean shares of            an element from a database without revealing the queried
+their index, which we expand into an OHE vector on the server        index to the server. PIR schemes fall into two categories:
+side. To support this, we design an efficient conversion from        multi-server PIR, which relies on multiple non-colluding
+Boolean shares to OHE with multiplicative depth O (lg√lg N),         servers [25,27,33,35,47,66,69], and single-server PIR, which
+incurring a server-server communication
+                                     √        cost of 1.5 N to       uses asymmetric cryptography [31, 52, 59, 63, 69]. In multi-
+construct an OHE vector of size N. The low depth of our              server PIR approaches, the introduction of schemes based on
+subprotocols allows us to use information-theoretic MPC              distributed point functions and function secret sharing has en-
+protocols, such as GMW [44], which avoid online costs de-            abled sublinear communication [11, 12, 43, 57]. Recent years
+pendent on a symmetric security parameter, while achieving           have seen significant progress in single-server PIR, largely
+sub-second latency even in WAN settings. Because the major-          due to advances in homomorphic encryption. Early works
+ity of our computation is based on Boolean secret sharing, we        such as XPIR [62] and SealPIR [2] demonstrated query com-
+can efficiently pack eight status bits per byte and apply AVX2       pression over RLWE (e.g., [13]), achieving sublinear com-
+vectorized bitwise operations. This use of SIMD enables a            munication. Later schemes, including SimplePIR [52] and
+high degree of parallelism while running on a single core,           FrodoPIR [31], eliminated the ring structure and achieved
+allowing us to achieve a low PRC server computation cost.            throughput comparable to multi-server PIR by operating di-
+                                                                     rectly on LWE [73], but required clients to download and
+                                                                     store large initialization client-hints. Later works [51, 59, 65]
+2   Related Work                                                     removed this requirement at the cost of higher per-query
+                                                                     overhead. Another line of research [15, 41, 64], combines
+Anonymous credential revocation. A prominent revoca-                 RLWE with GSW [42] to represent queries in high dimen-
+tion approach for anonymous credentials relies on dynamic            sions, achieving polylogarithmic communication at the ex-
+accumulators [5, 18, 21, 68], which allow users to prove             pense of heavy computation and large per-client evaluation
+(non-)membership in an accumulator representing the set of           keys (or server-hints).
+all revoked or valid credentials. An inherent drawback is that          Despite these advances, many of the PIR techniques are
+each accumulator update (e.g., upon revocation) invalidates          incompatible with our setting. Real-time credential revocation
+existing witnesses, forcing users to either update their witness     involves frequent database updates, making approaches with
+for every revocation or query for a fresh one.                       expensive, data-dependent client hints impractical, as their
+   Blacklist-based revocation methods [14, 81] suffer from           costs cannot be amortized across many queries. Similarly,
+expensive non-membership proofs. A possible optimization             server-side hints such as per-client evaluation keys are infea-
+is requiring the authority to maintain a sorted signature list of    sible, since reusing the same key would break the anonymity
+revoked identifiers, enabling users to prove that their identifier   required for anonymous credentials.
+lies between two adjacent signatures [19, 67]. Yet, construct-          While PIR and PRC share similar settings and construc-
+ing, updating, and distributing such lists remains costly. One       tion mechanisms, they have orthogonal goals. In §5.2, we
+way to reduce this update overhead is by restricting updates         highlight these differences and further provide a naive revo-
+to specific time intervals/epochs; however, this sacrifices the      cation approach based on PIR. We evaluate this approach
+
+
+
+USENIX Association                                                                      35th USENIX Security Symposium          3181
+using state-of-the-art multi-server PIR and single-server PIR,            input to all algorithms. A polynomial-time verifiable binary
+showing that beyond protecting database privacy, our con-                 relation is denoted as (x, w) ∈ R, where w is a witness for the
+struction reduces server cost by a factor of 2700× compared               statement x satisfying the relation.
+to multi-server PIR and 900× compared to single-server PIR.               One-hot encoding. A One-Hot Encoding (OHE) of an in-
+Committed OT/authenticated MPC. Committed oblivious                       teger x for dimension n, denoted by v ← OHE(x, n), is a bit
+transfer [28,29,40] is an OT protocol, in which the participants          vector of length n such that v[x] = 1 and ∀i ̸= x, v[i] = 0.
+commit to their inputs. Unfortunately, committed OT incurs a              Homomorphic commitments. A homomorphic commitment
+cost linear in the number of records. Similarly, authenticated            scheme Com consists of the following algorithms:
+MPC [34] provides a way for participants to authenticate their            • co ← Commit(x; r): Generates a commitment co to a value x
+inputs to an MPC protocol, but these schemes still require                  using randomness r.
+communication linear in the input size.
+                                                                          • co ← Agg((coi )i∈[n] ): Aggregates the commitments coi for
+Blind signatures. Similar to PRC, blind signatures [24, 72]                 i ∈ [n] into a single commitment co.
+let client obtain signatures on a message, without revealing it           • 0/1 ← Open(co, x, r): Verifies whether the commitment co
+to the signer. In contrast, in our revocation and PRC setting,              opens to the value x using randomness r.
+the signer must attest to the validity of a data record and not           Homomorphic commitment schemes must satisfy binding
+on a freely chosen message. This enforces a specific structure:           and hiding. Informally, binding ensures that a commitment
+clients only choose a record index, not its associated content.           co can only be opened to the committed value x with the ran-
+Self-sovereign identity. Self-sovereign identity (SSI) is an              domness r and hiding ensures that co does not reveal any
+architectural model for user-centric identity systems allowing            information about the committed value x. The homomor-
+users to control and present their credentials without relying            phism ensures that Agg(Commit(x1 ; r1 ), Commit(x2 ; r2 )) =
+on central identity providers [56]. SSI is commonly instan-               Commit(x1 + x2 ; r1 + r2 ). We will instantiate this homomor-
+tiated using decentralized identifiers and verifiable creden-             phic commitment scheme with Pedersen commitments [70].
+tials [61, 77–79]. Anonymous credentials can be viewed as
+                                                                          (Threshold) signature schemes. We consider both standard
+verifiable credentials that additionally provide anonymity and
+                                                                          and threshold signature schemes, where a standard signature
+unlinkability, and SSI systems can be instantiated with them.
+                                                                          scheme Sig consists of the following algorithms:
+Revocation mechanisms for non-anonymous credentials, such
+as the W3C Bitstring Status List [60], rely on credential iden-           • (sk, vk) ← KGen(1λ ): Generates a signing key sk and a
+tifiers as part of the revocation status check, which is incom-             verification key vk.
+patible with anonymous credentials where no such identifier               • σ ← Sign(sk, m): Generates a signature σ for a message m
+can be disclosed to preserve anonymity. We focus on revo-                   using the signing key sk.
+cation for anonymous credentials; instantiating SSI systems               • 0/1 ← Verify(vk, σ, m): Verifies the signature σ for a mes-
+with them is outside the scope of this work.                                sage m using the verification key vk.
+                                                                             A threshold signature scheme TSig in an t-out-of-n setting
+3    Preliminaries                                                        modifies key generation and signing while keeping compati-
+                                                                          bility with the standard verification as follows:
+In this section, we present our notation, preliminaries, and              • ((ski )i∈[n] , vk) ← KGen(1λ , n): Generates a set of n signing
+building blocks used in our construction.                                   keys ski and a common verification key vk. This algorithm
+                                                                            might also be defined in a distributed manner.
+Notation. We use [n] to denote the set {0, . . . , n − 1} and use
+(ai )i∈[n] to represent a list of n elements (a0 , . . . , an−1 ). When   • σi ← PSign(ski , m): Generates a partial signature σi for a
+size n is known from the context, we omit it. We denote vec-                message m using the signing key ski .
+tors by bold-face letters like v and refer to their i-th element as       • σ ← Agg((σi )i∈[n] ): Aggregates t partial signatures (σi )
+v[i]. We denote inner products by ⟨v, w⟩      and when both vec-            into a single signature σ.
+tors are k-bit arrays compute it as p = i∈[k] (v[i] ∧ w[i]). We
+                                           ⨁︁                                A (threshold) signature scheme needs to satisfy correctness
+abuse the notation and still use ⟨v, w⟩ when one of the vectors           and unforgeability. Correctness states that a valid signature σ
+contains l-bit values. We use x[a : b) to denote the bit slice of         on some message m can be verified using the verification
+x ∈ Z2k from bit position a (inclusive) to b (exclusive), where           key vk. Unforgeability ensures that no adversary (knowing
+0 ≤ a ≤ b ≤ k. The least significant bit is x[0 : 1), and we omit         at most t − 1 signing keys ski in the threshold setting) can
+the index when the slice starts at 0 or ends at k. We use y ←       $
+                                                                      S   generate a valid, new signature σ on some message m. We
+to denote that y is sampled uniformly at random from a set S.             instantiate the scheme with threshold Schnorr signatures [76].
+We write y ← A(x; r) to denote that y is assigned the output              Zero-knowledge proof systems. A zero-knowledge proof
+of algorithm A running on input x and randomness r. We as-                system ZKP allows a prover to generate a proof π for a state-
+sume that the security parameter λ and public parameters pp,              ment x that convinces a verifier that the prover knows a wit-
+typically containing group parameters, are implicitly given as            ness w satisfying a public relation R such that (x, w) ∈ R with-
+
+
+
+3182    35th USENIX Security Symposium                                                                              USENIX Association
+out revealing any information about the prover’s witness w.
+    A zero-knowledge proof system should satisfy complete-                                                           RA 1          RA 2
+                                                                                    Issuer
+ness, knowledge-soundness, and zero-knowledge. Complete-
+                                                                                                  Revocation
+ness states that honestly generated proofs will always pass                                       Authority
+verification. Knowledge-soundness states that it is impossible                                                              RA n
+                                                                                                               n
+to generate a valid proof π for a statement x without knowing                                              oke
+                                                                               Issues
+                                                                                                  u e st t
+a valid witness w. Zero-knowledge ensures that verifier learns               credential       Re
+                                                                                                 q
+                                                                                                                 n
+no information beyond the prover knowing a valid witness w.                                                  oke
+                                                                                                      e n dt
+                                                                                                    S
+We instantiate our ZKP system with efficient Σ-protocols [80].
+                                                                                                 Present credential
+Anonymous credentials. We specify an anonymous creden-                              Client     & non-revocation token       Verifier
+tial system AC as comprising the following algorithms:
+• (sk, vk) ← KGen(1λ ): Generates the secret key sk and veri-        Figure 1: The system model of our anonymous credential
+   fication key vk.                                                  revocation system.
+• σcred ← Issue(sk, (ai )i∈[m] ): Issues a credential σcred with
+   attributes (ai )i∈[m] using the secret key sk.
+• pt ← Present(σcred , (ai )i∈[m] , Rvd): Generates a presenta-      x = ∑ni JxKi mod q. 2) Boolean sharing denoted as JxKB ←
+   tion token pt for a credential σcred while selectively reveal-    SS.ShareB (x) where values     are k-bit binary values x ∈ Z2k
+                                                                     and shared such that x = ni JxKBi where ⊕ is the XOR opera-
+                                                                                                ⨁︁
+   ing the attributes ai for i ∈ Rvd ⊆ [m].
+• 0/1 ← VerifyPresent(vk, pt, (ai )i∈Rvd ): Verifies the presen-     tion. In addition, we define a conversion operation as follows:
+   tation token pt for a set of revealed attributes ai for i ∈ Rvd   • JxKA ← SS.B2A(JxKB ): Takes Boolean secret shares JxKB
+   under the verification key vk.                                       and interactively converts them to arithmetic shares JxKA .
+We require an anonymous credential system to satisfy cor-            We instantiate this operation via the conversation of Damgård
+rectness, unforgeability, and unlinkability. Correctness means       et al. [30], which uses daBits [37, 75] as correlated random-
+that an honestly generated presentation token pt of a valid          ness, and provides a depth-optimized conversion that only
+credential σcred can be verified using the verification key vk.      requires a single round of interaction.
+Unforgeability ensures that no adversary without knowledge
+of the secret key sk can generate a valid presentation token pt
+                                                                     4     Anonymous Credential Revocation System
+that reveals attributes for which the adversary has not been is-
+sued a corresponding credential. Lastly, unlinkability ensures       This section introduces the system model, requirements, and
+that no adversary controlling the issuer and verifier can tell       definitions for anonymous credential revocation.
+two presentations pt1 and pt2 for the same revealed attribute
+set Rvd of different credentials apart. This ensures that clients
+cannot be linked across multiple presentations. We provide           4.1    System Model
+formal definitions for these properties in the full version [36].
+                                                                     In an anonymous credential revocation system, a client holds
+Secret-sharing. An n-out-of-n secret-sharing scheme SS en-           a credential and proves its non-revocation status to a veri-
+ables sharing of a value x among n parties such that the parties     fier. The client first obtains a non-revocation token for its
+can compute on the shared value JxK. Secret-sharing consists         credential from a distributed RA and then presents the token
+of two primary operations:                                           to the verifier together with the credential. For privacy, the RA
+• (JxKi )i∈[n] ← SS.Share(x, n): Shares a value x into n secret      should not learn for which credential the token was requested.
+   shares (JxKi )i∈[n] .                                                Conceptually, this approach is similar to the online certifi-
+• x ← SS.Rec((JxKi )i∈[n] ): Given n secret shares (JxKi ), re-      cate status protocol (OCSP) with stapling, where web servers
+   constructs the value x.                                           obtain a signed OCSP response from an OCSP responder to
+We require the secret-sharing scheme to satisfy two properties:      prove their certificates’ validity to a client. In our setting, prior
+correctness and hiding. The correctness property ensures that        to presenting a credential, a client obtains a non-revocation
+computation performed on shared values yields the same               token from the RA to prove its validity.
+result as if it were performed on the original value x. The             The system model (Figure 1) consists of four types of
+hiding property ensures that any group of less than n parties        parties: 1) the issuer, which issues anonymous credentials
+cannot learn any information about the secret value x. Secret-       to clients; 2) the client, which holds a credential and wants
+sharing can be instantiated via the GMW protocol [44] and            to present it while proving that it has not been revoked; 3)
+the online phase can be improved via Beaver triples [7].             the verifier, which checks the credential’s validity, including
+    We use two types of secret-sharing: 1) Arithmetic shar-          non-revocation, before providing a service or granting access;
+ing which we denote as JxKA ← SS.ShareA (x) where values             and 4) the RAs, which jointly maintain a revocation-status
+are taken from a prime field x ∈ Zq and shared such that             database indicating whether each credential is valid or re-
+
+
+
+USENIX Association                                                                           35th USENIX Security Symposium               3183
+voked. We consider distributed RAs: n authorities provide           RQ.D3: Single Query Efficiency. In on demand scenarios,
+the service jointly, and clients or verifiers may interact with     users typically present a single non-revocation token per inter-
+them to determine or prove a credential’s validity. How the         action. Hence, revocation systems cannot amortize cost over
+current state of the database is replicated across all RAs is out   batched queries for one user, and must be efficient for single
+of scope of our work.                                               non-revocation queries.
+Threat model. We consider adversaries that compromise par-          Trust assumptions. We trust issuers to issue only valid cre-
+ties either semi-honestly or maliciously. A semi-honest cor-        dentials. We trust RAs to revoke a credential iff it is no longer
+ruption reveals the party’s internal state, private values, and     valid, and not to help clients produce valid non-revocation
+view, including all incoming and outgoing messages, but does        tokens for revoked credentials. In the same way that verifiers
+not allow deviations from the protocol. A malicious corrup-         trust issuers to honestly issue credentials, they trust RAs to
+tion additionally allows the adversary to deviate from the          check whether credentials remain valid. We separate issuance
+protocol and to drop or modify the party’s messages. For            from revocation for clarity; in practice, issuers and RAs may
+the distributed RAs, we use an any-trust assumption: the ad-        be operated by the same parties.
+versary may compromise at most n − 1 RAs, but clients or               Different properties rely on different adversarial models:
+verifiers do not need to know which RA is honest. We assume
+                                                                    AM.1: Client Unlinkability. The adversary may maliciously
+communication channels provide confidentiality and integrity
+                                                                    compromise the issuer, the verifier, and up to n − 1 RAs, and
+(e.g., via TLS), and we do not consider side-channel attacks.
+                                                                    try to link different interactions of the same user.
+                                                                    AM.2: Revocation Unlinkability. The adversary may mali-
+4.2    Requirements & Trust Assumptions                             ciously compromise the issuer and up to n − 1 RAs, and try to
+We state the functionality, privacy, and deployment require-        learn attributes, the credential’s validity, or to which verifier
+ments for anonymous credential revocation systems. Next, we         the client presents the credential.
+explain our trust assumptions for these properties. For formal      AM.3: Forging Non-Revocation Tokens. The adversary may
+definitions, we refer to the full version of the paper [36].        maliciously compromise a client and semi-honestly compro-
+Functionality.                                                      mise up to n − 1 RAs, and try to obtain a valid non-revocation
+                                                                    token for a revoked credential. Thus, compromised RAs may
+RQ.F1: Revocation. Clients can obtain a valid non-revocation        leak their internal state and views, but do not actively deviate
+token for a credential iff the credential is not revoked, and       from the protocol to help the client to forge.
+cannot obtain one for a revoked credential.
+                                                                       Existing non-private revocation systems typically rely on a
+RQ.F2: Dynamic Database. The revocation-status database             single RA that is trusted for revocation. Mechanisms such as
+can change at any time, and updates occur frequently.               certificate transparency [58] can provide accountability, but
+RQ.F3: Real-time Revocation. Once a credential is re-               they substantially increase system complexity, and adapting
+voked, the window in which the holder can still present a           them to a private setting such as ours is non-trivial and costly.
+non-revocation token must be minimal to prevent abuse. We           We acknowledge that our distributed RA design increases the
+target validity windows of a few seconds, which is inherently       active-compromise attack surface: unlike a single-RA design,
+incompatible with settings where both the client and verifier       an adversary that actively compromises one of the n RAs may
+are offline and cannot reach the RAs.                               affect revocation correctness.
+Privacy.                                                            AM.4: Database Privacy. The adversary may maliciously
+RQ.P1: Client Unlinkability. Adversaries should not be able         compromise multiple clients and try to learn information
+to link multiple non-revocation presentations of a client.          about the revocation-status of non-compromised clients.
+RQ.P2: Revocation Unlinkability. The RAs should not learn
+information about the client, including the client’s credential     4.3    Definition
+validity, revealed attributes, or the verifier to whom the client
+presents the non-revocation token.                                  We provide a formal definition of an anonymous credential
+RQ.P3: Database Privacy. The revocation-status database             system with revocation that fulfills the requirements from
+held by the RAs should remain private.                              §4.2. We denote the credential
+                                                                                               )︁ issuer’s keys by (skI , vkI ) and
+                                                                    those of the RA by ( skR ,i i∈[n] , vkR ).
+                                                                                        (︁
+Efficiency.
+RQ.D1: Scalability. The system must support nationwide cer-         Definition 4.1. An anonymous credential system with revoca-
+tificate revocation in Europe at a scale exceeding 100M users.      tion extends an anonymous credential scheme AC (§3), adopts
+RQ.D2: Lightweight Clients. Clients may run on smartphones          the KGen and Issue algorithms, and extends presentation and
+with limited resources. Their computation and communication         verification to include revocation checks through the follow-
+costs must remain small.                                            ing algorithms:
+
+
+
+3184    35th USENIX Security Symposium                                                                        USENIX Association
+• ( skR ,i i∈[n] , vkR , D) ← RevSetup(n): The setup algo-          status of credentials they do not own, thus satisfying RQ.P3.
+   (︁     )︁
+
+  rithm generates a secret key skR ,i for each of the n RAs,        Limitations. Our model relies on an any-trust assumption for
+  a common verification key vkR , and initializes the revoca-       the RAs: if all RAs are compromised, they can break client
+  tion status database D.                                           privacy. Moreover, we do not guarantee unforgeability against
+• pt/⊥ ← PresentNonRev(σcred , (ai )i∈[m] , Rvd, vkR ): Gen-        actively malicious RAs, and actively corrupting a single RA
+  erates a presentation token pt selectively revealing at-          is enough for forging non-revocation tokens, which increases
+  tributes ai for i ∈ Rvd, and proving non-revocation of cre-       the attack surface. These limitations are not inherent to revo-
+  dential σcred under the RA’s verification key vkR . If σcred      cation, but existing solutions that avoid this trust assumption
+  is revoked, it outputs ⊥.                                         incur orders-of-magnitude higher costs. Our design makes a
+• 0/1 ← VerifyNonRev(vkI , vkR , pt, (ai )i∈Rvd ): Verifies that    scalability/trust tradeoff: it supports billions of credentials at
+  a presentation token pt with revealed attributes (ai )i∈Rvd       the cost of stronger trust assumptions. We note that distribut-
+  belongs to a non-revoked credential under the issuer key vkI      ing the RAs does not reduce availability: as long as at least
+  and RA key vkR .                                                  two of the n RAs remain reachable, clients can still obtain
+                                                                    non-revocation tokens, and correctness and unforgeability are
+   AC.Present is a client-local algorithm, but PresentNonRev        unaffected by the reduced number of available RAs.
+requires the client to interact with the RA to produce the
+presentation token, aborting if the credential is revoked. As
+                                                                    5     Private Record Certification
+in classic anonymous credential schemes that assume issuer-
+verifier collusion, we account for collusion with the RA.           As the first step toward building a revocation scheme, we
+   In contrast with issuance, we do not require unlinkability       define and design Private Record Certification (PRC), a prim-
+between obtaining a non-revocation token and its correspond-        itive that enables privacy-preserving certification of a data
+ing presentation session. While issuance contains information       record stored at a specific index in a database.
+about clients, as issuers often see, choose, or attest client
+attributes, RAs must not learn any information about clients
+(see RQ.P2) during the revocation check. Moreover, real-time        5.1    Definition
+revocation (see RQ.F3) imposes strict timing constraints on         We define a PRC scheme as a protocol between a client and n
+revocation tokens, such as requiring a fresh token before each      PRC servers S0 , ..., Sn−1 , with the following sub-protocols:
+presentation, inherently creating a timing link between token       • ((ski )i∈[n] , vk) ← KGen(n): Generates a secret key ski for
+retrieval and presentation.
+                                                                      each PRC server i ∈ [n], and a verification key vk.
+   We require anonymous credential schemes with revoca-
+                                                                    • ((qryi )i∈[n] , qst) ← Request(idx, σauth ): For an index idx
+tion to satisfy the following five properties: correctness, un-
+                                                                      and an optional authorization credential σauth , the Request
+forgeability, client unlinkability, revocation unlinkability and
+                                                                      algorithm outputs a query qryi for each PRC server Si and
+database privacy. We summarize these properties below, state
+                                                                      a client-local query state qst (e.g. randomness).
+their corresponding trust model and defer formal definitions
+                                                                    • (σrec , aux) ← ResponseS ((ski , qryi , D)i∈[n] , vkI ): The inter-
+to the full version [36]. Correctness ensures that any honestly
+                                                                      active response protocol is executed between all PRC
+generated presentation for a non-revoked credential always
+                                                                      servers S = (Si )i∈[n] , each taking their secret key ski , query
+verifies, while unforgeability ensures that malicious clients
+                                                                      share qryi , optionally an authorization verification key vkI ,
+cannot produce a valid presentation for a revoked credential
+                                                                      and the database D as input. As output, the protocol pro-
+even when passively compromising up to n − 1 RAs (AM.3).
+                                                                      duces a record certificate σrec and auxiliary data aux.
+Together, revocation correctness and unforgeability capture
+the functional requirement of revocation (RQ.F1). Revoca-           • 0/1 ← Verify(vk, σrec , qst, idx, rec, aux): For a record cer-
+tion unlinkability, based on RQ.P2, focuses solely on RAs             tificate σrec with a query state qst, the verification algorithm
+and requires that a malicious adversary controlling n − 1 RAs         checks whether σrec is valid for the verification key vk, i.e.,
+(AM.2) cannot distinguish whether two non-revocation ses-             certifies that D[idx] = rec with auxiliary data aux.
+sions originate from the same or different credentials, regard-     Properties. We require PRC schemes to satisfy correctness,
+less of their attributes or revocation status. Credential unlink-   unforgeability, unlinkability, and optionally database privacy.
+ability extends classic credential unlinkability and allows a       We give an informal description of these properties here and
+malicious adversary to compromise n − 1 RAs in addition to          defer formal definitions to the full version [36]. Correctness
+the issuer and verifier (AM.1) to satisfy RQ.P1; it requires dis-   requires that any honest execution yields a valid record cer-
+tinguishing the origin of a presentation from two credentials—      tificate. Unforgeability ensures that no adversary can produce
+which are chosen by the adversary—to be hard, as long as both       a valid certificate for a falsified record. In particular, it pre-
+presentations have the same revealed attributes and revocation      vents modifying either the auxiliary data, which may include
+status, which are shown to the verifier. Database privacy pre-      metadata such as a timestamp, or the record relation, i.e.,
+vents malicious clients (AM.4) from learning the revocation         verifying a certificate for a pair (idx, rec) where the relation
+
+
+
+USENIX Association                                                                      35th USENIX Security Symposium            3185
+D[idx] = rec does not hold. Unlinkability ensures that the          Algorithm 1 Key generation, request, and verify procedures of PRC.
+PRC servers learn no information about the clients’ identity        function KGen(n)
+or record. We model this by requiring that no subset of PRC          1: ((ski )i∈[n] , vk) ← KGen(n)
+servers can determine the order of two requests from client’s        2: return ((ski )i∈[n] , vk)
+chosen by them. Finally, database privacy prevents clients          function Request(idx, σauth = ⊥)
+                                                                             $
+from learning record values for indices for which they do not        3: rnd ←  Zq
+                                                                     4: JrndKA ← SS.ShareA (rnd)
+hold an authorization credential.
+                                                                     5: JidxKB ← SS.Share(︁B (idx)
+Threat Model & Trust Assumptions. PRC is a cryptographic             6: return ((qryi )n := JrndKA         B n , qst := rnd)
+                                                                                                  i , JidxKi
+                                                                                                             )︁
+
+primitive, in which we allow for malicious and semi-honest          function Verify(vk, σrec , qst, idx, rec, aux)
+corruptions, as defined in §4.1. We use the same threat model        7: corec ← Com.Commit((idx, rec); qst)
+as in §4.1. As described above, we consider different adver-         8: return TSig.Verify(vk, σrec , corec ∥aux)
+sarial models for different properties. Consider the following
+models: 1) Unforgeability: An adversary maliciously com-
+promises the client and up to n − 1 PRC servers are semi-
+honest (resembling AM.1). 2) Unlinkability: An adversary            an expansion of over 768× in the database size for binary
+maliciously compromises up to n − 1 PRC servers (corre-             records and a proportional increase in PIR cost, which scales
+sponding to AM.2, AM.3). 3) DB privacy: An adversary                linearly with the database size. 3) Extending the naive PIR
+maliciously compromises the client (similar to AM.4).               solutions to provide database privacy (often called Symmetric
+                                                                    PIR or Oblivious Transfer) i.e., preventing clients from query-
+5.2    Our PRC Construction at a High Level                         ing records they are unauthorized to access, is expensive.
+
+We provide a high-level overview of our PRC protocol, but              We implement and benchmark this naive approach using
+first, we study a naive solution to discuss how our problem         state-of-the-art PIR schemes in both single- and multi-server
+differs from PIR and how this impacts the challenges we face.       settings in §7. Even ignoring issues (1) and (3), high update
+   At first glance, PRC resembles PIR, where a client retrieves     costs and lack of database privacy, our proposed solution
+a record rec = D[idx] without revealing the index idx to the        outperforms this naive baseline by a factor of 1000×.
+servers. However, there is a fundamental difference: In PIR,
+the client learns an unknown value rec, whereas in PRC, the         Our high-level approach. To overcome these issues, we con-
+client already knows rec and seeks a certificate attesting a        struct our PRC protocol such that the PRC servers only hold
+statement about a record held at a private index D[idx] to third    a database D of the actual record values and compute record
+parties. For example, downloading the entire database satis-        certificates on the fly using a tailored, efficient, secure MPC
+fies the PIR functionality, but offers no benefit for PRC, where    protocol. At a high level, our PRC scheme works as follows.
+the client aims to prove a statement about the database value          The client sends a Boolean secret sharing of their requested
+at a private index. For our revocation use case, we addition-       index idx and an arithmetic secret sharing of a randomness rnd
+ally want certificates to admit efficient proofs-of-knowledge,      to the PRC servers Si . Given these shares, the PRC servers col-
+avoiding the need to reveal idx and rec for verification.           lectively compute the secret sharing of the requested record
+Naive solution. A straightforward approach to construct a           value Jrec = D[idx]KA combining techniques from PIR and
+PRC protocol is to have the server(s) maintain a secondary          MPC. Next, each Si commits to its (arithmetic) share of the
+database holding signed commitments to each record and its          index and record value using the randomness share provided
+index. For a suitable signature scheme, certificates instantiated   by the client as coi ← Commit((JidxKA            A         A
+                                                                                                            i , JrecKi ); JrndKi ). By
+this way admit efficient proofs. This reduces the PRC problem       ensuring that our arithmetic sharing operates in a prime
+to clients retrieving the corresponding signature on a commit-      modulus Zq consistent with the group order of our homo-
+ment via PIR. Concretely, the commitment database contains          morphic commitment scheme Com, aggregating the individ-
+CD[i] = (σi , rndi ), where σi is a signature on (coi ∥aux) such    ual commitments implicitly reconstructs to the index and
+that coi = Com.Commit((i, D[i]); rndi ) and aux is auxiliary        record value in the commitment corec ← Agg((coi )i∈[n] ) =
+information, such as a timestamp. However, this naive con-          Commit((idx, rec); rnd). Lastly, the PRC servers compute a
+struction has three major issues: 1) For frequently updated or      threshold signature σrec on the aggregated commitment corec
+time-sensitive databases (e.g., using a timestamp or expiration     and auxiliary information aux. Due to the hiding property of
+date as auxiliary data), PRC servers must re-sign all records in    the commitment, the PRC servers do not learn any informa-
+each time epoch. 2) The records in CD are often substantially       tion about the committed index and record shares of other
+larger than the original records, especially in cases of binary     servers. The client can now prove statements about the rela-
+records such as validity status. Each entry includes a signature    tion between their index idx and its corresponding record rec,
+σi (e.g., 64 bytes for Schnorr [76] or 112 bytes for BBS+ [4])      contained in the same commitment corec , on which they have
+and the commitment randomness rndi (32 bytes) resulting in          obtained a signature σrec valid under the verification key vk.
+
+
+
+3186    35th USENIX Security Symposium                                                                                USENIX Association
+                                                 Server-side protocol
+                                        D, sk1
+                                                                                                          JidxKA
+                                                                                                               1            co1          corec           σ1
+                                                                                     JidxKB
+                                                                                          1
+                                                 D, JidxKB
+                                                         1                                                JrecKA
+                                                                                                               1                  Agg                          Agg       σrec
+                               A                                                                                   Com                           PSign                           σr
+    idx, rnd                                                                         JrecKB                                                                              corec
+                            ndK 1
+                                                                                                                                                                                      ec ,
+                                                                                          1                                                                                                  co
+                     B , Jr                                                                               JrndKA                          sk1
+
+
+
+
+                                                                R ETRIEVE (Alg. 4)
+                                                                                                               1                                                                              rec
+                   xK 1
+               Jid
+                                          ..                                                                       ..                             ..
+                 Jid
+                    xK B                   .                                                   B2A (§3)             .                              .
+                      n ,J
+                           rndK A
+     Client                                                                                                                                                                                         Client
+                                    n
+                                                                                                          JrndKA
+                                                                                                               n
+                                                 D, JidxKnB                          JrecKnB
+                                                                                                                   Com                           PSign
+                                                                                                          JrecKA
+                                                                                                               n            con                          σn
+                                                                                     JidxKB
+                                                                                          n                                               skn
+                                                                                                          JidxKA
+                                                                                                               n
+                                        D, skn
+
+
+Figure 2: Overview of our PRC construction. Algorithms based on secret sharing are shown in blue, and those using asymmetric
+operations are shown in brown. For simplicity, auxiliary information aux is omitted.
+
+
+Algorithm 2 Multiparty response protocol for privately signing a commit-                                            Algorithm 3 Converting a boolean secret sharing JxKB of an k-bit value
+ment to a database index idx and its record rec = D[idx].                                                           x ∈ Z2k to a boolean secret sharing of its one-hot encoding.
+Public server input: Database D ∈ ZNl , auxiliary data aux, key vk.                                                  function Bin2OHE(k, JxKB )
+                                                       2
+Private input of Si : Secret key ski , query share qi = (JrndKA        B
+                                                              i , JidxKi ).                                           1: if k = 1 then
+Output: Tuple (σrec , aux), where TSig.Verify(vk, σrec , corec ∥aux), for                                             2:      return [¬JxKB , JxKB ]
+corec ← Com.Commit((idx, D[idx]); rnd).
+                                                                                                                        3: m ← ⌈k/2⌉
+Response protocol:
+                                                                                                                        4: JlKB ← Bin2OHE(m, Jx[: m)KB )
+  1. All servers interactively compute JrecKB ← R ETRIEVE(D, JidxKB ).                                                  5: JrKB ← Bin2OHE(k − m, Jx[m :)KB )
+  2. All servers interactively convert their binary shares to arithmetic shares:                                        6: for i ← [2m ] do
+     JidxKA ← SS.B2A(JidxKB ), JrecKA ← SS.B2A(JrecKB ).                                                                7:     for j ∈ [2k−m ] do
+                                                                                                                        8:         Jo[i + j2m ]KB = Jl[i]KB ∧ Jr[ j]KB
+  3. Each server Si commits to its index and record share as coi ←
+                                                                                                                        9: return JoKB
+     Com.Commit(([JidxKA           A          A
+                       i , JD[idx]Ki ]); JrndKi ) and sends it to S0 .
+
+  4. Server S0 aggregates all commitments: corec ← Com.Agg((coi )i∈[n] ).
+     Since the commitment is additively homomorphic and has the                                                     Algorithm 4 Given a plaintext database D ∈ ZN     of N l-bit records and
+                                                                                                                                                                   2l
+     same group order as our arithmetic sharing, it holds that: corec =
+                                                                                                                    a boolean secret shared index JidxKB , computes the secret sharing of the
+     Com.Commit([idx = ∑i JidxKA                   A                A
+                                 i , rec = ∑i JrecKi ]; r = ∑i JrndKi ).                                            requested record JrecKB = JD[idx]KB .
+  5. Server S0 broadcasts commitment corec and auxiliary data aux. Each                                              function R ETRIEVE(D, JidxKB )
+     Si computes σi ← TSig.PSign(ski , corec ∥aux) and sends it to S0 .                                               1: η ← ⌈lg(N)⌉
+  6. Server S0 aggregates all signatures as σrec ← TSig.Agg((σi )i∈[n] ) and                                          2: m ← ⌈(η + lg(l))/2⌉
+     sends signature σrec and auxiliary data aux to the client.                                                       3: D′ [i][ j] ← D[i2m + j]              ▷ Rearrange D as a 2-dim table
+                                                                                                                      4: JrKB ← Bin2OHE(m, Jidx[: m)KB )                 ▷ Get row idx share
+                                                                                                                      5: JcKB ← Bin2OHE(η − m, Jidx[m :)KB )          ▷ Get column idx share
+                                                                                                                      6: for i ← [2η−m ] do
+5.3 Constructing Private Record Certification                                                                         7:      Ja[i]KB = ⟨D′ [i], JrKB ⟩     ▷ Local operation as D′ [i] is plain
+                                                                                                                        8: JrecKB = ⟨JaKB , JcKB ⟩
+We now construct a basic version of PRC, as defined in §5.1,                                                            9: return JrecKB
+omitting the optional authorization credential σauth . In §5.4,
+we then extend this protocol to achieve database privacy. We
+present PRC algorithms executed by a single party in Alg. 1,
+and the more complex multi-party Response protocol sepa-                                                               to the corresponding server and stores the state qst := rnd.
+rately in Alg. 2. The full construction is illustrated in Figure 2.                                                  • (σrec , aux) ← ResponseS ((ski , qryi , D)i∈[n] , ⊥): The fol-
+We construct our PRC scheme as follows:                                                                                lowing response protocol (Alg. 2) is run among the servers:
+                                                                                                                       1) Given the Boolean-shared index JidxKBi for each PRC
+• ((ski )i∈[n] , vk) ← KGen(n): The key generation uses a                                                              server Si , the PRC servers interactively compute their shar-
+  threshold signature scheme TSig to generate secret keys ski                                                          ing of the record value as JrecKB ← R ETRIEVE(D, JidxKB )
+  for each of the n servers and a public verification key vk.                                                          using Alg. 4. We explain the retrieval algorithm in more
+• ((qryi )i∈[n] , qst) ← Request(idx, ⊥): The request algorithm                                                        detail below. 2) The PRC servers convert the Boolean-
+  samples commitment randomness rnd ←      $
+                                             Zq and then secret                                                        shared index JidxKBi and record value JrecKBi to arith-
+  shares rnd via an arithmetic sharing mod q, where q is the                                                           metic shares JidxKA               A
+                                                                                                                                            i and JrecKi using B2A, see §3. 3)
+  commitment group order, and the index idx via Boolean                                                                They commit to their arithmetic index and record share
+  sharing. The client sends the shares qryi = (JrndKA          B
+                                                      i , JidxKi )                                                     using the randomness shares provided by the client as
+
+
+
+USENIX Association                                                                                                                               35th USENIX Security Symposium                         3187
+  coi ← Com.Commit((JidxKA                A         A
+                                 i , JrecKi ); JrndKi ) and 4) ag-
+                                                                     Table 1: The number of AND gates, C(k), used for a k-bit
+  gregate all commitments as corec ← Com.Agg((coi )i∈[n] ).          B IN 2OHE(k, x) conversion. We denote overhead over the out-
+  5) They individually compute partial signatures σi ←               put size 2k in parenthesis.
+  TSig.PSign(ski , corec ∥aux) on the aggregated commitment
+  corec and auxiliary information aux. 6) Lastly, they aggre-        i   C(i)            i      C(i)            i        C(i)
+  gate the partial signatures as σrec ← TSig.Agg((σi )i∈[n] ),       1    0             7     164 (+28%)      13      8444 (+3.1%)
+  and output (σrec , corec , aux) to the client.                     2    4 (0)         8     304 (+19%)      14     16712 (+2%)
+• 0/1 ← Verify(vk, σrec , qst, idx, rec, aux): The verification      3   12 (+50%)      9     584 (+14%)      15     33236 (+1.4%)
+  algorithm computes corec ← Com.Commit((idx, rec); qst)             4   24 (+50%)     10    1120 (+9.8%)     16     66144 (+0.92%)
+  and verifies that TSig.Verify(vk, σrec , corec ∥aux).              5   48 (+50%)     11    2184 (+6.6%)     17    131960 (+0.68%)
+                                                                     6   88 (+38%)     12    4272 (+4.3%)     18    263312 (+0.45%)
+Private retrieval. Now we explain how given a database
+D of N l-bit records and a Boolean-sharing of index JidxKB ,
+PRC servers compute a secret sharing of record JrecKB =              we can select the desired row in the database and reduce
+JD[idx]KB via our R ETRIEVE algorithm given in Alg. 4. As            the dimension to one. As the PRC servers hold the plaintext
+we have multiple PRC servers, we base our construction on            database D, this operation only requires performing AND
+multi-server PIR protocols [25, 33, 46]. In classical multi-         with known values, which can be done locally by each Si .
+server PIR schemes, the client creates a secret-shared OHE           Next, the PRC servers interact to compute the inner product of
+of its index, which is of database size N. It then sends the         the resulting vector Ja[i]KB with the column index to retrieve
+share to the PRC servers, who non-interactively compute              the desired record value JrecKB = ⟨JaKB , JcKB ⟩.
+their response. We avoid this load on clients by allowing them          PRC assumes that clients know the record value. If this
+to send Boolean shares of their index to the PRC servers,            assumption does not hold, clients can either brute-force the
+who then collaboratively compute the OHE. This expansion             value by verifying the token against the record domain (e.g.,
+requires interaction, which is acceptable in our case as PRC         valid or revoked for a revocation status), or PRC servers can
+servers already interact for the aggregation and threshold           attach encrypted shares of the record JrecKB to the response,
+signature. This enables us to achieve a minimal client-side          effectively yielding a PIR query.
+communication and computation cost of lg N.                          Performance. We analyze the computation and communica-
+   We start by building a conversion B IN 2OHE(k, JxKB ) that        tion costs of our R ETRIEVE algorithm for PRC servers next.
+takes a k-bit Boolean secret shared index x and recursively             First, we analyze the cost of B IN 2OHE in Alg. 3 using
+computes a sharing of JOHE(k, x)KB , as shown in Alg. 3.             induction. Let C(k) denote the number of AND gates required
+Having a 1-bit shared index JxKB , building the OHE vec-             to compute B IN 2OHE(k, x), a k-bit conversion, with base case
+tor, which has two elements, is trivial as JOHE(1, JxKB )KB =        C(1) = 0. In lines 4–5, we recursively call the conversion,
+[¬JxKB , JxKB ]. To build JOHE(k, JxKB )KB for a k-bit index x,      halving the index’s input size, and incurring costs of C(⌈k/2⌉)
+we treat x as vector Jxi∈[k] KB of k secret shared bits and split    and C(⌊k/2⌋), while the loop on lines 6–8 incurs a fixed cost
+the shared bits of index into lower Jx[: k/2)KB and upper            of 2k AND gates. Combined, this results in a cost of C(k) =
+Jx[k/2 :)KB halves, then recursively compute their OHEs. Fi-         C(⌈k/2⌉)+C(⌊k/2⌋)+2k AND gates. We report the concrete
+nally, we build an OHE vector of size 2k , where each bit is         cost of converting a k-bit index to its OHE representation and
+computed by a single AND operation, for each combination             the resulting overhead relative to the 2k -sized output vector
+of elements between the lower and upper OHE vectors.                 in Table 1. The cost is bounded by C(k) ≤ 1.5·2k ANDs gates,
+   Now that we can convert secret shared indices to OHEs,            but this overhead diminishes rapidly with increasing k.
+we can apply the conversion to the client-shared index and              The R ETRIEVE algorithm in Alg. 4 calls B IN 2OHE twice on
+perform a classic XOR PIR. However, expanding the index              lines 4–5, incurring communication and computation costs of
+to a vector of size N requires communication linear in the           1.5(2η−m + 2m ). The loop on line 6 performs an inner product
+number of records. Instead, we follow Chor’s guideline [25]          between a secret-shared row index vector and the plaintext
+and rearrange the database as a two-dimensional table. This          database D. As the database is known, this computation can
+enables us to split the
+                     √ OHE index generation into two parts of        be performed locally leading to a computation cost O (2η−m ·
+size approximately N, supporting sublinear communication             l2m = lN) and no communication cost. The final, inner prod-
+cost for the OHE expansion: given an index idx = c2m + r             uct on line 8 is between two secret shared vectors of size 2η−m
+represented as (JcKB , JrKB ), we compute two OHE vectors            but gets repeated for each bit of our l-bit record, leading to a
+JcKB = B IN 2OHE(η − m, c) and JrKB = B IN 2OHE(m, JrKB )            computation and communication cost of l · 2η−m . This leads
+where η = lg(N). The first vector JcKB corresponds to the            to a total computation cost of O (lN), as required by the lower
+column index of the record in the database, while the second         bound of private retrieval [48], and a communication cost of
+vector JrKB corresponds to the row index. By performing an           O (2m + (l + 1) · 2η−m ). We set m in an optimized manner such
+XOR PIR via the row index, through Ja[i]KB = ⟨D′ [i], JrKB ⟩,        that 2m ≈ l · 2η−m , which leads to a total communication cost
+
+
+
+3188    35th USENIX Security Symposium                                                                        USENIX Association
+       √
+of O ( lN) that is sublinear in the size of the database.              5.5    Security of our PRC Construction
+   We analyze the multiplicative depth of our protocol
+                                                                       We present proof sketches for our PRC construction here, and
+(i.e., the minimal number of sequential AND layers) as it
+                                                                       defer formal proofs to the full version of the paper [36].
+determines the round complexity and affects system latency.
+Our B IN 2OHE conversion has a depth of lg k, as it runs               Informal Theorem 5.1 (Unforgeability). Our PRC con-
+two instances of size k/2 in parallel, then performs one               struction achieves unforgeability if the threshold signa-
+AND layer. Our R ETRIEVE algorithm calls two B IN 2OHE                 ture scheme TSig is unforgeable, and the commitment
+conversions in parallel, then runs one local (line 7) and one          scheme Com is binding.
+interactive (line 8) AND layer to compute inner products.
+                                                                          For unforgeability, we consider a malicious client and up
+This results in an overall depth of 1 + lg lg N as k = lg N
+                                                                       to n − 1 semi-honest PRC servers. Since all PRC servers
+in B IN 2OHE. This low depth lets us use high-latency
+                                                                       follow the protocol, the client can only obtain signatures on
+communication-efficient MPC protocols like GMW [44]
+                                                                       commitments to an index and its corresponding record value
+while still achieving real-time performance (§7).
+                                                                       and auxiliary data. A certificate forgery thus either requires
+Using a threshold signature. We use threshold signatures               opening a valid certificate to different content (commitment
+even though our PRC construction does not protect against              binding) or forging a signature.
+malicious PRC servers forging certificates, as they can mod-
+ify JrecKB in our semi-honest MPC protocol. The threshold              Informal Theorem 5.2 (Unlinkability). Our PRC construc-
+design mainly improves availability, enables load-balancing            tion achieves unlinkability if the commitment scheme Com is
+aggregation, and simplifies verifier key management when the           hiding and the correlated randomness is private.
+set of active PRC servers changes. Nevertheless, threshold sig-           We require the correlated randomness to be private,
+natures can be trivially replaced with other signature schemes.        i.e., randomness shares of honest parties are uniform and
+                                                                       unknown to the adversary. Our security argument is similar to
+                                                                       the approach of Araki et. al. [3] for malicious privacy. Given
+5.4    Extension for Database Privacy                                  private correlated randomness, we obtain protection against
+We extend our basic construction to support database privacy           malicious PRC servers even though we use a semi-honest
+by restricting client queries to records for which they hold           MPC protocol [44]. An adversary may tamper with shares,
+a valid authorization credential σauth . The authorization cre-        breaking integrity and introducing additive errors; however,
+dential can be instantiated with a signature or anonymous              since no output value is reconstructed, these errors remain hid-
+credential, as long as it is unforgeable and allows for efficient      den and leak no information. In more detail, our construction
+zero-knowledge proofs of knowledge. To verify σauth , we               consists of two components: 1) a semi-honest MPC protocol
+assume its verification key vkI to be known to all parties. We         computing ([JidxKA                 A
+                                                                                              i , JD[idx]Ki ]) and 2) a custom-made
+outline the changes in our PRC construction next.                      protocol using asymmetric operations (commitment and
+                                                                       signature). At the end of the MPC computation, each party
+• ((qryi )i∈[n] , qst) ← Request(idx, σauth ): The client holds a
+                                                                       commits to its share using the client-chosen randomness
+  certificate σauth on its index idx. The client holds a certifi-
+                                                                       rndi and publishes the commitment coi . Assume that Sh is
+  cate σauth on its index idx. In addition to performing the
+                                                                       the non-colluding PRC server. By the hiding property of the
+  basic Request in Alg. 1, it creates a zero-knowledge proof
+                                                                       commitment, coh reveals no information about its content
+  πauth for relation Rauth (see §A). Specifically, it samples
+                               $                                       (JidxKA         A         A
+                                                                              h , JrecKh ; JrndKh ). We assume that the commitment
+  extra randomness rndidx ←      Zq and secret shares for all the
+                                                                       aggregation is adversarial. If the aggregation includes coh ,
+  PRC servers, enabling to produce a second commitment on
+                                                                       then the randomness rndh protects the output corec even if the
+  the index coidx ← Com.Commit(idx; rndidx ) similar to corec .
+                                                                       adversary tampers with coh . Otherwise, the resulting aggrega-
+  The client pre-computes this commitment coidx and com-
+                                                                       tion contains no share from Sh , and is therefore independent of
+  putes the zero-knowledge proof πauth proving knowledge
+                                                                       the client’s input by the security of the secret sharing scheme.
+  of a certificate σauth on the same idx as in coidx . It extends
+  each query as qryi = (JrndKA                A       B
+                                 i , Jrndidx K , JidxKi , πauth ).     Informal Theorem 5.3 (Database Privacy). Our extended
+• (σrec , aux) ← ResponseS ((ski , qryi , D)i∈[n] , vkI ): In a sim-   protocol (§5.4) achieves database privacy if the authorization
+  ilar process to corec in Alg. 2, the Si compute coidx ←              credential is unforgeable and the zero-knowledge proof system
+  Com.Commit(∑JidxKA                    A                              is knowledge-sound.
+                          i ; ∑Jrndidx Ki ). Then, they verify the
+  zero-knowledge proof πauth using coidx and vkI , abort if               As all PRC servers are honest, the protocol response
+  verification fails, and send the final response to the client.       only contains information about the requested index. By the
+   This modification does not impact the security of the pro-          knowledge-soundness of the proof system, clients can only
+tocol, which we study next. In particular, the zero-knowledge          generate valid proofs if they know an authorization creden-
+property of the proof system ensures that no information about         tial. Further, if the authorization credentials are unforgeable,
+the index idx is revealed, thus preserving unlinkability.              clients learn nothing about unauthorized indices.
+
+
+
+USENIX Association                                                                        35th USENIX Security Symposium         3189
+6    Anonymous Credential Revocation via PRC                           database privacy trivially follows from PRC. Revocation un-
+                                                                       linkability follows from the unlinkability of the PRC scheme,
+We construct an anonymous credential revocation system, as             since the adversary only observes the non-revocation token
+defined in §4.3, based on our PRC scheme from §5.2 and                 retrieval and not the credential presentation, which an honest
+an anonymous credential scheme that supports efficient zero-           verifier obtains. Client unlinkability requires the adversary
+knowledge proofs. Our system includes an issuer I that issues          to choose challenge credentials that have the same revealed
+credentials and a decentralized RA R of n PRC servers that             attributes and revocation status, leading to the following two
+manage a binary revocation status database D. W.l.o.g., we             cases: 1) If both credentials are revoked, the presentations
+assume that the issuer sets the first attribute a0 of each creden-     abort after retrieving an invalid non-revocation token, and un-
+tial to the corresponding revocation index idx and a credential        linkability follows from PRC. 2) If both credentials are valid,
+is valid if D[idx] = 1. As our system is focused on revocation,        the client retrieves a non-revocation token with a fixed status
+we omit the issuer in the rest of the section. Our construction        rec = 1 and presents it alongside their credential. While the
+works as follows:                                                      adversary knows the one-to-one mapping between retrieval
+• ( skR ,i i∈[n] , vkR , D) ← RevSetup(n): Initialize a status         and presentation sessions, unlinkability follows from combin-
+    (︁      )︁
+                                                                       ing the unlinkability of the PRC and the credential scheme.
+   database D and a PRC instance ( skR ,i i∈[n] , vkR ) ←
+                                              (︁     )︁
+
+   PRC.KGen(n), which produces the verification key vkR .
+                                                                       Instantiation. We can efficiently instantiate our PRC scheme
+                                                                       with a simple signature scheme like Schnorr [76], or thresh-
+• pt/⊥ ← PresentNonRev(σcred , (ai )i∈[m] , Rvd, vkR ): The
+                                                                       old variants like [9, 26, 55], and the Pedersen commitment
+   client generates a presentation including a non-revocation
+                                                                       scheme [70]. The anonymous credential scheme may be in-
+   proof for a credential σcred with index idx = a0 as fol-
+                                                                       stantiated with BBS/BBS+ [17, 80], or PS [71] credentials.
+   lows: 1) the client performs a PRC request for idx with
+                                                                       These schemes support efficient zero-knowledge proofs , prov-
+   the RAs, who set aux ← time as a timestamp. It re-
+                                                                       ing the credential and commitment both contain the same
+   ceives (σrec , time) and stores the query state qst. 2) the
+                                                                       index, via a standard Σ-proof of discrete logarithm equality.
+   client checks if PRC.Verify(vkR , (σrec , qst), idx = a0 , rec =
+   1, time), returning ⊥ if the check fails. 3) the client com-
+   putes a zero-knowledge proof πrev for relation Rrev (see            7     Implementation & Evaluation
+   §A), proving knowledge of a valid credential σcred with
+   revealed attributes (ai )i∈Rvd , where the PRC commitment           We implement a prototype of our construction from §5.3, eval-
+   corec opens to a valid status (rec = 1) and the same in-            uate its performance, and compare the cost of our credential
+   dex idx as the hidden attribute a0 . 4) the client outputs          revocation against the state-of-the-art revocation schemes and
+   pt := (σrec , corec , time, πrev ).                                 the naive PIR-based baseline in §5.2.
+• 0/1 ← VerifyNonRev(vkI , vkR , pt, (ai )i∈Rvd ): The verifier
+   parses pt := (σrec , corec , time, πrev ) and checks 1) if the
+   timestamp is valid and within an application-specific limit,        7.1     Implementation and Setup
+   2) if TSig.Verify(vkR , σrec , corec ||time), i.e., the PRC cer-
+                                                                       We provide an open-source implementation of our PRC con-
+   tificate is valid, and 3) if proof πrev , which links the creden-
+                                                                       struction for single-bit records in Rust1 . We rely on AVX2
+   tial presentation to the non-revocation token, is valid.
+                                                                       to massively parallelize our operations and pack eight status
+    Our revocation scheme can be extended to achieve database          bits in each single byte. AVX2 enables vectorized bitwise
+privacy and satisfy RQ.P3 by using σcred as an authorization           operations over 256-bit registers, supporting up to 256 logical
+credential in the extended PRC construction (§5.4). We also            operations per cycle while running on a single CPU core.
+support multi-show revocation tokens, by employing a ZK-
+                                                                        Experimental setup. We run the experiments on a machine
+friendly or re-randomizable signature in the PRC construction.
+                                                                       with an AMD Ryzen AI 7 PRO 350 and 64 GB of RAM. We
+We discuss these extensions in more detail in §B.
+                                                                        emulate running n PRC servers on a single machine. We rely
+Security analysis. Next, we provide an intuition why our                on TCP for communication in our prototype, while using the
+construction fulfills the security properties defined in §4.3.         ‘tc’ command to shape the network and set the round-trip time
+Other credential properties of interest, such as device-binding,       (RTT). All experiments are performed in a single core setting,
+are inherited by the underlying credential scheme and out               and we use User+System time to report the computation time.
+of scope of our discussion. Our construction links a PRC
+                                                                       Communication channel security. Our prototype omits TLS
+non-revocation token to a credential presentation with a zero-
+                                                                       management and certificate handling, and uses TCP for sim-
+knowledge proof, ensuring that both components use the same
+                                                                       plicity; a real deployment, however, must use TLS or an equiv-
+index idx without revealing it. Given the completeness and
+                                                                       alent secure channel. A single TLS handshake already ex-
+knowledge-soundness of our proof system, revocation correct-
+                                                                       ceeds the client’s total communication cost for an entire PRC
+ness and unforgeability follow directly from the properties
+of PRC and the underlying credential scheme. In addition,                  1 https://zenodo.org/records/20433788
+
+
+
+
+3190    35th USENIX Security Symposium                                                                             USENIX Association
+                   600                                                                                                                                                                             15.0
+                       20ms delay   40ms delay   80ms delay                                 25    Comp.        Comm                                                                                        Costs
+
+
+
+
+                                                                                                                                                                   Cost of 1 Million queries ($)
+                                                                                                                                       150
+
+
+
+
+                                                               Computation per party (ms)
+                   500     n=2          n=2          n=2                                             n=2          n=2                                                                              12.5        n=2
+
+
+
+
+                                                                                                                                             Communication (KiB)
+                           n=4          n=4          n=4                                    20       n=4          n=4                                                                                          n=4
+
+
+
+PRC latency (ms)
+                   400     n=8          n=8          n=8                                                                                                                                           10.0
+                                                                                                     n=8          n=8                                                                                          n=8
+                                                                                                                                       100
+                                                                                            15
+                   300                                                                                                                                                                              7.5
+
+                   200                                                                      10                                                                                                      5.0
+                                                                                                                                       50
+
+                   100                                                                       5                                                                                                      2.5
+
+                                                                                                                                       0                                                            0.0
+                     0
+                         214 216 218 220 222 224 226 228 230                                     214 216 218 220 222 224 226 228 230                                                                      214 216 218 220 222 224 226 228 230
+                                Number of records (N)                                                  Number of records (N)                                                                                     Number of records (N)
+
+
+Figure 3: Evaluating the PRC latency (left), single-core computation and one-way communication per PRC server (middle), and
+the operational cost per PRC server (right) over various number of records in database (N) and number of PRC servers (n).
+
+
+execution, highlighting the communication efficiency of our                                                             7.2     Performance
+client-side protocol. In contrast, PRC servers can maintain per-
+sistent communication channels among themselves because                                                                 We evaluate the performance of our PRC and revocation sys-
+they handle many requests, and are therefore not impacted                                                               tem, comparing it with the baseline and existing solutions.
+by the cost of initiating secure connections. Client-side TLS                                                           Latency. Our system is designed to achieve low latency, and
+overhead can be reduced by opening a single TLS connec-                                                                 our MPC computation only requires six rounds of interac-
+tion, onion-encrypting the queries for the other PRC servers,                                                           tions. Most of this round complexity arises from the Boolean-
+and letting one server relay them over persistent connections,                                                          sharing to one-hot-encoding conversion (Alg. 3), which has
+similarly to our offline-client extension (see §B).                                                                     depth lg lg(N) and requires four rounds for databases with
+                                                                                                                        N = 1 billion records. The retrieval step (Alg. 4) requires a
+Instantiation. We instantiate our MPC using the GMW pro-                                                                single round to compute the second inner product. We further
+tocol [44], our homomorphic commitment with the Pedersen                                                                adopt a depth-optimized, single-round, Boolean to arithmetic
+scheme over the prime-order Ristretto group [32, 49], and our                                                           conversion based on [30] using DaBit [75]. We evaluate the
+signatures with Ed25519 [8,54]. While GMW achieves highly                                                               latency of our PRC from receiving a query to generating the
+efficient communication without the linear security parameter                                                           token σrec . The left plot in Figure 3 shows system latency as
+expansion common in garbled circuits [82], it requires one in-                                                          the number of PRC servers varies, with RTTs ranging from
+teraction round per layer of AND gates, often resulting in high                                                         20 ms to 80 ms. Our solution achieves real-time responses
+latency since typical circuits have thousands of layers. By de-                                                         with latency below 400 ms. The plot also indicates that la-
+signing tailor-made protocols with depth O (lg lg N) (see §5.3),                                                        tency is dominated by the network delay rather than the num-
+we achieve both low communication and low latency.                                                                      ber of credentials, servers, or computation cost. We observe a
+                                                                                                                        step increase on all curves after 216 records, consistent with
+Preprocessing. Efficient SMC protocols heavily rely on pre-                                                             our theoretical analysis, as B IN 2OHE requires an additional
+processing to reduce their latency and online phase cost. We                                                            round once the index size exceeds 28 bits.
+use Beaver triples [7] for performing AND operations and                                                                Cost. We measure the computation and communication cost
+daBits [37, 75] for B2A conversions. The majority of MPC                                                                of our scheme for different numbers of PRC servers and
+protocols have expensive preprocessing phases requiring                                                                 database records and report the results in the middle plot
+GiBs of communication per execution, however, our protocol                                                              of Figure 3. We observe a constant cost of ∼1 ms for small
+only√requires sub-linear preprocessing material; specifically,                                                          databases, beyond which the cost grows linearly with the num-
+∼ 3 N Beaver triples and lg(N)+l dabits requiring a transfer                                                            ber of records. Using vectorized AVX2 operations, our system
+of 13.5 KiB for all PRC servers combined when generated via                                                             achieves a minimal single-core computation cost lower than
+a dealer in our largest setting with N = 1 billion credentials.                                                         25 ms even for N = 1 billion records. The  communication cost
+                                                                                                                                                                      √
+Since our preprocessing is generic and function-independent,                                                            of PRC is sublinear in the database size,√O ( Nl), as shown
+we can generate material in large batches and use it across                                                             in §5.3, and concretely requires about 3 N AND gates and
+many requests, for lower amortized costs. Correlation gener-                                                            two conversion gates for 1-bit and lg(N)-bit values in our
+ation heavily depends on the deployment scenario, as the cost                                                           revocation system. We use pairwise broadcast to reconstruct
+and threat model often differ between preprocessing and on-                                                             Beaver triples and daBits among n PRC servers, which incurs
+line phases. Benchmarking generic pre-processing generation                                                             a quadratic cost in n, but has low impact in practice since n is
+is out of scope of this work. We use a dealer with pre-shared                                                           usually small. As uploads and downloads are symmetric, we
+keys and discuss costs and alternatives in the appendix §E.                                                             report only the one-way communication cost per PRC server.
+
+
+
+USENIX Association                                                                                                                                                 35th USENIX Security Symposium                                          3191
+   The client cost is minimal and independent of the num-                                                            Baseline(DPF)
+                                                                                                            105
+
+
+
+
+                                                                            Server compute per query (ms)
+ber of revocations—revocation simply changes values in the                                                           Baseline(Hintless)
+database with no impact on size—requiring 36n + 72 Bytes                                                             Our Work
+                                                                                                            104
+of communication and negligible computation. Clients sends
+a query consisting of secret shares of randomness rnd (32 B)                                                103
+and index idx (4 B) to every one of n PRC servers. A single
+                                                                                                            102
+server responds with a token containing the signature (64 B)
+and auxiliary data (an 8 B timestamp); we omit the commit-                                                  101
+ment since the client knows rnd and the record value, and can
+locally compute the commitment and verify the signature.                                                    100
+                                                                                                                  220 221 222 223 224 225 226 227 228 229 230
+                                                                                                                           Number of credentials (N)
+Monetary cost. We use Amazon EC2 pricing [1] to estimate
+the cost of operating a PRC server. Each server uses a single      Figure 4: Per-server compute for a query of the PIR baselines,
+CPU core and less than 2 GiB of RAM, so we consider low-           instantiated with Hintless [59] and a DPF [10], varying the
+end EC2 instances priced at $0.04 per computation hour, with       number of credentials (N).
+free inbound data transfer and $0.09 per 1 GiB of outbound
+traffic. We report the estimated cost under this model in the
+right plot of Figure 3. The cost scales linearly with the number   8   Conclusion
+of records. Our protocol is highly cost-effective, processing
+one million requests for under $2.5 per PRC server.                We have presented an anonymous credential revocation sys-
+                                                                   tem that satisfies all requirements defined in §4.2. We have
+Presenting credentials. Adding revocation support intro-           shown that our scheme achieves the revocation functionality
+duces the overhead of obtaining a PRC token and linking            (RQ.F1) and the privacy properties in §5.5. We now demon-
+it to the credential via a proof over the equality of the com-     strate that the remaining requirements are also met.
+mitted index . As shown in §5.3, the PRC cost is minimal for
+                                                                   Functionality. In our system, credentials can be dynamically
+clients, and the same holds for the proof, which can be real-
+                                                                   revoked with a single bit-flip, with no overhead for clients
+ized using a single discrete-log equality proof. The verifier
+                                                                   or verifiers (RQ.F2). We achieve latency below 400 ms with
+overhead is limited to verifying a signature and the equality
+                                                                   precise timestamps and full privacy, eliminating long token
+proof, both small and comparable to a non-anonymous revo-
+                                                                   validity periods and enabling real-time revocation (RQ.F3).
+cation check. Since these costs are constant and dominated
+by the underlying credential and signature schemes, we omit        Efficiency. Our system scales to N = 1 billion credentials
+benchmarks for clients and verifiers.                              with under 25 ms of computation per RA, far exceeding the
+                                                                   requirement to support 100 million users (RQ.D1). As we
+Comparison. We compare our work with ALLOSAUR [53]                 do not amortize costs, our system also satisfies single-query
+and the PIR-based baseline from §5. ALLOSAUR is a creden-          efficiency (RQ.D3). Requesting a non-revocation token re-
+tial revocation scheme with a threshold threat model, but with     quires negligible computation and 144 B of transfer from
+cost linear in the number of revocations. We provide a detailed    clients in a two-server setting, overshadowed by TLS over-
+comparison in §F for varying number of credentials and revo-       head. Token presentation is comparable to non-anonymous re-
+cations. Since ALLOSAUR does not scale for 10 million or           vocation, adding a minimal overhead of verifying a signature
+more revocations, we extrapolate its server runtime for N = 1      and a discrete-log equality proof, thus supporting lightweight
+billion credentials and a 1% revocation rate to 2663 seconds,      clients and verifiers (RQ.D2).
+while our solution requires only 10.294 ms. We instantiate         Acknowledgment. The authors have used LLM-based tools
+the PIR baseline with the state-of-the-art single-server (via      to refine the text and improve flow, conciseness, and phrasing.
+Hintless [59]) and multi-server (via DPF [10]) PIR schemes         This project received funding from the ERC under the EU’s
+with 96 byte tokens CD[i] = (σi , rndi ). For multi-party set-     research and innovation programs Horizon Europe (PRIV-
+tings, we use n = 2 servers and report per server revocation       TOOLS/101124778 and CRYPTOLAYER/101044770). It
+cost in Figure 4. As expected, all costs grow linearly with the    was co-funded by the DFG within SFB 1119 CROSS-
+number of credentials. Existing PIR implementations cannot         ING/236615297, and supported by BMFTR and HMWK
+handle the large databases required in our setting (e.g., 96 GiB   within ATHENE.
+for one billion credentials), so we extrapolate costs when sys-
+tems crash and denote these regions with dashed lines. For
+N = 1 billion credentials, our solution improves revocation        Ethical Considerations
+computation cost by a factor of 2700× over [10] and 900×
+over [59]. Excluding the prohibitive cost of maintaining such      We provide a stakeholder-based ethical analysis below.
+large and frequently changing databases.                           Stakeholder Identification and Impacts. Entities that may
+
+
+
+3192    35th USENIX Security Symposium                                                                                                         USENIX Association
+be impacted by our research include the research team, the re-    Open Science
+search society as a whole, users of anonymous credential
+systems, and finally, operators, including governments, of        Our prototype is available at https://zenodo.org/rec
+(anonymous) credential systems. For each of the stakeholders,     ords/20433788. It implements our PRC construction and
+we consider the ethical implications of our work, using the       includes a Docker container for benchmarking. We fully re-
+principles listed in the Menlo Report.                            produce the PRC cost measurements shown in Figure 3. Pre-
+                                                                  senting a credential with non-revocation requires generating
+Ethical Principles. We consider the principles listed in the      an anonymous credential presentation together with a zero-
+Menlo Report to argue about the ethical impact of our work.       knowledge proof of equality of discrete logarithm in addition
+                                                                  to obtaining a non-revocation token via PRC. This additional
+Beneficience We propose a new system with beneficial prop-        constant client cost depends only on the credential scheme
+erties, which we assess using benchmarks. All of our bench-       and can be added externally. For comparisons with the naive
+marks were conducted in a controlled environment and did          PIR approach (cf. Figure 4) and ALLOSAUR (cf. Figure 5),
+not impair any real humans or system users in any way.            we document the external runs and cost extrapolations without
+Respect for Persons We did not interfere with the personal        including third-party repositories in our artifact.
+rights of any of the stakeholders. All experiments were con-
+ducted in a controlled environment using synthetic data and
+do not process, collect, or analyze any personal or otherwise     References
+sensitive information.
+Justice The research outcomes do not exclude or disadvan-          [1] Amazon Web Services. Amazon EC2 Pricing, 2025. ht
+tage any specific group. Our prototype code is open-source,            tps://aws.amazon.com/ec2/pricing/, Accessed:
+which enables others to build on top of our results.                   2025-06-04.
+Respect for Law and Public Interest Our work does not vi-          [2] Sebastian Angel, Hao Chen, Kim Laine, and Srinath
+olate any laws or regulations. Our tests were run using open-          T. V. Setty. PIR with compressed queries and amortized
+source software or using our own implementation. Our re-               query processing. In IEEE Symposium on Security and
+search helps to mitigate accountability issues of anonymous            Privacy, pages 962–979. IEEE Computer Society, 2018.
+credentials, which protect users from surveillance and sup-
+port users’ right to privacy. Our research not only follows        [3] Toshinori Araki, Jun Furukawa, Yehuda Lindell, Ariel
+European regulation, but it also helps to achieve the protec-          Nof, and Kazuma Ohara. High-throughput semi-honest
+tion measures desired in the regulation, while improving the           secure three-party computation with an honest majority.
+scalability and efficiency.                                            In CCS, pages 805–817. ACM, 2016.
+                                                                   [4] Man Ho Au, Willy Susilo, and Yi Mu. Constant-size
+Harms and Mitigations. This work is purely constructive and
+                                                                       dynamic k-taa. In SCN, volume 4116 of Lecture Notes
+does not involve any attacks, exploitation of vulnerabilities,
+                                                                       in Computer Science, pages 111–125. Springer, 2006.
+or interaction with deployed systems or real users. For the re-
+search team, the research society, and the users of anonymous      [5] Foteini Baldimtsi, Jan Camenisch, Maria Dubovitskaya,
+credential systems, there is no harm in publishing this work.          Anna Lysyanskaya, Leonid Reyzin, Kai Samelin, and
+For operators of anonymous credential systems, there may be            Sophia Yakoubov. Accumulators with applications to
+financial considerations necessary when deciding whether to            anonymity-preserving revocation. In EuroS&P, pages
+implement our work in a production environment. Additional             301–315. IEEE, 2017.
+infrastructure may be required, which may be supplied by the
+credential operator. We believe that a more efficient system,      [6] Carsten Baum, Olivier Blazy, Jan Camenisch, Jaap-Henk
+potentially leading to a larger adoption, is only in the best          Hoepman, Eysa Lee, Anja Lehmann, Anna Lysyan-
+interest of the credential operator.                                   skaya, René Mayrhofer, Hart Montgomery, Ngoc Khanh
+                                                                       Nguyen, et al. Cryptographers’ feedback on the eu digi-
+Decision to Proceed with Publication. In summary, this                 tal identity’s arf. Tech. Rep., 2024.
+work does not raise any ethical concerns. This work addresses      [7] Donald Beaver. Efficient multiparty protocols using cir-
+anonymous revocation, which is a critical challenge in anony-          cuit randomization. In CRYPTO, volume 576 of Lecture
+mous credential systems. We improve on both accountability             Notes in Computer Science, pages 420–432. Springer,
+by enabling authorities to revoke invalid or fraudulent cre-           1991.
+dentials in a right-respecting manner and users to revoke
+lost or stolen credentials while keeping the strong privacy of     [8] Daniel J. Bernstein, Niels Duif, Tanja Lange, Peter
+anonymous credentials intact. As this work benefits users and          Schwabe, and Bo-Yin Yang. High-speed high-security
+society without creating any major risk, we have decided to            signatures. In CHES, volume 6917 of Lecture Notes in
+conduct and publish our findings.                                      Computer Science, pages 124–142. Springer, 2011.
+
+
+
+USENIX Association                                                                  35th USENIX Security Symposium       3193
+ [9] Alexandra Boldyreva. Threshold signatures, multisig-           privacy-enhancing credential systems. In SAC, volume
+     natures and blind signatures based on the gap-diffie-          9566 of Lecture Notes in Computer Science, pages
+     hellman-group signature scheme. In Public Key Cryp-            3–24. Springer, 2015.
+     tography, volume 2567 of Lecture Notes in Computer
+     Science, pages 31–46. Springer, 2003.                     [20] Jan Camenisch and Anna Lysyanskaya. An efficient
+                                                                    system for non-transferable anonymous credentials with
+[10] Dan Boneh, Elette Boyle, Henry Corrigan-Gibbs, Niv             optional anonymity revocation. In EUROCRYPT, vol-
+     Gilboa, and Yuval Ishai. Lightweight techniques for            ume 2045 of Lecture Notes in Computer Science, pages
+     private heavy hitters. In SP, pages 762–776. IEEE,             93–118. Springer, 2001.
+     2021.
+                                                               [21] Jan Camenisch and Anna Lysyanskaya. Dynamic ac-
+[11] Elette Boyle, Niv Gilboa, Yuval Ishai, and Victor I.           cumulators and application to efficient revocation of
+     Kolobov. Information-theoretic distributed point func-         anonymous credentials. In CRYPTO, volume 2442
+     tions. In ITC, volume 230 of LIPIcs, pages 17:1–17:14.         of Lecture Notes in Computer Science, pages 61–76.
+     Schloss Dagstuhl - Leibniz-Zentrum für Informatik,             Springer, 2002.
+     2022.
+                                                               [22] Jan Camenisch and Anna Lysyanskaya. A signature
+[12] Elette Boyle, Niv Gilboa, Yuval Ishai, and Victor I.           scheme with efficient protocols. In SCN, Lecture Notes
+     Kolobov. Programmable distributed point functions. In          in Computer Science. Springer, 2002.
+     CRYPTO, volume 13510 of Lecture Notes in Computer
+     Science, pages 121–151. Springer, 2022.                   [23] Jan Camenisch and Anna Lysyanskaya. Signature
+                                                                    schemes and anonymous credentials from bilinear maps.
+[13] Zvika Brakerski and Vinod Vaikuntanathan. Fully ho-            In CRYPTO, volume 3152 of Lecture Notes in Computer
+     momorphic encryption from ring-lwe and security for            Science, pages 56–72. Springer, 2004.
+     key dependent messages. In CRYPTO, volume 6841
+     of Lecture Notes in Computer Science, pages 505–524.      [24] David Chaum. Blind signatures for untraceable pay-
+     Springer, 2011.                                                ments. In CRYPTO, pages 199–203. Plenum Press, New
+                                                                    York, 1982.
+[14] Stefan Brands, Liesje Demuynck, and Bart De Decker.
+     A practical system for globally revoking the unlinkable   [25] Benny Chor, Oded Goldreich, Eyal Kushilevitz, and
+     pseudonyms of unknown users. In ACISP, volume 4586             Madhu Sudan. Private information retrieval. In FOCS,
+     of Lecture Notes in Computer Science, pages 400–415.           pages 41–50. IEEE Computer Society, 1995.
+     Springer, 2007.
+                                                               [26] Hien Chu, Paul Gerhart, Tim Ruffing, and Dominique
+[15] Alexander Burton, Samir Jordan Menon, and David J.             Schröder. Practical schnorr threshold signatures without
+     Wu. Respire: High-rate PIR for databases with small            the algebraic group model. In CRYPTO, volume 14081
+     records. In CCS, pages 1463–1477. ACM, 2024.                   of Lecture Notes in Computer Science, pages 743–773.
+                                                                    Springer, 2023.
+[16] Jan Camenisch, Manu Drijvers, and Jan Hajny. Scalable
+     revocation scheme for anonymous credentials based on      [27] Henry Corrigan-Gibbs and Dmitry Kogan. Private infor-
+     n-times unlinkable proofs. In WPES@CCS, pages 123–             mation retrieval with sublinear online time. In EURO-
+     133. ACM, 2016.                                                CRYPT, volume 12105 of Lecture Notes in Computer
+                                                                    Science, pages 44–75. Springer, 2020.
+[17] Jan Camenisch, Manu Drijvers, and Anja Lehmann.
+     Anonymous attestation using the strong diffie hellman     [28] Claude Crépeau. Verifiable disclosure of secrets and
+     assumption revisited. In TRUST, volume 9824 of Lec-            applications (abstract). In EUROCRYPT, volume 434
+     ture Notes in Computer Science, pages 1–20. Springer,          of Lecture Notes in Computer Science, pages 150–154.
+     2016.                                                          Springer, 1989.
+
+[18] Jan Camenisch, Markulf Kohlweiss, and Claudio Sori-       [29] Claude Crépeau, Jeroen van de Graaf, and Alain Tapp.
+     ente. An accumulator based on bilinear maps and effi-          Committed oblivious transfer and private multi-party
+     cient revocation for anonymous credentials. In Public          computation. In CRYPTO, volume 963 of Lecture Notes
+     Key Cryptography, volume 5443 of Lecture Notes in              in Computer Science, pages 110–123. Springer, 1995.
+     Computer Science, pages 481–500. Springer, 2009.
+                                                               [30] Ivan Damgård, Daniel Escudero, Tore Kasper Frederik-
+[19] Jan Camenisch, Stephan Krenn, Anja Lehmann,                    sen, Marcel Keller, Peter Scholl, and Nikolaj Volgu-
+     Gert Læssøe Mikkelsen, Gregory Neven, and                      shev. New primitives for actively-secure MPC over
+     Michael Østergaard Pedersen. Formal treatment of               rings with applications to private machine learning. In
+
+
+
+3194   35th USENIX Security Symposium                                                                 USENIX Association
+     IEEE Symposium on Security and Privacy, pages 1102–        [41] Craig Gentry and Shai Halevi. Compressible FHE with
+     1120. IEEE, 2019.                                               applications to PIR. In TCC, volume 11892 of Lecture
+                                                                     Notes in Computer Science, pages 438–464. Springer,
+[31] Alex Davidson, Gonçalo Pestana, and Sofía Celi.                 2019.
+     Frodopir: Simple, scalable, single-server private infor-
+     mation retrieval. Proc. Priv. Enhancing Technol.,          [42] Craig Gentry, Amit Sahai, and Brent Waters. Ho-
+     2023(1):365–383, 2023.                                          momorphic encryption from learning with errors:
+[32] Henry de Valence, Jack Grigg, Mike Hamburg, Isis Love-          Conceptually-simpler, asymptotically-faster, attribute-
+     cruft, George Tankersley, and Filippo Valsorda. The             based. In CRYPTO, volume 8042 of Lecture Notes in
+     ristretto255 and decaf448 groups. RFC 9496, Internet            Computer Science, pages 75–92. Springer, 2013.
+     Engineering Task Force, 2023.
+                                                                [43] Niv Gilboa and Yuval Ishai. Distributed point functions
+[33] Daniel Demmler, Amir Herzberg, and Thomas Schnei-               and their applications. In EUROCRYPT, volume 8441
+     der. RAID-PIR: practical multi-server PIR. In CCSW,             of Lecture Notes in Computer Science, pages 640–658.
+     pages 45–56. ACM, 2014.                                         Springer, 2014.
+
+[34] Moumita Dutta, Chaya Ganesh, Sikhar Patranabis, and        [44] Oded Goldreich, Silvio Micali, and Avi Wigderson. How
+     Nitin Singh. Compute, but verify: Efficient multiparty          to play any mental game or A completeness theorem
+     computation over authenticated inputs. In ASIACRYPT,            for protocols with honest majority. In STOC, pages
+     volume 15489 of Lecture Notes in Computer Science,              218–229. ACM, 1987.
+     pages 133–166. Springer, 2024.
+                                                                [45] Michael T. Goodrich, Roberto Tamassia, and Jasminka
+[35] Zeev Dvir and Sivakanth Gopi. 2-server PIR with sub-
+                                                                     Hasic. An efficient dynamic and distributed crypto-
+     polynomial communication. J. ACM, 63(4):39:1–39:15,
+                                                                     graphic accumulator. In ISC, volume 2433 of Lecture
+     2016.
+                                                                     Notes in Computer Science, pages 372–388. Springer,
+[36] Kasra Edalatnejad, Sebastian Faust, Jonas Hofmann,              2002.
+     Philipp-Florens Lehwalder, and Thomas Schneider. Do
+     you need a receipt? anonymous credential revocation at     [46] Daniel Günther, Maurice Heymann, Benny Pinkas, and
+     continental scale via private record certification. IACR        Thomas Schneider. Gpu-accelerated PIR with client-
+     Cryptol. ePrint Arch., 2026.                                    independent preprocessing for large-scale applications.
+                                                                     In USENIX Security Symposium, pages 1759–1776.
+[37] Daniel Escudero, Satrajit Ghosh, Marcel Keller, Rahul           USENIX Association, 2022.
+     Rachuri, and Peter Scholl. Improved primitives for MPC
+     over mixed arithmetic-binary circuits. In CRYPTO, vol-     [47] Daniel Günther, Maurice Heymann, Benny Pinkas, and
+     ume 12171 of Lecture Notes in Computer Science, pages           Thomas Schneider. Gpu-accelerated PIR with client-
+     823–852. Springer, 2020.                                        independent preprocessing for large-scale applications.
+                                                                     In USENIX Security Symposium, pages 1759–1776.
+[38] European Data Protection Supervisor. TechDispatch
+                                                                     USENIX Association, 2022.
+     #3/2025 - Digital Identity Wallets, 2025. https://ww
+     w.edps.europa.eu/data-protection/our-work/                 [48] Iftach Haitner, Jonathan J. Hoch, and Gil Segev. A
+     publications/techdispatch/2025-12-15-techd                      linear lower bound on the communication complexity
+     ispatch-32025-digital-identity-wallets_en,                      of single-server private information retrieval. In TCC,
+     Accessed: 2026-03-21.                                           volume 4948 of Lecture Notes in Computer Science,
+[39] European Parliament and Council of the European                 pages 445–464. Springer, 2008.
+     Union. Regulation (EU) 2024/1183 of 11 april 2024
+     amending regulation (EU) no 910/2014 as regards            [49] Mike Hamburg. Decaf: Eliminating cofactors through
+     establishing the european digital identity framework,           point compression. In CRYPTO, volume 9215 of Lecture
+     April 2024. Official Journal of the European Union, L           Notes in Computer Science, pages 705–723. Springer,
+     202401183. ELI: http://data.europa.eu/eli/reg                   2015.
+     /2024/1183/oj.
+                                                                [50] Lukas Helminger, Daniel Kales, Sebastian Ramacher,
+[40] Juan A. Garay. Efficient and universally composable             and Roman Walch. Multi-party revocation in sovrin:
+     committed oblivious transfer and applications. In TCC,          Performance through distributed trust. In CT-RSA, vol-
+     volume 2951 of Lecture Notes in Computer Science,               ume 12704 of Lecture Notes in Computer Science, pages
+     pages 297–316. Springer, 2004.                                  527–551. Springer, 2021.
+
+
+
+USENIX Association                                                               35th USENIX Security Symposium       3195
+[51] Alexandra Henzinger, Emma Dauterman, Henry                   [63] Samir Jordan Menon and David J. Wu. SPIRAL: fast,
+     Corrigan-Gibbs, and Nickolai Zeldovich. Private web               high-rate single-server PIR via FHE composition. In
+     search with tiptoe. In SOSP, pages 396–416. ACM,                  SP, pages 930–947. IEEE, 2022.
+     2023.
+                                                                  [64] Samir Jordan Menon and David J. Wu. SPIRAL: fast,
+[52] Alexandra Henzinger, Matthew M. Hong, Henry                       high-rate single-server PIR via FHE composition. In
+     Corrigan-Gibbs, Sarah Meiklejohn, and Vinod Vaikun-               SP, pages 930–947. IEEE, 2022.
+     tanathan. One server for the price of two: Simple and fast
+     single-server private information retrieval. In USENIX       [65] Samir Jordan Menon and David J. Wu. YPIR: high-
+     Security Symposium, pages 3889–3905. USENIX Asso-                 throughput single-server PIR with silent preprocessing.
+     ciation, 2023.                                                    In USENIX Security Symposium. USENIX Association,
+                                                                       2024.
+[53] Samuel Jaques, Hart Montgomery, and Michael Lodder.
+     ALLOSAUR: accumulator with low-latency oblivious             [66] Muhammad Haris Mughees, Hao Chen, and Ling Ren.
+     sublinear anonymous credential updates with revoca-               Onionpir: Response efficient single-server PIR. In CCS,
+     tions. In AsiaCCS. ACM, 2024.                                     pages 2292–2306. ACM, 2021.
+[54] Simon Josefsson and Ilari Liusvaara. Edwards-curve           [67] Toru Nakanishi, Hiroki Fujii, Yuta Hira, and Nobuo Fun-
+     digital signature algorithm (eddsa). RFC 8032, Internet           abiki. Revocable group signature schemes with constant
+     Engineering Task Force, January 2017.                             costs for signing and verifying. 5443:463–480, 2009.
+[55] Chelsea Komlo and Ian Goldberg. FROST: flexible              [68] Lan Nguyen. Accumulators from bilinear pairings and
+     round-optimized schnorr threshold signatures. In SAC,             applications. In CT-RSA, volume 3376 of Lecture Notes
+     volume 12804 of Lecture Notes in Computer Science,                in Computer Science, pages 275–292. Springer, 2005.
+     pages 34–65. Springer, 2020.
+                                                                  [69] Andrew Park, Trevor Leong, Francisco Maturana, Went-
+[56] Evan Krul, Hye-young Paik, Sushmita Ruj, and Salil S.             ing Zheng, and K. V. Rashmi. Communication-efficient,
+     Kanhere. Sok: Trusting self-sovereign identity. Proc.             fault tolerant PIR over erasure coded storage. In SP,
+     Priv. Enhancing Technol., 2024(3):297–313, 2024.                  pages 4331–4347. IEEE, 2024.
+[57] Maximilian Lam, Jeff Johnson, Wenjie Xiong, Kiwan            [70] Torben P. Pedersen. Non-interactive and information-
+     Maeng, Udit Gupta, Yang Li, Liangzhen Lai, Ilias Leon-            theoretic secure verifiable secret sharing. In CRYPTO,
+     tiadis, Minsoo Rhu, Hsien-Hsin S. Lee, Vijay Janapa               volume 576 of Lecture Notes in Computer Science,
+     Reddi, Gu-Yeon Wei, David Brooks, and G. Edward Suh.              pages 129–140. Springer, 1991.
+     Gpu-based private information retrieval for on-device
+     machine learning inference. In ASPLOS, pages 197–214.        [71] David Pointcheval and Olivier Sanders. Short random-
+     ACM, 2024.                                                        izable signatures. In CT-RSA, volume 9610 of Lecture
+                                                                       Notes in Computer Science, pages 111–126. Springer,
+[58] Ben Laurie. Certificate transparency. Commun. ACM,
+                                                                       2016.
+     57(10):40–46, 2014.
+[59] Baiyu Li, Daniele Micciancio, Mariana Raykova, and           [72] David Pointcheval and Jacques Stern. Security argu-
+     Mark Schultz. Hintless single-server private information          ments for digital signatures and blind signatures. J.
+     retrieval. In CRYPTO, volume 14928 of Lecture Notes               Cryptol., 13(3):361–396, 2000.
+     in Computer Science, pages 183–217. Springer, 2024.          [73] Oded Regev. On lattices, learning with errors, random
+[60] Dave Longley, Manu Sporny, and Orie Steele. Bitstring             linear codes, and cryptography. In STOC, pages 84–93.
+     status list v1.0. W3c recommendation, World Wide Web              ACM, 2005.
+     Consortium (W3C), 2025.
+                                                                  [74] Leandro Rometsch, Philipp-Florens Lehwalder, Anh-
+[61] Carlo Mazzocca, Abbas Acar, Selcuk Uluagac, Rebecca               Tu Hoang, Dominik Kaaser, and Stefan Schulte. Uppr:
+     Montanari, Paolo Bellavista, and Mauro Conti. A survey            Universal privacy-preserving revocation. In 2025 IEEE
+     on decentralized identifiers and verifiable credentials.          International Conference on Blockchain (Blockchain),
+     IEEE Communications Surveys & Tutorials, 2025.                    pages 161–170. IEEE, 2025.
+
+[62] Carlos Aguilar Melchor, Joris Barrier, Laurent Fousse,       [75] Dragos Rotaru and Tim Wood. Marbled circuits: Mixing
+     and Marc-Olivier Killijian. XPIR : Private information            arithmetic and boolean circuits with active security. In
+     retrieval for everyone. Proc. Priv. Enhancing Technol.,           INDOCRYPT, volume 11898 of Lecture Notes in Com-
+     2016(2):155–174, 2016.                                            puter Science, pages 227–249. Springer, 2019.
+
+
+
+3196   35th USENIX Security Symposium                                                                    USENIX Association
+[76] Claus-Peter Schnorr. Efficient identification and sig-           itself, which is revealed to the verifier in the clear. Since
+     natures for smart cards. In CRYPTO, volume 435 of                the commitment randomness is chosen by the client, and
+     Lecture Notes in Computer Science, pages 239–252.                it can assume that its credential is valid (i.e., D[idx] = 1),
+     Springer, 1989.                                                  the client can pre-compute the commitment without actually
+                                                                      receiving the non-revocation token. Further, processing the
+[77] Reza Soltani, Uyen Trang Nguyen, and Aijun An. A                 PRC response does not require any private client input and
+     survey of self-sovereign identity ecosystem. Security            can be fully revealed to the verifier.
+     and Communication Networks, 2021, 2021.
+                                                                         In an offline setting, the client can thus prepare the PRC
+[78] Manu Sporny, Dave Longley, David Chadwick, and Ivan              request, encrypt each query under the public key of the cor-
+     Herman. Verifiable credentials data model v2.0. W3C              responding RA, and delegate the interaction with the RAs to
+     recommendation, World Wide Web Consortium, 2025.                 the verifier. By also providing the zero-knowledge proof over
+                                                                      the pre-computed commitment, the verifier can check the pre-
+[79] Manu Sporny, Dave Longley, Markus Sabadello, Drum-               sentation without a further round with the client. To prevent
+     mond Reed, Orie Steele, and Christopher Allen. Decen-            replay attacks and in extension prevent a verifier from repeat-
+     tralized identifiers (DIDs) v1.0. W3C recommendation,            edly checking the revocation status of a client, we encrypt
+     World Wide Web Consortium, 2022.                                 add a nonce to the queries. We further assume that the encryp-
+                                                                      tion scheme provides confidentiality and integrity, binding the
+[80] Stefano Tessaro and Chenzhi Zhu. Revisiting BBS sig-             nonce to its query. If one of the RAs receives a nonce twice,
+     natures. In EUROCRYPT, volume 14008 of Lecture                   they can abort the protocol. Due to the integrity protection, no
+     Notes in Computer Science, pages 691–721. Springer,              verifier can change the nonce associated with a query. In the
+     2023.                                                            following, we assume that each RA is equipped with a public
+                                                                      key encryption key pair (pki , ski ). The offline presentation
+[81] Patrick P. Tsang, Man Ho Au, Apu Kapadia, and Sean W.
+                                                                      and verification proceed as follows:
+     Smith. Blacklistable anonymous credentials: blocking
+     misbehaving users without ttps. In CCS, pages 72–81.             • opt ← OfflinePresentNonRev(σcred , (ai )i∈[m] , Rvd, vkR ):
+     ACM, 2007.                                                         The client produces an offline presentation opt for
+                                                                        credential σcred with revocation index idx as follows:
+[82] Andrew Chi-Chih Yao. How to generate and exchange                  1) compute a PRC request ((qryi )i∈[n] , qst=rnd) ←
+     secrets (extended abstract). In FOCS, pages 162–167.               Request(idx, σauth ) and its corresponding commitment
+     IEEE Computer Society, 1986.                                       corec ← Com.Commit([idx, rec=1]; rnd); 2) choose a
+                                                                        nonce η and encrypt each query under the corresponding
+A    Zero-Knowledge Proof Relations                                     PRC server’s public key, eqryi ← Enc(pki , (qryi , η)); 3)
+                                                                        compute the zero-knowledge proof πrev for relation Rrev
+We formally define the proof relations in the full version [36].        (see §A) using the pre-computed corec ; and 4) output
+                                                                        opt := ((eqryi )i∈[n] , corec , πrev ).
+B    Extensions of our AC Revocation System                           • 0/1 ← OfflineVerifyNonRev(vkI , vkR , opt, (ai )i∈Rvd ): The
+                                                                        verifier combines the PRC interaction with presenta-
+We discuss three extensions of our anonymous credential re-             tion verification as follows: 1) the verifier parses
+vocation system in §6: enabling offline clients to delegate             opt := ((eqryi )i∈[n] , corec , πrev ) and sends each encrypted
+contacting RAs to the verifier, achieving multi-show presen-            query eqryi to the corresponding RA; 2) each RA act-
+tations of non-revocation tokens, and database privacy.                 ing as a PRC server decrypts its query (qryi , η) ←
+                                                                        Dec(ski , eqryi ), computes the response (σrec , time) ←
+Extension with offline clients. Real-time revocation (see
+                                                                        ResponseS ((ski , qryi , D)i∈[n] , ⊥), and send it to the verifier;
+RQ.F3) requires connection to the RAs. However, as long as
+                                                                        3) the verifier forms pt := (σrec , corec , time, πrev ) and ac-
+the verifier can reach the RAs, our construction can support
+                                                                        cepts iff VerifyNonRev(vkI , vkR , pt, (ai )i∈Rvd ) accepts.
+offline clients that perform a one-round presentation with a
+non-revocation check and no privacy degradation. This im-                Correctness is straightforward: if the client’s credential is
+proves support for constrained clients without internet access,       not revoked, the pre-computed commitment matches the PRC
+such as scenarios with a phone without mobile data.                   response, and verification accepts. The security argument fol-
+   Observe that in a usual presentation with a non-revocation         lows the base construction. Compared with the base version,
+check, a client 1) performs a PRC request to obtain a non-            there are two differences. First, the client cannot verify the
+revocation token and 2) generates a zero-knowledge proof              PRC response and therefore cannot detect that its credential
+linking the token to its credential. In this proof, the client only   is revoked and abort contacting the verifier. This is an in-
+needs to know the commitment value corec inside the token,            herent limit of one-round offline presentations; a two-round
+but does not need to prove over the token (i.e., signature)           variant could trivially solve this. Second, the verifier learns
+
+
+
+USENIX Association                                                                        35th USENIX Security Symposium            3197
+the encrypted queries eqryi in addition to pt. The encryption                                              106
+                                                                                                                       ALLOSAUR(1%)
+ensures that the verifier query content remains confidential,                                                          ALLOSAUR(5%)
+and nonces prevent reusing queries.                                                                        104         ALLOSAUR(10%)
+
+
+
+
+                                                                                Server compute time (s)
+                                                                                                                       Our construction
+Extension with multi-show presentations. We give a full
+                                                                                                           102
+description of this extension in the full version [36].
+Extension with database privacy. As the credentials in our                                                 100
+system σcred already contain the revocation index, one can
+similarly use it as the authorization credential σauth to achieve                                         10−2
+database privacy as described in the extended PRC construc-
+                                                                                                                 218     221       224         227   230
+tion §5.4. Thus, during PresentNonRev, the client uses its                                                               Number of Credentials (N)
+credential σcred as the authorization credential when generat-
+ing the PRC request. Note that the authorization proof πauth        Figure 5: Comparison of server computation of our work and
+for the relation Rauth (see §A) is essentially constructed the      ALLOSAUR for different revocation rates depending on the
+same way as the proof of non-revocation for the presenta-           total number of credentials.
+tion πcred ; both prove knowledge of a signature containing
+the same index as in a given commitment. The only differ-
+ence is that the presentation proof πcred may prove additional      ginning. To generate Beaver triples (a, b, c = a ∧ b), the dealer
+statements about other attributes of the credential.                uses a keyed PRF with the symmetric keys to generate shares
+                                                                    of n − 1 parties without having to transfer this material. For
+C      Security of our PRC Scheme                                   the last party, the dealer still uses a keyed PRF to randomly
+                                                                    select⨁︁
+                                                                           (an , bn ) and only  computes   and sends the final share
+                                                                    cn = i∈[n−1] ci ⊕ ( i∈[n] ai ∧ i∈[n] bi ), requiring 1-bit of
+                                                                                           ⨁︁          ⨁︁
+We give formal definitions and proof of our PRC scheme in
+the full version [36].                                              transfer per AND triples regardless of the number of par-
+                                                                    ties. We note that keeping triples in RAM requires 3-bits. To
+                                                                    generate daBits (b ∈ {0, 1}, a ∈ Zq = b), we follow a simi-
+D      Security of our AC Revocation Scheme                         lar approach of using a keyed⨁︁   PRF to generate n − 1 shares
+                                                                                     $
+                                                                    and send (bn ←     {0, 1}, an = ( bi − ∑ ai ) mod q) to the last
+We give formal definitions and proof of our revocation scheme       party. Sending and storing a daBit requires (lg q + 1) = 257
+in the full version [36].                                           bits regardless of the number of parties.
+                                                                    Alternative generations. We provide alternative approaches
+E Pre-processing and correlated randomness                          to generate correlated randomness in the full version [36].
+  generation
+Efficient SMC protocols heavily rely on preprocessing to
+                                                                    F    Comparison with ALLOSAUR
+reduce their latency and online phase cost. We use Beaver           ALLOSAUR [53] is the most closely related accumulator-
+triples [7] for performing AND operations and daBits [37, 75]       based revocation scheme in an anytrust setting. They utilize
+for Boolean to arithmetic conversions. The majority of MPC          MPC to let clients retrieve an updated witness for an accumu-
+protocols have expensive preprocessing phases requiring             lator, which accumulates all non-revoked credentials. Unlike
+GiBs of communication per execution. However, our protocol          our scheme, where updating the revocation database requires
+only requires sub-linear preprocessing material. Specifically,      only a single bit-flip, each revocation in ALLOSAUR incurs
+in our largest setting with binary credential statuses
+                                                     √ (l = 1)      linear work in the total number of credentials for the servers.
+and a billion credentials (N = 109 ), generating ∼ 3 N Beaver       Client witness update costs additionally scale with the number
+triples and lg(N) + l daBits require a transfer of 13.5 KiB for     of revocations since the last update. In Figure 5 we compare
+all servers combined when generated via a dealer.                   the server computation time for varying numbers of creden-
+Memory. The pre-processing material required for each query         tials and revocation rates, using a RAs consisting of 2 PRC
+is only 37 KiB small. The client is not involved in the MPC         servers. Note that while ALLOSAUR costs depend on the
+computation and pre-processing material is independent of           number of revocations, our scheme only depends on the num-
+the querier; thus, servers do not need to fetch client dependent    ber of credentials. At 1 billion credentials with a 1% revo-
+material. Reserving 1 GiB of RAM and pre-loading material           cation rate, ALLOSAUR requires approximately 2663 s per
+in the background supports responding to over 28k queries.          witness update, while our solution requires only 10.294 ms,
+We assume that correlation material is available in RAM.            resulting in a speedup of over 20,000×. We provide more
+Generation. We use a dealer to generate correlations. The           details on the comparison in the full version [36].
+dealer exchanges symmetric keys with the parties in the be-
+
+
+
+3198    35th USENIX Security Symposium                                                                                                          USENIX Association
+

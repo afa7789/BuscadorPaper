@@ -1,0 +1,144 @@
+{
+  "search_date": "2026-09-14",
+  "scope": "Três candidatas delimitadas em swaps e empréstimos privados: substituição de pertencimento no Zswap, agregação de provas do Zswap e certificados de garantia por faixa.",
+  "novelty_status": "As ideias 1, 2 e 3 são hipóteses desta busca, não open problems explicitamente declarados pelos autores. Não estão confirmadas como inéditas. Semacaulk já usa KZG para pertencimento privado; SnarkPack já agrega Groth16; Zyga já propõe empréstimos com entradas públicas dinâmicas.",
+  "implementation_status": "Nenhum protocolo implementado, artefato compilado ou benchmark reproduzido. Artefatos citados foram consultados por documentação, não auditados.",
+  "principal_queries": [
+    "Zswap zk-SNARK non interactive multi asset swaps aggregation",
+    "Zyga private lending dynamic public inputs",
+    "SnarkPack Groth16 aggregation",
+    "\"Autonomous Lending Organization on Ethereum with Credit Scoring\" 2023",
+    "zero knowledge lending collateral proof price interval reusable certificate",
+    "anonymous credentials lending credit limit double borrowing zero knowledge"
+  ],
+  "search_limit": "Busca dirigida e parcial, com ruído em ZKSwap/ZKLoan por nomes de produtos e projetos. Não demonstra ausência de trabalho relacionado. Leitura de trechos relevantes, sem revisão integral das provas formais.",
+  "sources": [
+    {
+      "id": "zswap",
+      "title": "Zswap: zk-SNARK Based Non-Interactive Multi-Asset Swaps",
+      "authors": [
+        "Felix Engelmann",
+        "Thomas Kerber",
+        "Markulf Kohlweiss",
+        "Mikhail Volkhov"
+      ],
+      "year": 2022,
+      "publication": "PoPETs 2022(4):507–527",
+      "url": "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+      "file": "../papers/zswap-2022.pdf",
+      "code_url": "https://github.com/felix-engelmann/zswap-code",
+      "reading": "Construção da prova de gasto e junção de transações (página 13), estrutura Merkle (páginas 3 e 8), implementação (página 15), README do artefato.",
+      "evidence": "Provas por entrada e saída; construção com pertencimento Merkle; protótipo Groth16/Arkworks/Poseidon. Junção de transações não é por si só agregação criptográfica das provas. Matching está fora do recorte original e das novas propostas.",
+      "pages": 21,
+      "bytes": 685157,
+      "sha256": "1d7dbd6ab5904a33ecda313cf6fad5905582bb1a2ab755b2eac17c741eb5aa5e"
+    },
+    {
+      "id": "caulk_plus",
+      "title": "Caulk+: Table-independent lookup arguments",
+      "year": 2022,
+      "publication": "ePrint 2022/957",
+      "url": "https://eprint.iacr.org/2022/957",
+      "file": "../accumulators/papers/caulk-plus-2022.pdf",
+      "reading": "Leitura prévia de introdução, relação de lookup, pré-computação e construção para um elemento.",
+      "evidence": "Peça de pertencimento com posições ocultas; abertura KZG comum não substitui a prova privada. A composição com a nota do Zswap é uma hipótese a construir.",
+      "pages": 11,
+      "bytes": 457347,
+      "sha256": "a5881da7a1465fed2ba1a5ca48e63f813816274ca57dd4e72d1398f1826292e6"
+    },
+    {
+      "id": "semacaulk",
+      "title": "Semacaulk",
+      "url": "https://github.com/geometryxyz/semacaulk",
+      "author_explanation_url": "https://kohweijie.com/articles/23/semacaulk.html",
+      "reading": "Documentação consultada na etapa anterior de acumuladores.",
+      "evidence": "Anterioridade para uso de KZG/Caulk+ em pertencimento privado; Merkle → KZG genericamente não é a novidade candidata."
+    },
+    {
+      "id": "snarkpack",
+      "title": "SnarkPack: Practical SNARK Aggregation",
+      "authors": [
+        "Nicolas Gailly",
+        "Mary Maller",
+        "Anca Nitulescu"
+      ],
+      "year": 2022,
+      "preprint_year": 2021,
+      "publication": "Financial Cryptography and Data Security 2022",
+      "url": "https://research.protocol.ai/publications/snarkpack-practical-snark-aggregation/",
+      "preprint_url": "https://eprint.iacr.org/2021/529",
+      "pdf_url": "https://eprint.iacr.org/2021/529.pdf",
+      "file": "papers/snarkpack-2021.pdf",
+      "code_url": "https://github.com/filecoin-project/bellperson",
+      "reading": "Resumo, seção 3.1 (mesma chave de verificação), construção e trechos de avaliação; página dos autores e documentação do código.",
+      "evidence": "Agregação Groth16 por chave de verificação; parâmetros derivados de dois transcripts Powers of Tau. O plano deve contar processamento de entradas públicas além do agregado. Os números históricos não foram reproduzidos e não são reivindicados como ganhos do Zswap.",
+      "pages": 29,
+      "bytes": 727652,
+      "sha256": "fafe5d929cb8dfa718c0993adbc7281044b62e9f8d4eb1a2855677c56d6249b0"
+    },
+    {
+      "id": "bellperson",
+      "title": "Bellperson",
+      "url": "https://github.com/filecoin-project/bellperson",
+      "reading": "README e documentação de agregação.",
+      "evidence": "Implementação relacionada a SnarkPack; backend BLS12-381. A compatibilidade com o artefato Arkworks de Zswap precisa ser verificada antes de prometer integração."
+    },
+    {
+      "id": "zyga",
+      "title": "Zyga: Optimized Zero-Knowledge Proofs with Dynamic Public Inputs",
+      "authors": [
+        "Tiago A. O. Alves",
+        "Vitor Py Braga"
+      ],
+      "year": 2025,
+      "last_revision": "2025-12-22",
+      "publication": "Preprint; ePrint 2025/1802",
+      "url": "https://eprint.iacr.org/2025/1802",
+      "pdf_url": "https://eprint.iacr.org/2025/1802.pdf",
+      "file": "papers/zyga-2025.pdf",
+      "reading": "Resumo, seção 8.2 nas páginas 24–25, limitações e trabalhos futuros na página 27; metadata do ePrint.",
+      "evidence": "A aplicação a empréstimos com preços dinâmicos já está no paper. A ideia 3 propõe estudar uma alternativa restrita por faixa usando um circuito convencional. Não atribuímos esse recorte aos autores nem validamos suas alegações de segurança ou desempenho.",
+      "artifact_status": "Não foi localizado e executado artefato para comparação direta nesta busca.",
+      "pages": 31,
+      "bytes": 727464,
+      "sha256": "6c4c161986cd75daa685ec6d5b335b6369357cd5eb2e637db3e1f3c9b565c05d"
+    },
+    {
+      "id": "aloe",
+      "title": "Autonomous Lending Organization on Ethereum with Credit Scoring",
+      "authors": [
+        "Thomas H. Austin",
+        "Katerina Potika",
+        "Chris Pollett"
+      ],
+      "year": 2023,
+      "publication": "2023 Silicon Valley Cybersecurity Conference (SVCC)",
+      "url": "https://scholarworks.sjsu.edu/faculty_rsca/5019/",
+      "doi": "10.1109/SVCC56964.2023.10164922",
+      "pdf_url": "https://www.cs.sjsu.edu/faculty/pollett/papers/cryptoLoans.pdf",
+      "file": "papers/aloe-2023.pdf",
+      "code_url": "https://github.com/taustin/cryptoCreditBureau/",
+      "reading": "Resumo, introdução, modelo de identidade/crédito e trabalhos futuros; ano e venue confirmados no repositório institucional.",
+      "evidence": "Notário associa identidade à conta, auditores armazenam partes da identidade, CreditBureau acompanha pagamentos e score. Leitura complementar; não apresentado como implementação de crédito totalmente desvinculável.",
+      "pages": 8,
+      "bytes": 400364,
+      "sha256": "26ce432fd6705f3e76f56ffb1597fcfdaa3f4ded4bb9dc2647f610d5067fd09e"
+    },
+    {
+      "id": "zerolender",
+      "title": "ZeroLender: Trustless Peer-to-Peer Bitcoin Lending Platform",
+      "authors": [
+        "Yi Xie",
+        "Joshua Holmes",
+        "Gaby G. Dagher"
+      ],
+      "year": 2020,
+      "publication": "CODASPY 2020, 247–258",
+      "url": "https://scholarworks.boisestate.edu/cs_facpubs/265/",
+      "doi": "10.1145/3374664.3375735",
+      "reading": "Apenas resumo e metadata no repositório institucional.",
+      "evidence": "Empréstimos Bitcoin com ZK e desvinculação entre credores e tomadores. Não houve leitura da construção ou download de PDF.",
+      "local_pdf_available": false
+    }
+  ]
+}

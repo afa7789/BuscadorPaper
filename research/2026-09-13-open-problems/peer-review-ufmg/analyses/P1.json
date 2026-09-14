@@ -1,0 +1,87 @@
+{
+  "reviewer": "P1",
+  "ideas": [
+    {
+      "id": 1,
+      "relevance": 8.1,
+      "originality": 6.5,
+      "feasibility": 5.7,
+      "main_objection": "O vínculo seguro entre pertencimento Caulk+, autorização e nullifier do gasto permanece sem construção; a troca genérica já tem anterioridade.",
+      "confidence": "low",
+      "weighted": 6.82
+    },
+    {
+      "id": 2,
+      "relevance": 8.8,
+      "originality": 6.9,
+      "feasibility": 8.5,
+      "main_objection": "Repetir o benchmark de agregação versus batching já feito em SnarkPack seria contribuição fraca; falta concretizar a política e o custo completo no Zswap.",
+      "confidence": "medium",
+      "weighted": 8.045
+    },
+    {
+      "id": 3,
+      "relevance": 8.3,
+      "originality": 6.9,
+      "feasibility": 8.2,
+      "main_objection": "A desigualdade conservadora isolada não estabelece contribuição; falta quantificar vazamento longitudinal e comparar políticas simples de renovação.",
+      "confidence": "medium",
+      "weighted": 7.78
+    },
+    {
+      "id": 4,
+      "relevance": 8.2,
+      "originality": 7.7,
+      "feasibility": 4.8,
+      "main_objection": "A adaptação da delegação pode exigir um novo protocolo criptográfico; falta a identidade algébrica que atualize privadamente os witnesses usados em Caulk+.",
+      "confidence": "low",
+      "weighted": 7.005
+    },
+    {
+      "id": 5,
+      "relevance": 8.5,
+      "originality": 7.3,
+      "feasibility": 6.4,
+      "main_objection": "Autenticação para o cliente não transfere automaticamente a garantia ao verificador; origem e atualidade da raiz precisam de hipótese explícita.",
+      "confidence": "medium",
+      "weighted": 7.45
+    },
+    {
+      "id": 6,
+      "relevance": 8.7,
+      "originality": 7.2,
+      "feasibility": 6.8,
+      "main_objection": "Falta protocolo de cursores e sobreposição que detecte lacunas e recupere o intervalo perdido sem vazamento indefinido.",
+      "confidence": "medium",
+      "weighted": 7.605
+    }
+  ],
+  "ranking": [
+    2,
+    3,
+    6,
+    5,
+    4,
+    1
+  ],
+  "recommended": 2,
+  "backup": 3,
+  "sources": [
+    "https://ppgcc.dcc.ufmg.br/wp-content/uploads/2025/10/Edital-Regular_Ciencia-da-Computacao_MD_2026.pdf",
+    "https://ppgcc.dcc.ufmg.br/docentes/",
+    "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+    "https://eprint.iacr.org/2022/957",
+    "https://kohweijie.com/articles/23/semacaulk.html",
+    "https://research.protocol.ai/publications/snarkpack-practical-snark-aggregation/",
+    "https://github.com/felix-engelmann/zswap-code",
+    "https://eprint.iacr.org/2025/1802",
+    "https://eprint.iacr.org/2026/832",
+    "https://eprint.iacr.org/2023/1830",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/edalatnejad",
+    "https://eprint.iacr.org/2025/2177",
+    "https://eprint.iacr.org/2022/1362",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/shuhan",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/liang",
+    "https://eprint.iacr.org/2026/910"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "reviewer": "P2",
+  "ideas": [
+    {"id": 1, "relevance": 7.5, "originality": 6.5, "feasibility": 5.5, "weighted": 6.55, "main_objection": "A substituição modifica uma relação interna ao gasto; ainda falta uma composição vinculada à mesma nota que preserve as garantias do Zswap e permita medir o custo completo.", "confidence": "medium"},
+    {"id": 2, "relevance": 7.5, "originality": 6.5, "feasibility": 8.0, "weighted": 7.3, "main_objection": "SnarkPack já publica comparação com verificação em lote e pontos de equilíbrio; é preciso uma pergunta específica sobre fluxo e latência do Zswap.", "confidence": "medium"},
+    {"id": 3, "relevance": 8.0, "originality": 7.0, "feasibility": 8.5, "weighted": 7.8, "main_objection": "A checagem conservadora por monotonicidade é simples; a contribuição depende de caracterizar utilidade, estado e inferência das faixas além da reutilização já proposta por Zyga.", "confidence": "medium"},
+    {"id": 4, "relevance": 8.0, "originality": 7.5, "feasibility": 4.5, "weighted": 6.775, "main_objection": "O caminho crítico requer transferir a delegação do acumulador bilinear para os witnesses do vetor interpolado e do lookup; pode exigir um protocolo novo.", "confidence": "low"},
+    {"id": 5, "relevance": 8.0, "originality": 7.5, "feasibility": 5.5, "weighted": 7.075, "main_objection": "Autenticar a resposta para o cliente não garante uma apresentação segura perante cliente malicioso nem estabelece qual versão da base deve ser aceita.", "confidence": "medium"},
+    {"id": 6, "relevance": 8.0, "originality": 7.0, "feasibility": 6.5, "weighted": 7.2, "main_objection": "Falta especificar completude, retenção e vazamento na transição entre caixa recente e histórico; comparar apenas custos médios pode esconder perdas.", "confidence": "medium"}
+  ],
+  "ranking": [3, 2, 6, 5, 4, 1],
+  "recommended": 3,
+  "backup": 2,
+  "sources": [
+    "https://ppgcc.dcc.ufmg.br/wp-content/uploads/2025/10/Edital-Regular_Ciencia-da-Computacao_MD_2026.pdf",
+    "https://ppgcc.dcc.ufmg.br/docentes/",
+    "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+    "https://eprint.iacr.org/2022/957",
+    "https://kohweijie.com/articles/23/semacaulk.html",
+    "https://eprint.iacr.org/2021/529",
+    "https://eprint.iacr.org/2025/1802",
+    "https://eprint.iacr.org/2026/832",
+    "https://eprint.iacr.org/2023/1830",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/edalatnejad",
+    "https://eprint.iacr.org/2025/2177",
+    "https://eprint.iacr.org/2022/1362",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/shuhan",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/liang",
+    "https://eprint.iacr.org/2026/910"
+  ]
+}

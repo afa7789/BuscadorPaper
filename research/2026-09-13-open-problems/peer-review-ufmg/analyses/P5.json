@@ -1,0 +1,89 @@
+{
+  "reviewer": "P5",
+  "ideas": [
+    {
+      "id": 1,
+      "relevance": 8.0,
+      "originality": 5.7,
+      "feasibility": 5.9,
+      "weighted": 6.565,
+      "main_objection": "Preservar o vínculo da nota e as propriedades exigidas pelo Zswap na composição KZG/Caulk+, sem deslocar o custo para outra prova; a troca genérica já existe.",
+      "confidence": "medium"
+    },
+    {
+      "id": 2,
+      "relevance": 8.0,
+      "originality": 6.0,
+      "feasibility": 8.0,
+      "weighted": 7.3,
+      "main_objection": "Identificar uma pergunta científica além da integração e preservar as garantias do Zswap, explicitando o vazamento ao agregador.",
+      "confidence": "medium"
+    },
+    {
+      "id": 3,
+      "relevance": 8.4,
+      "originality": 7.1,
+      "feasibility": 8.7,
+      "weighted": 8.035,
+      "main_objection": "A desigualdade conservadora isolada é simples; a contribuição depende de caracterizar reutilização, rejeições e informação revelada por renovações.",
+      "confidence": "medium"
+    },
+    {
+      "id": 4,
+      "relevance": 8.0,
+      "originality": 7.7,
+      "feasibility": 4.8,
+      "weighted": 6.935,
+      "main_objection": "O protocolo de delegação para os auxiliares efetivamente usados pelo lookup ainda precisa ser construído e justificado, com risco de exigir nova primitiva.",
+      "confidence": "medium"
+    },
+    {
+      "id": 5,
+      "relevance": 9.0,
+      "originality": 7.8,
+      "feasibility": 6.2,
+      "weighted": 7.74,
+      "main_objection": "Definir a origem da base aceita e tornar a autenticação verificável por terceiros mesmo com cliente malicioso; TAPIR não fornece automaticamente essa composição.",
+      "confidence": "medium"
+    },
+    {
+      "id": 6,
+      "relevance": 8.4,
+      "originality": 6.9,
+      "feasibility": 5.6,
+      "weighted": 7.035,
+      "main_objection": "A recuperação completa depende de retenção, disponibilidade e atualizações corretas, além de preservar privacidade na passagem entre as duas camadas.",
+      "confidence": "medium"
+    }
+  ],
+  "ranking": [
+    3,
+    5,
+    2,
+    6,
+    4,
+    1
+  ],
+  "recommended": 3,
+  "backup": 5,
+  "sources": [
+    "https://ppgcc.dcc.ufmg.br/wp-content/uploads/2025/10/Edital-Regular_Ciencia-da-Computacao_MD_2026.pdf",
+    "https://ppgcc.dcc.ufmg.br/editais/",
+    "https://ppgcc.dcc.ufmg.br/docentes/",
+    "https://kohweijie.com/articles/23/semacaulk.html",
+    "https://petsymposium.org/popets/2022/popets-2022-0120.pdf",
+    "https://eprint.iacr.org/2022/957",
+    "https://eprint.iacr.org/2021/529",
+    "https://research.protocol.ai/publications/snarkpack-practical-snark-aggregation/",
+    "https://github.com/felix-engelmann/zswap-code",
+    "https://eprint.iacr.org/2025/1802",
+    "https://eprint.iacr.org/2026/832",
+    "https://eprint.iacr.org/2023/1830",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/edalatnejad",
+    "https://eprint.iacr.org/2025/2177",
+    "https://eprint.iacr.org/2022/1362",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/shuhan",
+    "https://www.usenix.org/conference/usenixsecurity26/presentation/liang",
+    "https://eprint.iacr.org/2026/910"
+  ]
+}

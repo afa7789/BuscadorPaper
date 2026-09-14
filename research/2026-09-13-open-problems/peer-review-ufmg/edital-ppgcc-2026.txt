@@ -1,0 +1,850 @@
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+
+
+
+                                             UNIVERSIDADE FEDERAL DE MINAS GERAIS
+                                                  INSTITUTO DE CIÊNCIAS EXATAS
+                             PROGRAMA DE PÓS-GRADUAÇÃO EM CIÊNCIA DA COMPUTAÇÃO
+    EDITAL Nº 2676/2025
+                                 Edital Regular de Seleção – 2026 - Mestrado e Doutorado
+
+
+    A Coordenação do Programa de Pós-Graduação em Ciência da Computação (PPGCC) do Instituto de
+    Ciências Exatas da Universidade Federal de Minas Gerais FAZ SABER que, no período de 01 de fevereiro
+    de 2026 a 31 de outubro de 2026 estarão abertas as inscrições para seleção de candidatos ao Curso de
+    DOUTORADO, em regime de fluxo contínuo, conforme cronogramas de seleção previamente
+    disponibilizados no site do Programa e que, nos períodos de 03 de outubro a 03 de novembro de 2025 e
+    de 03 de abril a 03 de maio de 2026 estarão abertas as inscrições para seleção de candidatos ao Curso de
+    MESTRADO para ingresso no 1º e 2º semestres de 2026, respectivamente.
+    1. DAS INFORMAÇÕES PRELIMINARES
+    1.1. As inscrições serão feitas exclusivamente pela internet, acessando a página web
+    http://ppgcc.dcc.ufmg.br/inscricao-online, preenchendo o formulário de inscrição e submetendo os
+    documentos solicitados no item 5.1 deste Edital para MESTRADO e 5.2 deste Edital para DOUTORADO,
+    durante o período de vigência das inscrições.
+    1.2. Contatos:
+    E-mail: ppgcc@dcc.ufmg.br
+    Página web: http://ppgcc.dcc.ufmg.br
+    Endereço: Universidade Federal de Minas Gerais – Instituto de Ciências Exatas – Programa de Pós-
+    Graduação em Ciência da Computação - Av. Presidente Antônio Carlos, 6627 – Pampulha- 31270-901 –
+    Belo Horizonte – MG
+    1.3. O valor da taxa de inscrição é de R$ 230,70 (duzentos e trinta reais e setenta centavos), conforme
+    estabelecido na Resolução Nº 30, de 13 de dezembro de 2007, do Conselho Universitário da UFMG. O
+    pagamento dessa taxa deverá ser feito mediante a Guia de Recolhimento da União (GRU), que deverá ser
+    gerada     no      endereço      https://sistemas.ufmg.br/sisarc/emissaogru/gerir/geriremissaogru.seam?
+    codigo=nwTjcuRTt. Será isento do pagamento dessa taxa o candidato cuja situação econômica justifique a
+    gratuidade. A isenção deverá ser solicitada à Fundação Universitária Mendes Pimentel - FUMP, pelo
+    menos 15 dias antes do encerramento do período das inscrições no Processo Seletivo. Informações a
+    respeito do processo de solicitação de isenção devem ser obtidas na página https://www.fump.ufmg.br/
+    1.4. Salvo caso de cancelamento ou de anulação do processo seletivo, em hipótese alguma será devolvido
+    o valor da taxa de inscrição.
+    1.5. A Coordenação do Programa poderá, a seu critério e visando atender aos interesses públicos, fazer
+    alterações neste Edital, as quais serão divulgadas na página eletrônica do Programa
+    (https://ppgcc.dcc.ufmg.br), em prazo hábil, por meio de editais complementares ou retificadores. É de
+    inteira responsabilidade do candidato acompanhar a publicação de todos os atos, editais e comunicados
+    referentes ao processo seletivo.
+    2. DAS VAGAS
+    2.1. O presente Edital rege o processo de seleção do MESTRADO em Ciência da Computação visando o
+    ingresso de alunos em dois momentos distintos: primeiro e segundo semestres letivos do ano de 2026,
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   1/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    além do processo seletivo do DOUTORADO, para ingresso em 2026, através do regime de fluxo contínuo.
+    Os cronogramas de seleção serão previamente disponibilizados no site do Programa. As inscrições ficarão
+    abertas pelo período de, no mínimo, 30 dias e o processo seletivo será regido nos termos desse Edital,
+    observado o limite de vagas disponibilizado.
+    2.2 - MESTRADO - Candidatos interessados em participar da seleção para os dois semestres de 2026
+    poderão se inscrever no processo seletivo conforme cronogramas dispostos neste Edital.
+    2.2.1 - Os candidatos aprovados nos processos seletivos do primeiro e segundo semestres serão
+    classificados dentro do limite das vagas ofertadas.
+    2.2.2 - Os processos seletivos do primeiro e segundo semestres são independentes, portanto candidatos
+    aprovados e não classificados no primeiro semestre poderão realizar nova inscrição para participarem da
+    seleção do segundo semestre.
+    2.2.3 – MESTRADO – Primeiro semestre: Serão oferecidas 50 (cinquenta) vagas para o curso de Mestrado,
+    para ingresso no primeiro semestre letivo de 2026. Em cumprimento à Resolução nº 02/2017, de 04 de
+    abril de 2017, do Conselho de Ensino, Pesquisa e Extensão da UFMG, que dispõe sobre a Política de Ações
+    Afirmativas da UFMG, 10 (dez) das 50 (cinquenta) vagas serão reservadas para candidatos autodeclarados
+    negros.
+    2.2.4 - MESTRADO – Segundo semestre: Serão oferecidas 30 (trinta) vagas para o curso de Mestrado, para
+    ingresso no segundo semestre letivo de 2026. Em cumprimento à Resolução nº 02/2017, de 04 de abril de
+    2017, do Conselho de Ensino, Pesquisa e Extensão da UFMG, que dispõe sobre a Política de Ações
+    Afirmativas da UFMG, 8 (oito) das 30 (trinta) vagas serão reservadas para candidatos autodeclarados
+    negros.
+    2.2.5 - Caso as vagas ofertadas para o processo seletivo do mestrado referente ao primeiro semestre não
+    sejam totalmente preenchidas, a juízo do Colegiado do Programa de Pós-Graduação em Ciência da
+    Computação, as vagas remanescentes poderão ser remanejadas para a seleção do segundo semestre.
+    2.3 - DOUTORADO - Serão oferecidas 40 (quarenta) vagas para o curso de Doutorado, para ingresso no
+    ano letivo de 2026, em fluxo contínuo. Em cumprimento à Resolução nº 02/2017, de 04 de abril de 2017,
+    do Conselho de Ensino, Pesquisa e Extensão da UFMG, que dispõe sobre a Política de Ações Afirmativas
+    da UFMG, 8 (oito) das 40 (quarenta) vagas oferecidas serão reservadas para candidatos autodeclarados
+    negros.
+    2.4 A autodeclaração e a opção pela reserva de vagas deverão ser feitas no ato da inscrição, conforme
+    formulário específico, disponível no site e na Secretaria do Programa. Os candidatos deverão optar por
+    uma das modalidades: ampla concorrência OU reserva de vagas para negros, ou seja, é vedado ao
+    candidato a inscrição em mais de uma modalidade de concorrência prevista neste Edital. Os (As) optantes
+    pela participação no processo seletivo na modalidade reserva de vagas para candidatos autodeclarados
+    negros concorrerão, exclusivamente, às vagas reservadas, observado o disposto nos subitens 8.1.7 deste
+    Edital para MESTRADO e 8.2.6 deste Edital para DOUTORADO.
+    3. DA BANCA DE HETEROIDENTIFICAÇÃO
+    3.1. A oferta de vagas destinada à modalidade reservada aos candidatos autodeclarados negros (de cor
+    preta ou de cor parda), observará o disposto na Portaria da UFMG nº 11249, de 07 de dezembro de 2023,
+    que regulamenta o procedimento de heteroidentificação em processos de ingresso na UFMG.
+    3.2. Candidatos que se autodeclararem negros terão a condição racial confirmada por procedimento de
+    heteroidentificação, realizado pela Comissão Permanente de Ações Afirmativas e Inclusão da UFMG -
+    CPAAI, por meio do qual serão avaliados os caracteres fenotípicos dos candidatos.
+    3.3. O procedimento de heteroidentificação ocorrerá de forma presencial, após o resultado final do
+    processo seletivo. Trata-se de uma etapa eliminatória que será realizada em locais designados pela
+    Comissão Permanente de Ações Afirmativas e Inclusão da UFMG - CPAAI.
+    3.4. O procedimento de heteroidentificação ocorrerá em dia e horário a ser posteriormente divulgado no
+    site do Programa. O candidato deverá comparecer portando o documento de identificação com foto,
+    apresentado no ato da inscrição.
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   2/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    3.5. O resultado da Avaliação da Comissão Permanente de Ações Afirmativas e Inclusão da UFMG será
+    divulgado na página do Programa. Em caso de indeferimento por não pertencimento à modalidade de
+    vagas reservadas para negros (de cor preta ou de cor parda), o candidato terá o prazo de 02 (dois) dias
+    úteis, contados a partir da data da divulgação do indeferimento, para interpor recurso à CPAAI.
+    3.5.1. No caso de interposição de recurso, decorrente do indeferimento por não pertencimento à
+    modalidade de vagas reservadas para pessoas negras (de cor preta ou de cor parda), o recorrente será
+    submetido exclusivamente a uma nova banca de heteroidentificação racial, composta por membros
+    diferentes daqueles que realizaram a primeira avaliação.
+    3.6. Os candidatos que não comparecerem perante a Comissão de heteroidentificação ou que não
+    tiverem a autodeclaração reconhecida, respeitado o prazo recursal, estarão eliminados do processo
+    seletivo, independente de alegação de boa-fé.
+    3.7. Na hipótese de se comprovar fraude, prestação de informação falsa ou apresentação de
+    documentação inidônea, apurado em qualquer tempo, ainda que posteriormente à matrícula, em
+    procedimento que assegure o contraditório e ampla defesa, inclusive em situações cujas autodeclarações
+    não forem confirmadas em procedimento de heteroidentificação, independentemente da alegação de
+    boa-fé, o candidato envolvido será eliminado do processo seletivo e perderá, consequentemente, o
+    direito à vaga conquistada e a quaisquer direitos dela decorrentes, independentemente das ações legais
+    cabíveis.
+    3.8. O fato de o candidato já ter ingressado na UFMG sem passar por avaliação da banca de
+    heteroidentificação, ou em outra instituição de ensino superior, ou mesmo ocupar cargo público em
+    órgão federal, estadual ou municipal, decorrente de processo seletivo com reserva de vagas por meio do
+    sistema de cotas para pessoas negras (de cor preta ou de cor parda), não gera qualquer direito ou
+    expectativa de direito de assim ser considerado em novo certame, sendo obrigatória a submissão à
+    avaliação da Comissão de Heteroidentificação.
+    3.8.1. Candidatos que já tenham sido avaliados pela Comissão de Heteroidentificação na UFMG, a partir
+    do ano de 2019, não serão submetidos a novo procedimento, uma vez que sua avaliação anterior será
+    considerada para definir aptidão ou inaptidão a ocupar uma vaga destinada a pessoas negras (de cor
+    preta ou de cor parda).
+    4. DO CALENDÁRIO
+    4.1. MESTRADO
+    1º semestre
+
+     03/10/2025                a      Período de inscrição: De 03/10/2025 até 23:59:59 horário de
+     03/11/2025                       Brasília do dia 03/11/2025
+
+
+     10/11/2025                       Homologação das inscrições
+
+     11/11/2025                a      Recursos quanto à homologação das inscrições
+     13/11/2025
+
+     01/12/2025                       Divulgação dos candidatos aprovados na primeira etapa
+                                      (eliminatória e classificatória)
+
+     08/12/2025                       Divulgação do resultado final preliminar
+
+     09/12 a 15/12/2025               Período para apresentação de recursos tanto para a primeira
+                                      quanto para segunda etapa
+
+     07/01/2026                       Respostas aos recursos e divulgação do resultado final
+
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   3/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+
+     11/01/2026                       Data limite para confirmação de aceite da vaga, resposta ao e-
+                                      mail enviado pelo PPGCC (ppgcc@dcc.ufmg.br).
+
+     16/01/2026                       Data limite para realização do cadastro prévio.
+
+     26/02/2026                       Data limite para recebimento da documentação para registro
+                                      (diploma da Graduação ou certificado de conclusão)
+
+     27/02/2026                       Envio da documentação dos selecionados ao DRCA pela
+                                      Secretaria do Programa
+
+    2º semestre
+
+     03/04/2026                a      Período de inscrição. De 03/04/2026 até 23:59:59 horário de
+     03/05/2026                       Brasília do dia 03/05/2026
+
+     11/05/2026                       Homologação das inscrições
+
+     12 a 13/05/2026                  Recursos quanto à homologação das inscrições
+
+     01/06/2026                       Divulgação dos candidatos aprovados na primeira etapa
+                                      (eliminatória e classificatória)
+
+     08/06/2026                       Divulgação do resultado preliminar
+
+     09/06/2026                a      Período para apresentação de recursos tanto para a primeira
+     12/06/2026                       quanto para segunda etapa
+
+     28/06/2026                       Respostas aos recursos e divulgação do resultado final
+
+     05/07/2026                       Data limite para confirmação de aceite da vaga, resposta ao e-
+                                      mail enviado pelo PPGCC (ppgcc@dcc.ufmg.br).
+
+     10/07/2026                       Data limite para realização do cadastro prévio.
+
+     21/07/2026                       Data limite para recebimento da documentação para registro
+                                      (diploma da Graduação ou certificado de conclusão)
+
+     22/07/2026                       Envio da documentação dos selecionados ao DRCA pela
+                                      Secretaria do Programa
+
+    4.2. DOUTORADO
+    4.2.1. A seleção de DOUTORADO dar-se-á em processo de fluxo contínuo.
+    5. DOS REQUISITOS PARA A INSCRIÇÃO
+    5.1. MESTRADO
+    5.1.1. Para se inscrever, o candidato deverá preencher o formulário eletrônico de inscrição diretamente
+    na página web do PPGCC, em https://ppgcc.dcc.ufmg.br/inscricao-online, e submeter, de forma completa
+    e durante o período de vigência das inscrições, os seguintes documentos digitalizados:
+    a) cédula de identidade;
+    b) certidão de nascimento ou de casamento;
+    c) documento comprobatório de estar em dia com as obrigações militares (Documentos com data de
+    validade expirada não poderão ser utilizados. A partir de 1º de janeiro do ano em que completarem 46
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   4/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    anos de idade, os candidatos estarão desobrigados de apresentar o documento militar, nos termos dos
+    artigos 170 a 210 do Decreto nº 57.654, de 20 de janeiro de 1966).
+    d)      certidão      de       quitação       eleitoral,   que        pode      ser      obtida    em
+    http://www.tse.jus.br/eleitor/certidoes/certidao-de-quitacao-eleitoral. Não serão aceitos comprovantes
+    individuais de votação;
+    e) documento comprobatório de inscrição no cadastro de pessoas físicas (CPF), caso a inscrição do CPF
+    não esteja devidamente comprovada pela cédula de identidade. Os candidatos estrangeiros deverão
+    apresentar os documentos exigidos pela legislação específica;
+    f) comprovante de endereço residencial. Serão aceitos os seguintes documentos: Conta de água (emitida
+    nos últimos 3 meses), Conta de Energia Elétrica (emitida nos últimos 3 meses), Conta de Telefone Fixo ou
+    Móvel (emitida nos últimos 3 meses). Contrato de Locação (acompanhado de comprovante de
+    pagamento). Correspondência Bancária ou Fatura de Cartão de Crédito (emitida nos últimos 3 meses). O
+    documento apresentado deve estar legível, com a identificação do nome do responsável e o endereço
+    completo.
+    g) diploma do curso de graduação, frente e verso em documento único, expedido por estabelecimento
+    oficial ou oficialmente reconhecido ou certificado/declaração de conclusão de curso de graduação em
+    que conste a data da colação de grau ou de outro documento que comprove estar o candidato em
+    condições de concluir o curso de graduação antes do período para registro acadêmico no curso de pós-
+    graduação, ficando seu registro condicionado à prova de conclusão da graduação;
+    h) histórico escolar do curso de graduação e, se houver, de pós-graduação (stricto sensu);
+    i) candidatos autodeclarados negros, que optarem pela seleção por meio da reserva de vagas, deverão
+    preencher o formulário de autodeclaração étnico-racial, disponível no sistema de inscrição, constando a
+    fundamentação acerca de seu pertencimento étnico, de acordo com o que dispõe a Resolução do
+    CEPE/UFMG nº 02/2017;
+    j) comprovante de proficiência de língua inglesa, nos termos do Anexo VI.
+    k) curriculum vitae a ser preenchido no sistema de inscrição. Para cada entrada que constar no currículo
+    deve ser submetido a documentação comprobatória referente à atividade. Os Anexos III e IV deste edital
+    discorrem sobre as entradas avaliadas no currículo e os documentos comprobatórios válidos;
+    l) pré-projeto de Pesquisa em formato PDF, nos termos detalhados no Anexo V deste Edital.
+    5.1.2. Os candidatos que fizeram as provas do Exame Nacional para Ingresso na Pós-Graduação
+    (POSCOMP), realizado pela Sociedade Brasileira de Computação (SBC), referentes a 2024 ou 2025,
+    deverão informar a nota obtida, através do sistema de inscrição.
+    5.1.3. O candidato deve informar, no sistema de inscrição, o conceito mais recente (1, 2, 3, 4 ou 5) do
+    curso de graduação no Exame Nacional de Desempenho dos Estudantes (ENADE). Esse dado pode ser
+    consultado     no     site   do    INEP:     https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-
+    abertos/indicadores-educacionais/indicadores-de-qualidade-da-educacao-superior. Para facilitar, uma
+    planilha simplificada e atualizada com os mais recentes conceitos ENADE, extraída do site do INEP,
+    também estará disponível em: https://ppgcc.dcc.ufmg.br/editais/. Caso o curso não possua conceito no
+    ENADE, o candidato deve registrar o valor 0 no sistema.
+    5.1.4. Após a inscrição, o candidato receberá um número de identificação, que será utilizado para manter
+    seu anonimato durante a avaliação do seu pré-projeto de pesquisa em Ciência da Computação. Em
+    hipótese alguma, o/a candidato/a pode se identificar no projeto de pesquisa. Caso o Projeto de
+    Pesquisa apresente alguma forma de identificação ou quebra de anonimato, o/a candidato/a será
+    automaticamente desclassificado/a do Processo Seletivo.
+    5.1.5. No caso de aprovação do candidato, a secretaria do Programa providenciará o envio dos
+    documentos enviados para a inscrição para o registro acadêmico. Havendo a necessidade de
+    complementação da documentação, os candidatos serão comunicados por e-mail.
+    5.1.6. A homologação das inscrições será divulgada na data estabelecida nos calendários do item 4.
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   5/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    5.1.7. Os recursos contra o resultado da homologação das inscrições deverão ser apresentados conforme
+    prazo estabelecido nos calendários do item 4. Os pedidos de recurso devem ser feitos por escrito, datados
+    e assinados pelo candidato e enviados como um documento digitalizado em PDF ao e-mail
+    ppgcc@dcc.ufmg.br.
+    5.2. DOUTORADO
+    5.2.1. Para se inscrever, o candidato deverá preencher o formulário eletrônico de inscrição diretamente
+    na página web do PPGCC, em https://ppgcc.dcc.ufmg.br/inscricao-online, e submeter, de forma completa
+    e durante o período de vigência das inscrições, além dos documentos descritos no item 5.1.1 (a até i), os
+    seguintes documentos digitalizados:
+    a) Experiência científica comprovada através de publicações científicas. Para cada entrada no sistema de
+    inscrição deve ser submetida a documentação comprobatória referente à publicação. O Anexo I deste
+    edital discorre sobre a avaliação das publicações bem como os documentos válidos para comprovação.
+    b) Projeto de Pesquisa em Ciência da Computação, descrevendo a pesquisa que pretende desenvolver,
+    necessariamente contida nas linhas de pesquisa do Programa. A estrutura esperada do Projeto de
+    Pesquisa, bem como a forma de sua avaliação, estão detalhadas no Anexo II deste Edital.
+    c) Carta de apresentação do candidato escrita por Professor/Pesquisador.
+    d) comprovante de proficiência de língua inglesa, nos termos do Anexo VI.
+    5.2.2. Após a inscrição, o candidato receberá um número de identificação, que será utilizado para manter
+    seu anonimato durante a avaliação do seu Projeto de Pesquisa em Ciência da Computação. Em hipótese
+    alguma, o/a candidato/a pode se identificar no projeto de pesquisa. Caso o Projeto de Pesquisa
+    apresente alguma forma de identificação ou quebra de anonimato, o/a candidato/a será
+    automaticamente desclassificado/a do Processo Seletivo.
+    5.2.3. A homologação das inscrições será realizada no prazo de 10 dias a partir do recebimento da
+    documentação para o Doutorado.
+    5.2.4. Os recursos contra o resultado da homologação das inscrições deverão ser apresentados em até
+    dois dias úteis. Os pedidos de recurso devem ser feitos por escrito, datados e assinados pelo candidato e
+    enviados como um documento digitalizado em PDF ao e-mail ppgcc@dcc.ufmg.br.
+    5.3. Tanto para o MESTRADO quanto para o DOUTORADO, no sistema de inscrição constarão duas opções
+    e o candidato deverá marcar uma delas:
+    ( ) Não concorrerei às vagas da Política de Ações Afirmativas do PPGCC/UFMG, opto pelas vagas em livre
+    concorrência.
+    ( ) Concorrerei às vagas da Política de Ações Afirmativas do PPGCC/UFMG destinadas a candidatos(as)
+    negros(as), declarando-me pessoa negra.
+    5.4. As informações prestadas no formulário de inscrição são de inteira responsabilidade do candidato,
+    dispondo a UFMG do direito de excluir deste concurso, mesmo que tenha sido aprovado em todas as
+    provas, independentemente de qualquer aviso ou diligência, aquele que fornecer dados
+    comprovadamente inverídicos, cabendo, neste caso, ampla defesa conforme o item 8.1.9 deste Edital
+    para MESTRADO e 8.2.8 deste Edital para DOUTORADO.
+    5.5. As inscrições com documentação incompleta ou enviadas fora do prazo estabelecido neste Edital não
+    serão homologadas.
+    5.6. A UFMG não se responsabilizará por inscrição não recebida por motivos de natureza técnica
+    associados a computadores, a falhas de comunicação, a congestionamento de linhas de comunicação e
+    por quaisquer outros motivos de ordem técnica que impossibilitem a transferência de dados para
+    consolidação da inscrição.
+    5.7. Caso seja feita mais de uma inscrição para o mesmo candidato, será considerada apenas a última
+    inscrição recebida dentro do período de inscrição.
+    5.8. A proteção de dados pessoais será assegurada de acordo com a Lei nº 13.709/2018 (LGPD),
+    garantindo a confidencialidade e o tratamento adequado dos dados fornecidos pelos participantes.
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   6/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    6 DA COMISSÃO DE SELEÇÃO
+    6.1 Os candidatos serão avaliados por uma comissão designada pelo Colegiado do Programa, conforme
+    Resolução disponível no endereço https://www.ppgcc.dcc.ufmg.br. A relação nominal da banca
+    examinadora será divulgada na página web do Programa até 48 horas antes do início do processo seletivo,
+    junto com a declaração de inexistência de impedimento e suspeição de cada membro da banca em
+    função dos candidatos inscritos neste concurso.
+    7 DO PROCESSO SELETIVO
+    7.1 MESTRADO
+    7.1.1 O processo seletivo consistirá de duas etapas, sendo a primeira de caráter eliminatório e
+    classificatório, e a segunda de caráter classificatório.
+    7.1.2 A primeira etapa, eliminatória e classificatória, consiste na avaliação de um Pré-Projeto de Pesquisa
+    em Ciência da Computação, observando as linhas de pesquisa do Programa, resultando em Nota de Pré-
+    Projeto de Pesquisa (NPP) de 0 (zero) a 100 (cem) pontos.
+    7.1.2.1 A distribuição dos pontos e o detalhamento da forma de cálculo da Nota do Pré-Projeto de
+    Pesquisa (NPP) são apresentados no Anexo V deste Edital.
+    7.1.2.2 Serão aprovados na primeira etapa e estarão aptos a participar da segunda etapa os candidatos
+    que obtiverem nota NPP igual ou superior a 70 (setenta) pontos.
+    7.1.2.3 O resultado da primeira etapa será divulgado nos dias estabelecidos nos calendários, no endereço
+    https://www.ppgcc.dcc.ufmg.br. O resultado será divulgado em ordem decrescente de nota, com
+    indicação do número de inscrição dos candidatos, seu nome e o valor da nota obtida (NPP), e ainda a
+    indicação de resultado: “habilitado para a segunda etapa” ou “reprovado”.
+    7.1.3 A segunda etapa, classificatória, consiste em duas avaliações: análise da formação acadêmica e do
+    curriculum vitae dos candidatos aprovados na primeira etapa.
+    7.1.3.1 1ª Avaliação - A análise da formação acadêmica considera habilidades e competências
+    relacionadas à Ciência da Computação. A distribuição dos pontos e o detalhamento da forma de cálculo
+    da Nota de Formação Acadêmica (NFA) é apresentado no Anexo III deste Edital.
+    7.1.3.2 2ª Avaliação - A análise do curriculum vitae do candidato observa principalmente a experiência
+    científica e técnica relacionada à Ciência da Computação. A distribuição dos pontos e o detalhamento da
+    forma de cálculo da Nota de Curriculum Vitae (NCV) é apresentado no Anexo IV deste Edital.
+    7.1.4 A nota final do candidato será calculada por uma combinação das notas da primeira e segunda
+    etapas, estabelecendo-se uma soma das notas conforme os pesos estabelecidos pela tabela abaixo,
+    respeitada a ordem de classificação.
+
+                                           Critério                           Peso
+
+      Etapa 1              NPP                                                0,2
+
+                                           MPH                                0,35
+
+                           NFA             NCF                                0,05
+
+      Etapa 2                              PR                                 0,05
+
+                                           EAC                                0,15
+                           NCV
+                                           PUB                                0,20
+
+    7.2 DOUTORADO
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   7/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    7.2.1 O processo seletivo constará de uma única etapa com duas avaliações, de caráter eliminatório e
+    classificatório, e será iniciado a partir do recebimento da documentação completa do candidato, com
+    base na análise dos seguintes parâmetros:
+    7.2.1.1 1ª Avaliação - Experiência Científica, apurada com base em publicações acadêmico-científicas do
+    curriculum-vitae, resultando em Nota de Experiência Científica (NEC) de 0 (zero) a 40 (quarenta) pontos
+    7.2.1.1.1 O detalhamento da forma de cálculo da Nota de Experiência Científica (NEC), bem como as
+    formas de comprovação aceitas, são apresentadas no Anexo I deste Edital.
+    7.2.1.2 2ª Avaliação - Projeto de Pesquisa em Ciência da Computação, observando as linhas de pesquisa
+    do Programa, resultando em Nota de Projeto de Pesquisa (NPP) de 0 (zero) a 100 (cem) pontos.
+    7.2.1.2.1 O detalhamento da forma de cálculo da Nota de Projeto de Pesquisa (NPP) é apresentado no
+    Anexo II deste Edital.
+    7.2.2 Os critérios de avaliação serão de natureza qualitativa, levando-se em conta a compatibilidade entre
+    o perfil do candidato e o alinhamento do projeto proposto pelo candidato às linhas de pesquisa do
+    PPGCC.
+    7.2.3 A nota final do candidato (NF) será calculada de acordo com a seguinte fórmula.
+    NF = NEC + NPP
+    Onde NEC é a Nota de Experiência Científica e NPP é a Nota do Projeto de Pesquisa.
+    7.2.4 Para ser aprovado, o candidato deverá obter NPP de 60 ou mais pontos, e Nota Final (NF) de, pelo
+    menos, 70 pontos.
+    7.2.5 O resultado desta etapa será divulgado junto com o resultado final.
+    8 DO RESULTADO PRELIMINAR E FINAL
+    8.1 MESTRADO
+    8.1.1 A nota final preliminar do candidato será calculada como descrita no item 7.1.4 deste edital e será
+    divulgada exclusivamente pela Internet, nos dias estabelecidos nos calendários, no endereço
+    https://www.ppgcc.dcc.ufmg.br. O resultado final será divulgado em listas distintas para ampla
+    concorrência e optantes autodeclarados negros, em ordem decrescente de nota final, com indicação do
+    número de inscrição dos candidatos, seu nome e os valores das notas obtidas nas duas etapas, e ainda a
+    indicação de resultado: “aprovado e classificado”, “aprovado mas não classificado” ou “reprovado”.
+    8.1.2 Serão admitidos ao Programa, como estudantes de Mestrado, os candidatos aprovados e
+    classificados, dentro do limite de vagas estabelecido neste edital. Para desempate na classificação, serão
+    utilizadas, nessa ordem, as notas obtidas em (1) Curriculum Vitae (NCV), (2) Formação Acadêmica (NFA), e
+    (3) Projeto de Pesquisa (NPP).
+    8.1.3 Os candidatos à ampla concorrência serão ordenados segundo a sequência decrescente da nota
+    final, com a indicação de resultado: “aprovado e classificado”; “aprovado mas não classificado”; ou
+    “reprovado”.
+    8.1.4 Os candidatos optantes à reserva de vagas para pessoas negras (de cor preta ou de cor parda) serão
+    ordenados segundo a sequência decrescente da nota final, com a indicação de resultado: “aprovado e
+    classificado, condicionado à avaliação pela Comissão de Heteroidentificação da UFMG”; “aprovado, mas
+    não classificado condicionado à avaliação pela Comissão de Heteroidentificação da UFMG”; ou
+    “reprovado”.
+    8.1.5 Havendo desistência de candidato autodeclarado negro, aprovado em vaga reservada, a vaga será
+    preenchida pelo candidato autodeclarado negro aprovado mas não classificado em ordem decrescente de
+    nota final.
+    8.1.6 Não havendo candidatos autodeclarados negros aprovados em número suficiente para o
+    preenchimento das vagas reservadas, as vagas remanescentes serão revertidas para os candidatos
+    aprovados em ampla concorrência, sendo preenchidas em ordem decrescente de nota final.
+
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   8/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    8.1.7 Não havendo candidatos aprovados em número suficiente para o preenchimento das vagas em
+    ampla concorrência, as vagas remanescentes serão revertidas para candidatos autodeclarados negros
+    aprovados, sendo preenchidas em ordem decrescente de nota final.
+    8.1.8 Os candidatos aprovados e classificados receberão e-mail do PPGCC, com orientações para
+    confirmação de aceite, bem como preenchimento do cadastro prévio no site do Departamento de
+    Registro e Controle Acadêmico (DRCA) da UFMG. Os candidatos devem responder confirmando o aceite,
+    exclusivamente por e-mail para ppgcc@dcc.ufmg.br, até a data limite estabelecida nos calendários do
+    item 4. Os candidatos que não responderem ao e-mail no prazo mencionado serão considerados,
+    automaticamente, desistentes com abertura da vaga aos candidatos aprovados, mas não classificados,
+    observada a ordem de classificação.
+    8.1.9 Durante o prazo para a interposição de recursos ao Colegiado do Programa, estabelecido nos
+    calendários do item 4, o candidato terá acesso às suas notas em cada uma das análises, nos termos do
+    Regimento Geral da Universidade e da Resolução nº 13/2010, de 11 de novembro de 2010, do Conselho
+    Universitário da UFMG. Caberá recurso contra o resultado da primeira etapa do processo seletivo ou da
+    segunda etapa, com efeito suspensivo, sem prejuízo do recurso final. Os pedidos de recursos devem ser
+    feitos por escrito, datados e assinados pelo candidato e enviados como um documento digitalizado em
+    PDF ao e-mail ppgcc@dcc.ufmg.br com o assunto: “RECURSO”.
+    8.1.10 Se houver alteração da classificação geral dos candidatos por força de provimento de algum
+    recurso, ocorrerá uma reclassificação e será considerada válida a classificação retificada.
+    8.2 DOUTORADO
+    8.2.1 A nota final do candidato será calculada como descrita no item 7.2.3 deste edital e será divulgada à
+    medida que a Comissão Examinadora avalie cada candidato, respeitando a ordem de inscrição, e dentro
+    do limite de vagas previsto neste Edital. O resultado final será divulgado em listas distintas para ampla
+    concorrência e optantes autodeclarados negros, em ordem decrescente de nota final, com a indicação de
+    resultado: “aprovado e classificado”, “aprovado mas não classificado” ou “reprovado”.
+    8.2.1.1 O prazo para a avaliação e divulgação do resultado é de até 30 dias após a inscrição. Serão
+    admitidos ao Programa, como estudantes de Doutorado, os candidatos aprovados e classificados, dentro
+    do limite de vagas estabelecido neste edital. Para desempate na classificação, será utilizada, na seguinte
+    ordem: (1) Nota de Projeto de Pesquisa (NPP); (2) Nota de Experiência Científica (NEC); (3) candidato com
+    maior idade.
+    8.2.2 Os candidatos à ampla concorrência serão ordenados segundo a sequência decrescente da nota
+    final, com a indicação de resultado: “aprovado e classificado”; “aprovado mas não classificado”; ou
+    “reprovado”.
+    8.2.3 Os candidatos optantes à reserva de vagas para pessoas negras (de cor preta ou de cor parda) serão
+    ordenados segundo a sequência decrescente da nota final, com a indicação de resultado: “aprovado e
+    classificado, condicionado à avaliação pela Comissão de Heteroidentificação da UFMG”; “aprovado, mas
+    não classificado condicionado à avaliação pela Comissão de Heteroidentificação da UFMG”; ou
+    “reprovado”.
+    8.2.4 Havendo desistência de candidato autodeclarado negro, aprovado em vaga reservada, a vaga será
+    preenchida pelo candidato autodeclarado negro aprovado, mas não classificado em ordem decrescente
+    de nota final.
+    8.2.5 Não havendo candidatos autodeclarados negros aprovados em número suficiente para o
+    preenchimento das vagas reservadas, as vagas remanescentes serão revertidas para os candidatos
+    aprovados em ampla concorrência, sendo preenchidas em ordem decrescente de nota final.
+    8.2.6 Não havendo candidatos aprovados em número suficiente para o preenchimento das vagas em
+    ampla concorrência, as vagas remanescentes serão revertidas para candidatos autodeclarados negros
+    aprovados, sendo preenchidas em ordem decrescente de nota final.
+    8.2.7 O resultado da seleção será divulgado no endereço https://ppgcc.dcc.ufmg.br/ 5 dias após sua
+    homologação pelo Colegiado do PPGCC, e também enviados para o endereço de e-mail informado pelo
+    candidato no formulário de inscrição.
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   9/16
+02/10/2025, 17:21                                                    SEI/UFMG - 4613788 - Edital
+
+    8.2.8 Nos termos do Regimento Geral da Universidade e da Resolução nº 13/2010, de 11 de novembro de
+    2010, do Conselho Universitário da UFMG, foi estabelecido o prazo de dez (10) dias corridos a contar da
+    data da divulgação do resultado final para a interposição de recursos ao Colegiado do Programa contra o
+    resultado do processo seletivo. Durante o prazo para recurso, o candidato terá acesso às suas notas em
+    cada uma das análises. Os pedidos de recurso devem ser feitos por escrito, datados e assinados pelo
+    candidato e enviados como um documento digitalizado em PDF ao e-mail ppgcc@dcc.ufmg.br com o
+    assunto: “RECURSO”.
+    8.2.9 Se houver alteração da classificação geral dos candidatos por força de provimento de algum recurso,
+    ocorrerá uma reclassificação e será considerada válida a classificação retificada.
+    9 DO REGISTRO E DA MATRÍCULA
+    9.1 O candidato aprovado e classificado no processo seletivo ao MESTRADO deverá efetuar,
+    exclusivamente pela internet, no período estabelecido nos calendários no item 4 o seu cadastro prévio,
+    mediante o preenchimento de formulário disponível no site ttps://sistemas.ufmg.br/cadastroprevio/. O
+    candidato aprovado e classificado no processo seletivo ao DOUTORADO deverá efetuar, exclusivamente
+    pela internet, em até 10 (dez) dias úteis após a divulgação do resultado final, o seu cadastro prévio,
+    mediante o preenchimento de formulário disponível no site https://sistemas.ufmg.br/cadastroprevio. O
+    DRCA tomará as providências para efetuar o Registro Acadêmico após o recebimento da documentação
+    completa dos candidatos selecionados ao MESTRADO, que será enviada ao DRCA pela Secretaria do
+    Programa até as datas estabelecidas nos calendários no item 4. E a documentação completa dos
+    selecionados ao DOUTORADO será enviada ao DRCA pela Secretaria do Programa em até 03 dias úteis
+    após o período para o cadastro prévio.
+    9.2 Os candidatos optantes à reserva de vagas para pessoas negras (de cor preta ou de cor parda),
+    aprovados e classificados no processo seletivo, somente poderão realizar o seu cadastro prévio, assim
+    como o registro e matrícula, após o resultado da confirmação racial realizada por procedimento de
+    heteroidentificação, pela Comissão Permanente de Ações Afirmativas e Inclusão da UFMG.
+    9.3 O candidato que apresentou, no período de inscrição, documento comprobatório de estar em
+    condições de concluir o curso de graduação antes do período para registro acadêmico no curso de pós-
+    graduação, deverá enviar para Secretaria do Programa por e-mail (ppgcc@dcc.ufmg.br), documento que
+    comprove a conclusão do curso de graduação (cópia do diploma de graduação, expedido por
+    estabelecimento oficial ou oficialmente reconhecido ou declaração de conclusão de curso em que conste
+    a data da colação do grau até as datas estabelecidas nos calendários no item 4 para candidatos ao
+    MESTRADO e até 5 dias úteis após a data da divulgação do resultado final para os candidatos ao
+    DOUTORADO. Não serão aceitas declarações com previsão de conclusão ou de colação de grau, bem
+    como certificado ou declaração emitidos há mais de três anos.
+    9.4 Em caso de curso de graduação concluído no exterior, deverá ser apresentada cópia do diploma de
+    curso de graduação com o apostilamento no caso de país signatário da Convenção de Haia com o selo de
+    autenticação consular, conforme legislação vigente e com tradução juramentada para o português, exceto
+    aqueles diplomas emitidos em língua inglesa, espanhola e/ou francesa.
+    9.5 Candidatos estrangeiros deverão apresentar à Secretaria do Programa, até as datas estabelecidas nos
+    calendários no item 4 para candidatos ao Mestrado e até 05 dias úteis após o período para o cadastro
+    prévio para candidatos ao Doutorado, o Registro Nacional de Estrangeiro - RNE, Registro Nacional
+    Migratório (RNM) ou Certidão de Registro emitida pela Polícia Federal e o passaporte com visto válido de
+    entrada no Brasil, documento que comprove filiação e demais documentos a serem informados pela
+    Secretaria do Curso. Detalhes sobre esses documentos estão disponíveis no site https://goo.gl/EHUQTt,
+    no tópico “Documentação”.
+    9.6 É vedado o registro acadêmico simultâneo em mais de um curso de graduação ou em mais de um
+    curso de pós-graduação, conforme o disposto no art. 39, § 2º, do Regimento Geral da UFMG.
+    9.7 Perderá automaticamente o direito à vaga e será considerado formalmente desistente o candidato
+    classificado que não efetuar o Cadastro Prévio na data fixada para a realização desse procedimento ou
+    que não apresentar qualquer dos documentos solicitados neste Edital.
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_siste…   10/16
+02/10/2025, 17:21                                                   SEI/UFMG - 4613788 - Edital
+
+    9.8 O preenchimento de vaga(s) decorrente(s) destas situações será feito mediante convocação de outros
+    candidatos aprovados, observada, rigorosamente, a ordem de classificação segundo a ordem decrescente
+    de pontos obtidos no concurso, até a data limite para envio da documentação ao DRCA.
+    9.9 A matrícula dos candidatos aprovados e classificados será realizada conforme instruções divulgadas
+    pela secretaria, em data a ser divulgada, observado o calendário acadêmico.
+
+
+
+
+    Belo Horizonte, 02 de outubro de 2025.
+    Professor Fabrício Benevenuto de Souza
+    Coordenador do Programa de Pós-Graduação em Ciência da Computação
+
+                     Documento assinado eletronicamente por Fabricio Benevenuto de Souza, Coordenador(a) de curso
+                     de pós-graduação, em 02/10/2025, às 16:24, conforme horário oficial de Brasília, com fundamento
+                     no art. 5º do Decreto nº 10.543, de 13 de novembro de 2020.
+
+                    A autenticidade deste documento pode ser conferida no site
+                    https://sei.ufmg.br/sei/controlador_externo.php?
+                    acao=documento_conferir&id_orgao_acesso_externo=0, informando o código verificador 4613788 e
+                    o código CRC CFC63089.
+
+
+
+    ANEXOS
+
+
+    ANEXO I – Nota de Experiência Científica (NEC) (DOUTORADO)
+    1. A Comissão de Seleção atribuirá pontos de acordo com a Tabela 2 deste Edital a cada publicação de
+    caráter acadêmico-científico do candidato, decidindo a pontuação dentro de cada faixa com base na
+    qualidade do evento e em seu reconhecimento pela comunidade da área.
+    1.1. O total de pontos apurado por esse processo ficará limitado a 40 (quarenta) pontos.
+    2. Para resumos ou resumos estendidos, será considerada a metade da pontuação mínima e máxima
+    indicada na Tabela 2.
+    Tabela 2 - Pontuação de publicações para o doutorado
+
+   Tipo                                        Nível                               Pontos    por           trabalho
+                                                                                   publicado
+
+   Artigo completo em anais de                 Local/regional                      1a2
+   evento ou periódico
+
+   Artigo completo em anais de                 Nacional                            5 a 20
+   evento ou periódico
+
+   Artigo completo em anais de                 Internacional                       5 a 20
+   evento ou periódico
+
+    3. Artigos submetidos, mas não aprovados, ou artigos disponíveis em repositórios públicos que não
+    demandam revisão pelos pares, tais como Arxiv, não serão considerados.
+    4. Para cada artigo científico publicado, candidato deve enviar uma documentação comprobatório da
+    publicação que pode ser:
+
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_sistem…   11/16
+02/10/2025, 17:21                                                    SEI/UFMG - 4613788 - Edital
+
+    4.1. O artigo em seu formato final de publicação, obtido diretamente do local de publicação ou a
+    impressão da página do artigo a partir do site oficial de publicação, contendo título, autores e a afiliação
+    institucional.
+    4.2. Se houver DOI (Digital Object Identifier), enviar o Link do DOI que direciona para a página de
+    publicação do artigo ou mesmo o link oficial da página de publicação do artigo.
+    4.3. Para artigos aprovados, mas ainda não publicados, podem ser comprovados através do email de
+    aceite da publicação que deve, obrigatoriamente, informar que o artigo foi aceito para publicação,
+    incluindo o título do trabalho e nome dos autores.
+
+
+    ANEXO II – Avaliação do Projeto de Pesquisa em Ciência da Computação (DOUTORADO)
+    1. O Projeto de Pesquisa, anônimo, será utilizado pela Comissão de Seleção para avaliar a capacidade do
+    candidato na identificação de um tema relevante e original em Ciência da Computação, que seja
+    adequado às linhas de pesquisa existentes do PPGCC, e que demonstre abrangência e profundidade
+    compatíveis com a pesquisa em nível de doutorado.
+    2. Espera-se ainda que o candidato exponha com concisão, clareza e coerência sua trajetória de carreira
+    em relação à pesquisa e o avanço que busca obter com a formação em nível de Doutorado.
+    3. O Projeto de Pesquisa será apresentado em um arquivo com até 10 (dez) páginas, em formato PDF. A
+    estrutura esperada do Projeto de Pesquisa consiste em:
+    3.1. Introdução e contextualização do projeto de pesquisa. Definição do Problema e apresentação dos
+    objetivos.
+    3.2. Exploração preliminar da literatura, em suporte ao projeto apresentado. Identificação do estado da
+    arte e lacuna de pesquisa a ser explorada no projeto.
+    3.3. Proposta de metodologia científica para abordagem do problema.
+    3.4. Plano de curso, listando disciplinas a cursar, atividades adicionais e cronograma.
+    4. A Nota de Projeto de Pesquisa (NPP) ficará entre 0 e 100 pontos e será atribuída de acordo com os
+    critérios apresentados na Tabela 3 deste Edital.
+    Tabela 3 - Critérios de avaliação do Plano de Curso para DOUTORADO
+
+      Critério                                                                                     Pontos
+
+      Adequação às linhas de pesquisa do PPGCC                                                     0 a 20
+
+      Abrangência e profundidade do projeto                                                        0 a 20
+
+      Relevância e originalidade do projeto                                                        0 a 30
+
+      Contextualização da carreira do candidato em pesquisa                                        0 a 30
+
+
+
+
+    ANEXO III – Cálculo da Nota de Formação Acadêmica (MESTRADO)
+    A Nota de Formação Acadêmica (NFA) será calculada como se segue, a partir de informações constantes
+    da documentação enviada para participação no Processo Seletivo. O valor de NFA será calculado
+    conforme a tabela de pesos do item 7.1.4. Cada entrada referente à Formação Acadêmica deve ser
+    adicionada no sistema de inscrição e comprovada mediante apresentação de documentação
+    comprobatória pertinente.
+    1. Média Ponderada do Histórico escolar da graduação (MPH) – valor entre 0 e 100
+
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_siste…   12/16
+02/10/2025, 17:21                                                    SEI/UFMG - 4613788 - Edital
+
+    1.1. Para o cálculo da média ponderada do Histórico escolar, o candidato deve fornecer a média (MH) do
+    histórico escolar da graduação no sistema de inscrição, e deve desconsiderar notas em disciplinas de
+    projetos (como Trabalho de Conclusão de Curso, Estágio, etc.) e atividades acadêmicas para as quais é
+    registrada apenas aprovação ou dispensa.
+    1.2. Serão incluídas no cálculo apenas notas em disciplinas onde o candidato obteve aprovação e que
+    estejam explícitas no histórico escolar apresentado como comprovante.
+    1.3. O candidato poderá receber nota MH = 0 caso a Comissão de Seleção constate erro no cálculo da
+    média que provoque sua majoração em relação ao valor correto.
+    1.4. O valor numérico da média constante do histórico será transformado por regra de três simples para
+    valor entre 0 (zero) e 100 (cem), caso essa escala de valores não seja adotada pela instituição de
+    graduação do candidato.
+    1.5. Caso o histórico escolar apresente apenas conceitos, e não notas numéricas, os conceitos serão
+    transformados em valores numéricos utilizando escala baseada pela UFMG, nivelando pelo valor inferior
+    da faixa de notas correspondente ao conceito, ou seja, de 90 a 100 - A, de 80 a 89 - B, de 70 a 79 - C, de
+    60 a 69 - D, de 50 a 59 - E, de 0 a 49 - F.
+    1.6. Casos omissos ou não previstos serão avaliados pela Comissão de Seleção, que estabelecerá o critério
+    para obtenção da média do histórico escolar como valor numérico entre 0 e 100.
+    1.7. A média do Histórico (MH) será ponderada pelo conceito do curso no ENADE da seguinte forma: MPH
+    = MH x P, onde P é dado pela Tabela 4 abaixo:
+    Tabela 4 - Ponderação aplicada à nota do histórico do candidato de acordo com a nota do ENADE
+
+     P                                           Conceito ENADE
+
+
+     0,7                                         1, 2 ou sem conceito
+
+
+     0,8                                         3
+
+
+     0,9                                         4
+
+
+     1                                           5
+
+    1.8. Caso a comissão de seleção do mestrado constate erro na indicação do conceito no ENADE do curso
+    de graduação realizado pelo candidato, este pode ser desconsiderado resultando na ponderação
+    equivalente a “sem conceito” na Tabela 4.
+    1.9. O Exame Nacional para Ingresso na Pós-Graduação em Computação (POSCOMP), realizado
+    anualmente pela Sociedade Brasileira de Computação (SBC), poderá ser utilizado para substituir o valor
+    de P, que pondera a nota MPH, desde que essa substituição resulte em melhoria da nota do candidato.
+    1.9.1. A nota P poderá ser corrigida a partir do POSCOMP do candidato fazendo-se P = 1 caso a nota do
+    candidato no POSCOMP seja igual ou superior à média de acertos do ano em que o candidato realizou a
+    prova.
+    1.10. Para o presente edital, o candidato poderá utilizar a nota do POSCOMP realizado em 2024 ou em
+    2025. A nota do POSCOMP de cada candidato, além da média de acertos do ano, são fornecidos ao
+    programa de Pós-Graduação em Ciência da Computação pela SBC.
+    2. Cursos de formação (NCF) – valor entre 0 e 100
+    2.1. Certificado de conclusão de curso de pós-graduação stricto sensu: 100 pontos
+    3. Premiações (PR) – valor entre 0 e 100
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_siste…   13/16
+02/10/2025, 17:21                                                    SEI/UFMG - 4613788 - Edital
+
+    3.1. A cada premiação acadêmica (láurea acadêmica, prêmios em eventos qualificados, conquistas em
+    maratonas de programação de entidades reconhecidas como a ACM e a SBC, competições de
+    programação, concursos de entidades públicas ou privadas, e outros a critério da Comissão de Seleção),
+    corresponderão:
+    3.1.1. Abrangência nacional ou internacional: até 25 pontos
+    3.1.2. Abrangência local ou regional: até 10 pontos
+
+
+
+
+    ANEXO IV – Cálculo da Nota de Curriculum Vitae (MESTRADO)
+    A Nota de Curriculum Vitae (NCV) será calculada como se segue, a partir de informações constantes da
+    documentação enviada para participação no Processo Seletivo. O valor de NCV será calculado conforme a
+    tabela de pesos do item 7.1.4.
+    1. Experiência Acadêmico-Científica (EAC) – valor entre 0 e 100
+    1.1. Para cada mês completo de atividade em projeto de iniciação científica, com atividades que envolvam
+    pelo menos 20 horas semanais, soma-se 5 pontos.
+    1.2. Para cada semestre letivo completo em monitoria de disciplinas de graduação, soma-se 10 pontos.
+    1.3. O candidato deve apresentar uma comprovação formal da atividade de iniciação científica ou da
+    atividade de monitoria através de uma declaração ou atestado oficial da instituição de ensino ou pesquisa
+    devidamente assinado pelo responsável (orientador, coordenador do curso ou pró-reitor). A declaração
+    deve, obrigatoriamente, conter o nome completo do aluno, título do projeto de pesquisa, nome completo
+    do professor orientador, período de vigência da participação (data de início e término), carga horária total
+    ou semanal dedicada ao projeto, indicação que a participação foi na condição de bolsista ou como
+    voluntário.
+    2. Publicações (PUB) – valor entre 0 e 100
+    2.1. A Comissão de Seleção atribuirá pontos de acordo com a Tabela 5 deste Edital a cada publicação do
+    candidato, decidindo a pontuação dentro de cada faixa com base na qualidade do evento, no
+    reconhecimento pela comunidade da área de Computação e/ou pela relevância da publicação para o
+    desenvolvimento do projeto de mestrado proposto.
+    Tabela 5 - Pontuação de publicações para o mestrado
+
+       Tipo                                    Nível                                 Pontos    por          trabalho
+                                                                                     publicado
+
+       Artigo completo em anais                Local/regional                        1a2
+       de evento ou periódico
+
+       Artigo completo em anais                Nacional                              5 a 20
+       de evento ou periódico
+
+       Artigo completo em anais                Internacional                         5 a 20
+       de evento ou periódico
+
+    2.2. Artigos submetidos, mas não aprovados, ou artigos disponíveis em repositórios públicos que não
+    demandam revisão pelos pares, tais como Arxiv, não serão considerados.
+    2.3. Para cada artigo científico publicado, candidato deve enviar uma documentação comprobatória da
+    publicação que pode ser:
+    2.3.1. O artigo em seu formato final de publicação, obtido diretamente do local de publicação ou a
+    impressão da página do artigo a partir do site oficial de publicação, contendo título, autores e a afiliação
+    institucional.
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_siste…   14/16
+02/10/2025, 17:21                                                    SEI/UFMG - 4613788 - Edital
+
+    2.3.2. Se houver DOI (Digital Object Identifier), enviar o Link do DOI que direciona para a página de
+    publicação do artigo ou mesmo o link oficial da página de publicação do artigo.
+    2.3.3. Para artigos aprovados, mas ainda não publicados, podem ser comprovados através do email de
+    aceite da publicação que deve, obrigatoriamente, informar que o artigo foi aceito para publicação,
+    incluindo o título do trabalho e nome dos autores.
+
+
+
+
+    ANEXO V – Avaliação do Pré-Projeto de Pesquisa (MESTRADO)
+    1. O Pré-Projeto de Pesquisa deve ser apresentado de forma anônima (sem qualquer identificação de
+    autoria) e deve descrever as atividades de pesquisa em Computação que o candidato pretende
+    desenvolver, considerando a abrangência temática do PPGCC e as áreas de concentração de pesquisa de
+    seu corpo docente, disponíveis no site do Programa.
+    2. Pré-projetos que não estejam anonimizados poderão ser desclassificados, com atribuição de nota 0.
+    3. O Pré-Projeto de Pesquisa deve estar dividido nas seguintes seções: (1) Problema de Pesquisa e
+    Objetivos, (2) Trabalhos Relacionados e Resultados Esperados, (3) Metodologia Científica e Exequibilidade
+    da Proposta, e (4) Referências. Pré-projetos que não contemplarem as seções acima listadas receberão
+    nota 0.
+    4. O Pré-Projeto de Pesquisa será submetido no momento da inscrição, em formato PDF, e está limitado a
+    3 páginas, considerando todo o seu conteúdo. O Pré-Projeto de Pesquisa deve ser redigido utilizando
+    fonte tamanho 11 e espaçamento simples. Ele pode ser redigido em português ou em inglês. Pré-projetos
+    que não estejam em formato PDF, excedam 3 páginas (incluindo capa e referências) ou não utilizem fonte
+    tamanho 11 e espaçamento simples, serão automaticamente eliminados, com atribuição de nota 0.
+    5. A Nota do Pré-Projeto de Pesquisa (NPP) ficará entre 0 e 100 pontos e será atribuída de acordo com os
+    critérios apresentados na Tabela 8 deste Edital.
+    Tabela 8 - Critérios de avaliação do Pré-Projeto de Pesquisa para MESTRADO
+
+   Critério                                                                                 Percentual
+
+   Relevância do Problema e Objetivos. Apresentar o problema a                              35%
+   ser investigado e os objetivos do projeto. Demonstrar capacidade
+   de contextualização do tema de pesquisa e aderência do tema às
+   áreas de pesquisa do PPGCC.
+
+   Originalidade, Relevância e Coerência da Proposta. Demonstrar a                          35%
+   originalidade do problema, conhecimento dos trabalhos
+   existentes no tema e os resultados esperados.
+
+   Exequibilidade da Proposta. Demonstrar viabilidade e capacidade                          30%
+   de execução do pré-projeto ao longo do mestrado. Apresentar a
+   metodologia científica a ser utilizada e demonstrar capacidade de
+   promover contribuições científicas a partir do projeto.
+
+
+
+
+    ANEXO VI - Comprovante de proficiência da língua inglesa - MESTRADO E DOUTORADO
+    1. Em atendimento à Resolução Nº 08/2008, de 14 de outubro de 2008, do Conselho de Ensino, Pesquisa
+    e Extensão da Universidade, as(os) alunas(os) aprovadas(os) e classificadas(os) no exame de seleção de
+    que trata este Edital deverão comprovar, a aprovação de proficiência de língua inglesa durante o período
+    de vigência das inscrições. Para aqueles que não apresentaram o certificado de proficiência da língua
+    inglesa, poderão apresentar, no prazo máximo de 12 (doze) e 24 (vinte e quatro) meses, para o Mestrado
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_siste…   15/16
+02/10/2025, 17:21                                                    SEI/UFMG - 4613788 - Edital
+
+    e Doutorado, respectivamente, a contar da primeira matrícula no curso, conhecimento de língua inglesa.
+    Tal comprovação é requisito para a continuidade dos estudos no Mestrado e no Doutorado.
+    2. A comprovação de proficiência na língua inglesa será aceita mediante a apresentação de certificados de
+    exames de proficiência emitidos por instituições reconhecidas, dentro do prazo de validade estipulado
+    pela própria entidade certificadora na data de submissão dos documentos. Serão aceitos: TOEFL iBT (Test
+    of English as a Foreign Language), IELTS Academic (International English Language Testing System),
+    Exames de Cambridge: First Certificate in English (FCE), Certificados C1 Advanced (CAE) ou C2 Proficiency
+    (CPE). Duolingo English Test, TOEIC (Test of English for International Communication), Certificado do
+    Centro de Extensão da Faculdade de Letras da Universidade Federal de Minas Gerais (CENEX/FALE
+    UFMG), com rendimento de pelo menos 60%. Outros certificados poderão ser aceitos a juízo do
+    Colegiado.
+    3. O certificado de proficiência em língua inglesa apresentado pelo candidato será classificado em uma
+    escala, conforme a Tabela 6 deste Edital. As faixas indicadas em cada posição da tabela indicam a menor
+    nota necessária para atingir o nível em questão.
+    Tabela 6 - Equivalência entre notas em certificados de língua inglesa e níveis CEFR adotada pelo PPGCC
+
+      Nível                        B1               B2                 C1                    C2
+      ECFL
+
+      IELTS                        3.5              5.5                7                     8
+
+      TOEIC                        550              785                945
+      (nota total)
+
+      TOEFL iBT (nota              42               72                 95
+      total)
+
+      TOEFL ITP                    460              543                627
+
+      Cambridge                    FCE Pass         CAE Pass           FCE A                 CAE A
+                                                    FCE B/C            CAE B/C               CPE A/B/C
+                                                                       CPE Pass
+
+      Duolingo English             95               125                150                   160
+      Test
+
+      CENEX/FALE                   60               70                 80                    90
+      UFMG
+
+
+
+   Referência: Processo nº 23072.252864/2025-23                                                                            SEI nº 4613788
+
+
+
+
+https://sei.ufmg.br/sei/controlador.php?acao=documento_imprimir_web&acao_origem=arvore_visualizar&id_documento=4986385&infra_siste…   16/16
+

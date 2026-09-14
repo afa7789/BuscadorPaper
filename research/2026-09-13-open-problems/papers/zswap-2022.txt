@@ -1,0 +1,1636 @@
+                                                                Proceedings on Privacy Enhancing Technologies ; 2022 (4):507–527
+
+
+Felix Engelmann, Thomas Kerber, Markulf Kohlweiss, and Mikhail Volkhov*
+
+Zswap: zk-SNARK Based Non-Interactive
+Multi-Asset Swaps
+Abstract: Privacy-oriented cryptocurrencies, like Zcash           nancial instruments that can be realized with them. De-
+or Monero, provide fair transaction anonymity and con-            centralized finance (DeFi [23]), an umbrella term that
+fidentiality, but lack important features compared to             covers such financial instruments in the cryptocurrency
+fully public systems, like Ethereum. Specifically, sup-           community, is one of the raison d’être of Ethereum, a
+porting assets of multiple types and providing a mech-            cryptocurrency popularized by the wide applicability of
+anism to atomically exchange them, which is critical              its smart contract toolchain. One of the foundational
+for e.g. decentralized finance (DeFi), is challenging in          pieces of DeFi is the ability (of the distributed ledger) to
+the private setting. By combining insights and secu-              create user-defined tokens, and trade or exchange them
+rity properties from Zcash and SwapCT (PETS 21, an                directly on-chain. Ethereum, by providing Turing com-
+atomic swap system for Monero), we present a simple               plete smart contracts and the ERC tokens standards
+zk-SNARKs based transaction scheme, called Zswap,                 (e.g. ERC20 or non-fungible ERC721), allows building
+which is carefully malleable to allow the merging of              tools such as automated exchanges [24], investment plat-
+transactions, while preserving anonymity. Our protocol            forms12 , bidding platforms, insurance tools, NFT mar-
+enables multiple assets and atomic exchanges by making            ketplaces, etc. An important limitation of current DeFi
+use of sparse homomorphic commitments with aggre-                 solutions is the public nature of these atomic on-chain
+gated open randomness, together with Zcash friendly               exchanges.
+simulation-extractable non-interactive zero-knowledge                  While privacy-preserving cryptocurrencies, like
+(NIZK) proofs. This results in a provably secure privacy-         Monero and Zcash, are undoubtedly practical, and am-
+preserving transaction protocol, with efficient swaps,            ple academic research on the problem of private curren-
+and overall performance close to that of existing de-             cies is available [1, 4, 6, 12, 13], much less is known about
+ployed private cryptocurrencies. It is similar to Zcash           the private exchange of assets [8, 11, 14] — hindering
+Sapling and benefits from existing code-bases and im-             DeFi applications. This is unfortunate, as privacy on
+plementation expertise.                                           the blockchain, such as transaction anonymity or trans-
+                                                                  fer amount secrecy, is not only interesting per se (for
+Keywords: NIZK, Cryptocurrency, Privacy, Multi-
+                                                                  the end user), but also changes the financial landscape
+Asset, Exchange
+                                                                  of the ecosystem. This can be advantageous, for exam-
+DOI 10.56553/popets-2022-0120                                     ple, if restricting the adversarial view prevents certain
+Received 2022-02-28; revised 2022-06-15; accepted 2022-06-16.     harmful behaviour that results from gaming the market
+                                                                  (e.g. frontrunning, Miner Extractable Value). Consider
+                                                                  a miner which observes a buy-order for an asset that is
+1 Introduction                                                    either from a notorious investor or has an exceptionally
+                                                                  large transfer amount. The miner can buy that asset
+Cryptocurrencies are experiencing steady growth not               itself early and cheaply before the order drives up the
+only in terms of general popularity, security, and real-          price of the asset. Private swaps of assets can mitigate
+world applicability, but also in terms of diversity of fi-        such attacks.
+                                                                       However, while practically attractive, combining
+                                                                  privacy with DeFi tools is challenging. Solutions that
+Felix Engelmann: IT University of Copenhagen, fe-                 try to tackle this question, such as private smart
+research@nlogn.org                                                contracts [20] and privacy-friendly decentralized ex-
+Thomas Kerber: University of Edinburgh, IOHK, thomas.             changes [3], often find it hard to balance practical ap-
+kerber@iohk.io                                                    plicability with the privacy guarantees they provide.
+Markulf Kohlweiss: University of Edinburgh, IOHK,
+markulf.kohlweiss@ed.ac.uk
+*Corresponding Author: Mikhail Volkhov: University of
+Edinburgh, mikhail.volkhov@ed.ac.uk                               1 https://compound.finance/markets
+                                                                  2 https://polygon.market.xyz/
+                                                                                                       Zswap         508
+
+
+Flexibility, so desirable for DeFi, is at odds with pri-     anism is compatible with existing consensus protocols,
+vacy, since having both generally requires heavier cryp-     such as proof-of-work or stake, and can be viewed as a
+tographic primitives, like general NIZKs, or multi-party     full cryptocurrency.
+computation (MPC).
+     In this work we do not support a full private DeFi
+solution, but instead focus on the foundational prob-        1.1 Technical Overview
+lem of constructing a private cryptocurrency mechanism
+that has both support for multiple assets, and an em-        With respect to swaps, a major challenge of many ex-
+bedded functionality to perform non-interactive atomic       isting solutions is that transaction data is not explicitly
+assets swaps (as well as regular transfers).                 separated from the transaction signature, which binds
+     An atomic swap is the exchange of different assets      inputs from multiple users together. This, often results
+between multiple parties. It has to happen atomically        in the need for (slow) MPC protocols to construct such
+such that all participants get their desired output or the   a signature jointly. An important insight of our work is
+transaction is aborted. A classical example is a foreign     that the Zcash ecosystem already implement signature
+currency exchange, where a bank sells a foreign currency     separation. It was first introduces by Zcash Sapling [16]
+to a customer who pays in the local currency. There,         to reduce the size of SNARK circuits for large transac-
+atomicity is guaranteed by simultaneously handing over       tions, and was inherited by the corresponding Shielded
+the assets.                                                  Assets3 , or similar MASP4 multi-asset protocols. An-
+     The atomic swap protocol we suggest enables un-         other inspiration of our work is SwapCT, that realizes
+trusted parties to merge transactions off-chain. The         atomic swaps on Monero [11]. We continue this direc-
+transactions themselves only reveal a map of the imbal-      tion by designing and proving secure an extension of
+ance for each asset where the sum of its inputs is unequal   a Zcash Sapling like system that satisfies the required
+to the sum of its outputs. Hence, a balanced transaction     multi-asset and atomic swap properties.
+does not reveal any amounts or types. Especially, the             Zcash Sapling, as opposed to the Zerocash paper,
+mergers can neither deanonymize senders or receivers         separates the validation of inputs and outputs (each
+nor correlate a subsequent spending of an output by its      input and output requires a separate NIZK) from the
+precise amount and type. With such little trust required     transaction balancing, which is done using homomor-
+in mergers, this very basic functionality already allows     phic commitments and a Schnorr-like binding signature.
+creating local exchange markets, where users can send        The binding signature “seals” the inputs and outputs in
+exchange offers (as transactions with a negative imbal-      place, forbidding adding or removing any extra inputs
+ance for the asked token and a positive imbalance for        or outputs. Instead, in our work we use a sparse multi-
+the offered), and community-selected participants can        value Pedersen commitments and relax the signature,
+match them and merge them to then submit to the              allowing transactions to be non-interactively merged to-
+blockchain. The anonymity of the system is controlled        gether. While inspired by SwapCT, we deal with dif-
+by users: the system allows both private swaps between       ferent challenges specific to the zk-SNARK setting and
+several parties, who agree on their exchange off-chain,      take advantage of the existing signature separation in
+and bigger exchange pools, as just mentioned. In both        Zcash Sapling. The explicit signature separation opens
+cases, the only information that the mergers and other       more space for potential transaction malleability, and
+users see is the one necessary to match the offers (total    should be taken with care. To our knowledge our work
+value for each unbalanced type), and it is erased as soon    is the first to extend the security analysis of [4] in that
+as the transaction is balanced and sent to the ledger.       direction.
+For partial merges, any type with an imbalance of zero            Our modelling relies on a one-time account (OTA)
+is dropped. An open group of participants in a pool may      scheme to anonymously and confidentially create and
+provide sufficient liquidity and maintain a public order     store value in notes. This is an abstraction from existing
+book, similar to classical exchanges.                        protocols in Zcash and Monero. The spending of input
+     An interesting open question is how to integrate
+Zswap with private smart contracts to support more
+elaborate private DeFi solutions. A first step in that
+                                                             3 Previously “user-defined assets” (UDA) or UIT, see ZIP 220:
+direction would be to extend a public smart contract         https://github.com/zcash/zcash/issues/830
+system with minting policies for private assets, to sup-     4 https://github.com/anoma/masp/blob/main/docs/multi-
+port, e.g. the private trading of NFTs. Finally, our mech-   asset-shielded-pool.pdf
+                                                                                                    Zswap         509
+
+
+notes, stored in a Merkle tree, is authorized by a simu-     Formalization: We formalize our protocol using game
+lation extractable (SE) non-interactive zero-knowledge       based definitions, which generalize Zerocash definitions,
+proof (NIZK). Double spends are prevented by proving         but are also compatible with Monero except for us-
+the correctness of a deterministic nullifier, marking an     ing a single global ring (as in Zcash and differing from
+input as spent. To connect inputs to newly created out-      SwapCT).
+put notes, we use sparse homomorphic commitments to          Zerocash [4] formalizes Ledger indistinguishability,
+value-type pairs, which can be summed to check that          Transaction non-malleability and Balance. Our balance
+the transaction is well-balanced. Importantly, the val-      definition is very similar with the addition of checking
+ues and types remain hidden even when we publish their       multiple assets. We replace indistinguishability with the
+aggregated randomness, which is necessary to facilitate      privacy definition, as our transactions may be circu-
+transaction merging.                                         lated off-chain. The non-malleability of merged trans-
+     Our protocol bears similarities to variants of Zcash    actions is inspired by Zerocash and SwapCT [11]. In-
+and SwapCT which we compare in more detail:                  stead of the strong non-malleability, it provides a re-
+Zcash Sapling: Compared to Sapling, we add multi-            laxed property that controls malleability (transaction
+asset support and remove the authorization signature         merging) and only requires theft prevention, namely
+which is replaced by the SE NIZK. We also do not             that an adversary cannot steal from the intended recip-
+need a binding signature over all intermediate commit-       ients of a transaction, or split unbalanced transactions,
+ments — instead we directly publish the randomness.          rerouting honest funds. Modelling this malleability re-
+This opens room for controlled malleability, and enables     lies on a variant of hiding of the Pedersen commitment
+non-interactive joint transaction generation (by merg-       scheme, when the joint commitment randomness is re-
+ing) without MPC, which can be used to implement             vealed, which we call HID-OR5 . This property does not
+swaps mechanics. The multi-asset aspect of our scheme        require any additional security assumptions.
+is very similar to Shielded Assets or MASP, both of
+which extend Sapling but do not provide a mechanism
+for atomic swaps. We also provide a rigorous theoreti-       1.2 Our Contributions
+cal formalization, which is lacking for both Sapling and
+its Shielded Asset and MASP variants, and can be of          In this work we present the following results:
+independent interest.                                          – We specify a formal model for a multi-asset Zcash
+Conversely, the technical discussions and implementa-            system with swaps that builds on top of a One-Time
+tion effort that went into the Shielded Assets ZIP 220           Account (OTA) System, abstracting a nullifier-like
+and the MASP implementation are valuable starting                private UTXO mechanism. The OTA model and our
+points for the deployment of Zswap as part of a larger           proof techniques could be of independent interest for
+Zcash like blockchain. In particular, deployment of our          proving systems such as Zcash and Monero secure.
+new transactions into Zcash requires a hard fork and           – We provide a minimal practical instantiation of non-
+creates a new shielded pool holding typed notes. Trans-          interactive private atomic-swaps. It is based on a
+ferring tokens from an existing shielded pool is possible        simplified version of Zcash that removes authoriza-
+by explicitly adding the Zcash type to the notes.                tion and blinding signatures.
+SwapCT: Our work is inspired by SwapCT which also              – We prove our construction secure under commonly
+provides atomic swaps and transaction merging, but on            used assumptions similar to the ones used in Zero-
+top of Monero (ring based anonymity). We simplified              cash. This validates the removal of the Zcash signa-
+their scheme to unify their offers and transactions. With        tures and shows that the perfect hiding and binding
+the use of SNARKs (requiring a trusted or transparent            properties of spend and output commitments is suf-
+setup) our simpler construction no longer needs their            ficient for security.
+anonymously aggregatable signatures. We achieve bet-           – We implement and evaluate our protocol: our merg-
+ter confidentiality for unfinished transactions as we only       ing mechanism is very effective, and all performance
+reveal a total imbalance instead of per input and output         overheads of our construction, as compared to the
+values. Another important difference is that the use of          basic single-asset protocol without swaps, are small.
+SNARKS allows to efficiently support large rings. This
+motivates the use of a single global ring in our formal-
+ization.
+                                                             5 HIDing with Open Randomness
+                                                                                                         Zswap         510
+
+
+1.3 Related Work                                              privacy-preserving decentralized exchange (DEX) based
+                                                              on an automated marked maker (AMM) scheme which
+Surprisingly little academic work directly addresses ex-      works without a second party but does not hide the
+change of multiple assets in a private ledger. Undoubt-       types, which is an inherent limitation of the AMM ap-
+edly, such a functionality can be achieved through            proach. Another idea is to privately exchange assets be-
+certain generic private smart contract solutions [17,         tween different systems in cross-chain atomic swaps [9].
+18, 22], but their flexibility comes at a cost of non-        In contrast to both, we propose a more basic mecha-
+negligible performance overhead, since they often re-         nism within a single blockchain, and leave leave it open
+quire heavy primitives like SNARKs over big contract          to implement the concrete offer matching algorithm on
+code-dependant (or even universal) circuits. The perfor-      top of Zswap. This allows, and will likely enable more
+mance of universal zero-knowledge based constructions         powerful DeFi applications, since Zswapprovides a more
+such as ZEXE [5] requires minutes of proving time for         flexible interface to the application layer.
+ten times the constraints compared to our one second
+prover runtime. This is why we would like to consider
+systems with such a functionality embedded directly.
+     Several solutions take the route of extending the
+                                                              2 Preliminaries
+vanilla Zerocash. Ding et al. [10] propose a solution sup-
+                                                              Let us introduce our notation. We write PPT for prob-
+porting multiple assets, but with no exchange mecha-
+                                                              abilistic polynomial-time. All our sets are multisets by
+nism, and with public asset types. Gao et al. [14] con-
+                                                              default. The set minus operation A\B removes as many
+struct a transaction system specifically for exchanging
+                                                              values in A as there are in B: if B has more values of
+assets which is based on storing debt in sibling notes
+                                                              the same type than in A, the number of elements in
+which are only spendable if the debt is settled. Its inef-
+                                                              the resulting set is 0. The function ToSet(S) removes all
+ficiency results from requiring multiple persisted trans-
+                                                              duplicate entries in the multiset S and sorts the result
+actions per swap.
+                                                              according to some predefined ordering, essentially con-
+     On the other hand, Confidential Assets [21] uses
+                                                              verting S to a “proper” set. We use [n] := 1 . . . n, and
+a commitment construction that hashes an asset type
+                                                              |S| for the cardinality of the set S, |~x| is the length if ~x
+descriptor to the bases of an extended Pedersen com-
+                                                              is a vector, thus [|S|] means 1 . . . |S|.
+mitment such that the resulting commitments are addi-
+                                                                   As of pseudocode conventions, abortion by default
+tively homomorphic, which facilitates proving the bal-
+                                                              means returning ⊥ immediately, and assertions abort
+ancing of amounts. We use this sparse commitment
+                                                              on failure. When the result of an assignment cannot
+scheme as part of our construction. A similar solution
+                                                              be properly pattern-matched, e.g. (a, b) ← foo (function
+by Zheng et al. [25] exists for the Mimblewimble private
+                                                              returns ⊥ or a different type), the execution aborts. The
+cryptocurrency. Both these works do not provide sender
+                                                              symbol @ denotes temporary variable assignment in the
+and receiver anonymity.
+                                                              pattern-matching cases, e.g. (a@(x, y), z) ← Foo() means
+     Sparse homomorphic commitments have the draw-
+                                                              ((x, y), z) ← Foo(); a ← (x, y).
+back that they can only store type-amount pairs. A
+more flexible approach is to use a hash-based commit-
+ment scheme for notes to store a vector of attributes.
+                                                              2.1 Sparse Homomorphic Commitments
+This is used in Zcash’s multi-asset ZIP 220, Shielded
+Assets, or similarly MASP. To achieve balancing, these
+                                                              Our first building block is a commitment scheme which
+protocols prove equality between the type-value pair of
+                                                              is additively homomorphic for an exponential number of
+a note and a sparse homomorphic commitment. We fol-
+                                                              possible domains, also called types, however each com-
+low the same approach. Another system that does not
+                                                              mitment is sparsely populated, i.e. few domains have a
+rely on homomorphic commitments is Stellar6 , which
+                                                              non-zero value. Between domains, there exists no homo-
+instead uses shuffle proofs.
+                                                              morphic property. Contructions were proposed by [21]
+     Finally, some works emphasize the exchange and
+                                                              and formalized by [7] which resemble vector Pedersen
+offer matching functionality. Manta [8] describes a
+                                                              commitments with ad-hoc generators.
+
+
+6 https://github.com/stellar/slingshot/blob/main/spacesuit/
+spec.md
+                                                                                                                    Zswap           511
+
+
+Definition 2.1 (Sparse Homomorphic Commitment).                      HID-ORbA (1λ )
+A SHC scheme consists of the algorithms ComSetup and                 p ← Setup(1λ )
+Commit defined as follows:                                           {(tyt , at ), (ty0t , a0t )}1t=0 ← A(p)
+p ← ComSetup(1λ ) takes the security parameter λ and                 ∆ty,t := {at if tyt = ty else 0} − {a0t if ty0t = ty else 0}
+                                                                                    [           [
+   outputs the public parameters p implicitly provided               assert ∀ty ∈       tyt ∪       ty0t : ∆ty,0 = ∆ty,1
+   to Commit. It specifies a type space T                                  $
+                                                                     r, r0 ←
+                                                                           −R
+                          i=1 , rc) takes a set of dis-
+com ← Commit({(tyi , ai )}n                                          com ← Commit(tyb , ab , r); com0 ← Commit(ty0b , a0b , r0 )
+   tinct types tyi and values ai , and a randomness                  b0 ← A(com, com0 , rc = r − r0 )
+                                                                     return b0
+   rc, and outputs a commitment com. We write
+   Commit(ty, a, rc) for Commit({(ty, a)}, rc).                  Fig. 1. Hiding with Open Randomness Game
+
+
+Definition 2.2 (Homomorphism). A SHC scheme is
+                                                                     Finally, we observe the following property of the
+homomorphic, if there exists an efficient operation ⊕,
+                                                                 sparse Pedersen commitment scheme that guarantees
+such that for any ty ∈ T it holds that
+                                                                 that the adversary cannot distinguish between two pairs
+  Commit({(tyi , ai )}n                         0 n       0
+                      1 , rc) ⊕ Commit({(tyi , ai )}1 , rc ) =   of commitments that sum to the same values (per type),
+                     Commit({(tyi , ai + a0i )}n           0     even if we reveal their common randomness. This is the
+                                               1 , φ(rc, rc ))
+                                                                 main property used in our swaps: we will use it to argue
+for some function φ, while zero values do not affect the         that transaction can be merged (to join two unbalanced
+input set: Commit((ty, 0), rc) = Commit(∅, rc).                  swap offers), but not split apart (so swap offers cannot
+    In other words, the commitment is additive on the            be adversarially modified).
+same type, but acts like a vector commitment on distinct
+types.                                                           Lemma 2.1 (Hiding with Open Randomness).        The
+                                                                 sparse Pedersen commitment scheme is perfectly hid-
+We require standard binding and hiding properties.               ing with open randomness in the RO model. By this we
+                                                                 mean that if for all λ ∈ N and all PPT A:
+Definition 2.3 (Commitment Binding). For any λ ∈
+N with p ← Setup(1λ ) and any PPT adversary A, it                  Pr[HID-OR1A (1λ ) = 1] − Pr[HID-OR0A (1λ ) = 0] = 0
+holds that
+                                                                 where the game is defined in Fig. 1.
+          {(tyb , ab , rcb )}1b=0 ← A(p);
+                                                  
+
+                                                                 The proof of this statement is presented in Appendix C
+        com = Commit(ty , a , rc ); 
+             0                   0 0        0     
+    Pr  com1 = Commit(ty1 , a1 , rc1 ) :  ≤ negl(λ)            and based on perfect hiding together with the equivo-
+                                                  
+            com0 = com1 ∧                                        cation of the Pedersen commitment scheme.
+                                                  
+                                                  
+            (ty0 , a0 , rc0 ) 6= (ty1 , a1 , rc1 )
+
+Definition 2.4 (Commitment Hiding). For any λ ∈ N                2.2 Proofs and Signatures of Knowledge
+with p ← Setup(1λ ) and any stateful PPT adversary A,
+it holds that                                                    A non-interactive zero-knowledge proof of knowledge (or
+          {(tyi , ai )}1i=0 ← A(p);                              just NIZK) for the language L is a proving system
+                                     
+
+        b←
+            $
+            − {0, 1}, rc ←
+                            $
+                            − R;
+                                      
+                                       1                        consisting of algorithms (Setup, Prove, Verify, Sim). The
+    Pr  com ← Commit(tyb , ab , rc);  ≤ + negl(λ)
+                                                               first algorithm allows to create a common reference
+        0                             2                        string (CRS), crs ← Setup(1λ ) that is used as an input
+        b ← A(com) :                 
+            b0 = b                                               to Prove and Verify. To obtain a non-interactive proof
+                                                                 that stmt ∈ L with the corresponding witness w (s.t.
+To instantiate a SHC we use a well-known Pedersen-               (stmt, w) ∈ RL ) one executes π ← Prove(crs, stmt, w).
+based construction derived from the [21], which we will          To then verify this prove one runs, correspondingly
+simply call “sparse Pedersen commitment scheme”. Let             Verify(crs, stmt, π), which returns 0 or 1. We provide
+G be a cyclic group of order q with a generator G in             the standard definitions and security properties in Ap-
+which the discrete logarithm assumption holds. Addi-             pendix A.
+tionally, we use a cryptographic hash function H : T →                Signatures of Knowledge are NIZK proofs which are
+G. Then Commit({(tyi , ai )}, rc) := ( H(tyi )a ) Grc with       bound to a specific message m. For a simulation ex-
+                                      Q
+
+ai , rc ∈ Zq .                                                   tractable (SE) NIZK protocol, this is done by including
+                                                                                                        Zswap          512
+
+
+m into the statement without asserting anything about        unbalanced transaction for the newly minted type. This
+m in the relation. Still, the SE property invalidates the    transaction needs to be accepted by the ledger rules.
+proof, if the statement is changed.                          This behaviour might as well be governed by a smart
+                                                             contract.
+
+                                                             Definition 3.1. A One-Time-Account (OTA) scheme
+3 One-Time-Account Scheme                                    consists of the five PPT algorithms (Setup, KeyGen, Gen,
+                                                             Receive, NulEval) defined as follows:
+To highlight our novel transaction mechanism, we first       p ← Setup(1λ ): takes the security parameter λ and out-
+describe the one-time account (OTA) scheme that we              puts the public parameters p which are implicitly pro-
+use to model the mechanics of underlying accounts our           vided to the subsequent algorithms. This includes the
+transactions use. The OTA scheme may be seen as                 note randomness space S, a message space M, and an
+an anonymous version of an unspent transaction out-             encryption randomness space Ξ.
+put (UTXO) system (e.g. the one used in Bitcoin); it         (sk, pk) ← KeyGen(1λ ): generates a key pair (sk, pk). We
+generalises accounts of privacy-preserving transaction          assume a function P (sk) = pk for generating the public
+systems such as Zcash or Monero. Instead of creating            key from a secret key.
+transaction outputs including a long term identity as        note ← Gen(pk, ~a, r): takes a public key pk, a vector of
+with plain UTXO, an OTA scheme generates a unique,              attributes ~a ∈ M|~a| , where, by agreement, the first
+anonymous, one-time account for each transaction out-           might be an amount, and randomness r ∈ S. It outputs
+put. To support the UTXO functionality to decide if a           a one-time-account, known as note.
+one-time-account is still valid, the OTA scheme allows       C ← Enc(pk, (~a, r), ξ): encrypts the attributes ~a and the
+generating a unique nullifier which anonymously marks           randomness r to the public key pk with additional ran-
+it as spent. A duplicate nullifier indicates that the same      domness ξ. It outputs a ciphertext C.
+one-time account is used.                                    (~a, r)/⊥ ← Receive(note, C, sk): if the note and cipher-
+     The OTA scheme is used as follows. After a sys-            text C belongs to the secret key sk, the algorithm out-
+tem Setup, each participant generates their credentials         puts the vector of attributes ~a and the randomness r
+with KeyGen. Anyone with the public key can then                or fails otherwise.
+non-interactively derive a one-time account, also called     nul ← NulEval(sk, r): Takes a secret key sk and a ran-
+“note”, with Gen. Each note contains a set vector of at-        domness r and outputs a nullifier nul.
+tributes. Most importantly, one attribute is the amount      In addition, the algorithms Gen and NulEval must be ef-
+the note represents. In our multi-type setting, a second     ficiently provable in zero-knowledge. More formally, the
+attribute is the type of the amount. Other systems may       construction must provide a NIZK protocol for the fol-
+make use of additional note attributes such as e.g. time     lowing languages:
+locks — a timestamp identifier, allowing a note to be
+spendable only after a specified block number. To allow         Lnul = {(note, nul) | ∃(sk, ~a, r) :
+the intended recipient to recover the note, it is accompa-          note = Gen(P (sk), ~a, r) ∧ nul = NulEval(sk, r)}
+nied by an encryption C calculated by Enc. With the se-        Lopen = {note | ∃(pk, ~a, r) : note = Gen(pk, ~a, r)}
+cret key, note and ciphertext, the original owner Receives
+the note and is then able to create the corresponding nul-   The language Lopen may optionally be extended, such
+lifier with NulEval, a unique serial value characterizing    that elements of ~a have relations to other commitments.
+the note that cannot be predicted by anyone else than
+the owner.                                                   Definition 3.2 (OTA Correctness). An OTA scheme
+     We emphasize that any party can create an OTA           is correct if for any λ ∈ N with p ∈ Setup(1λ )
+account for anyone knowing only their public key. The        it holds that any honestly generated note is receiv-
+OTA itself does not allow any claims to the value stored     able. Formally, for every (sk, pk) ∈ KeyGen(p), ev-
+inside. In our system, only the OTAs which are included      ery (~a, r) ∈ M|~a| × S and ξ ∈ Ξ it holds that
+as outputs of a valid, balanced and persisted transaction    Receive(Gen(pk, ~a, r), Enc(pk, (~a, r), ξ), sk) = (~a, r)
+can be claimed by their owners in subsequent transac-
+                                                             Once a note is created, it must bind the attributes and
+tions. The transaction then enforces that sufficient in-
+                                                             prevent opening the note to a different vector, even for
+puts were consumed to cover for the output. To mint
+                                                             the owner with the correct secret key.
+coins an OTA needs to be included on the ledger in an
+                                                                                                            Zswap          513
+
+
+Definition 3.3 (OTA Binding). An OTA scheme is                   The next property, similar to the tagging scheme of Om-
+binding with regard to the accounts created and the vec-         niring [19], captures the requirement that nullifiers pro-
+tor of attributes if for any λ ∈ N with p ∈ Setup(1λ ) and       duced with sk must be only “predictable” for the party
+any PPT adversary A, it holds that                               that holds sk. This is achieved by requiring NulEval to
+                                                                 behave like a pseudorandom function.
+        (pk0 , r0 , ~a0 , pk1 , r1 , ~a1 ) ← A(p)
+                                                 
+       note0 ← Gen(pk0 , ~a0 , r0 )              
+                                                   ≤ negl (λ)   Definition 3.6 (Nullifier Pseudorandomness). Let λ ∈
+   Pr                                                                                              $
+       note1 ← Gen(pk , ~a1 , r1 ) :
+                               1
+                                                                N with p ∈ Setup(1λ ), (sk, pk) ←  − KeyGen(), and f be
+          note0 = note1 ∧ ~a0 6= ~a1                             randomly sampled function on the range {0, 1}|S| →
+                                                                 {0, 1}|NulEval(sk,·)| . An OTA scheme nullifier is pseudo-
+The following privacy property assures that a note and           random if for any PPT adversary A, it holds that
+its ciphertext do not leak who the note belongs to and
+what attributes it stores.                                          Pr[AReceive(·,·,sk),f (·) (pk) = 1]−
+                                                                        Pr[AReceive(·,·,sk),NulEval(sk,·) (pk) = 1] ≤ negl(λ)
+Definition 3.4 (OTA Privacy). Consider the follow-
+ing oracle:                                                      Finally, to detect duplicate use of the same note, each
+            note∗ ,C ∗
+         ORcv          (i, note, C) :                            is assigned a unique nullifier. Even with knowledge of
+            assert note 6= note∗ ∧ C ∗ 6= C                      the secret key, it is not possible to create two different
+            return Receive(note, C, ski )                        nullifiers for the same note. The separate secret keys are
+    An OTA scheme is private if for any λ ∈ N with               important for constructions based on algebraic nullifiers.
+                                                                                                    1
+p ∈ Setup(1λ ) and any stateful PPT adversary A, it              E.g. Omniring creates tags as g sk+r for a generator g, so
+holds that                                                       randomness may be “traded” for secret key. Allowing
+                         $
+                                                                only one note with a single secret key would not cap-
+        (sk0 , pk0 ) ←   − KeyGen()
+                          $
+                                                                 ture the realistic setting where an adversary controls
+      (sk1 , pk1 ) ←    − KeyGen()
+                                                
+                                                                 multiple correlated accounts.
+                                                 
+                                                
+      (i0 , ~a0 , i1 , ~a1 ) ←                  
+                    ⊥,⊥
+                                                
+                  ORcv
+               A           (p, pk0 , pk1 )                       Definition 3.7 (Nullifier Uniqueness).             An    OTA
+                                                
+                                                 1
+           $                  $        $
+  Pr  b ←                                        ≤ + negl(λ)   scheme satisfies nullifier uniqueness if for any λ ∈ N
+                                                
+      − {0, 1}, r ←          − S, ξ ← −Ξ         2
+      note∗ ← Gen(pk , ~ab , r)
+                                ib
+                                                 
+                                                                with p ∈ Setup(1λ ) and any PPT adversary A, it holds
+      C ∗ ← Enc(pk , (~a , r), ξ)                              that
+                            ib     b            
+                     note∗ ,C ∗
+      b ← AORcv
+      0
+                                (note∗ , C ∗ ) : 
+                                                                                                                  
+                                                                         (sk0 , r0 , ~a0 , sk1 , r1 , ~a1 ) ← A(p);
+           b = b0 ∧ |~a0 | = |~a1 |                                     note ← Gen(P (sk ), ~a , r );
+                                                                              0                             0 0
+                                                                                                                    
+                                                                                                    0              
+                                                                    Pr  note1 ← Gen(P (sk1 ), ~a1 , r1 ) :          ≤ negl(λ)
+                                                                                                                   
+The privacy game implicitly subsumes (1) note and ci-
+                                                                        note0 = note1 ∧
+                                                                                                                   
+phertext hiding, and (2) note and encryption anonymity                                                              
+(key privacy). In the first case, A cannot decide the con-                NulEval(sk0 , r0 ) 6= NulEval(sk1 , r1 )
+tent of the note or the ciphertext; in the second, it can-
+not decide which key was used to create it. E.g. if note is
+not hiding, A efficiently wins the game by first return-
+                                                                 4 Zswap Scheme
+ing two different vectors ~a0 6= ~a1 and then distinguishing
+the note noteb according to the attribute vector.
+                                                                 A Zswap scheme is an extension of an OTA scheme
+    We require notes to be unique when generated with
+                                                                 which allows creating (SignTx), merging (MergeSig), and
+honest randomness:
+                                                                 verifying (Verify) transactions that transfer coins be-
+                                                                 tween OTA accounts. SignTx takes a pre-transaction
+Definition 3.5 (Note Uniqueness). A binding and pri-
+                                                                 ptx as input and produces a transaction signature σ,
+vate OTA scheme satisfies honestly generated note
+                                                                 MergeSig combines transaction signatures σ1 , . . . , σn ,
+uniqueness: for all PPT A,
+                                                                 and Verify verifies a signature σ for a transaction tx.
+                                                                 A signature σ is viewed separately from its transaction
+                                                  
+       ((pk0 , ~a0 ), (pk1 , ~a1 )) ← A(1λ )
+  Pr  r0 , r1 ←
+                $
+                −S :                                ≤ negl(λ)
+                                                                tx (created by tx ← CompleteTx(ptx) defined below), and
+       Gen(pk0 , ~a0 , r0 ) = Gen(pk1 , ~a1 , r1 )               not contained in it.
+                                                                                                                     Zswap          514
+
+                                                                                                                       |T |
+    We first present auxiliary algorithms for Zswap in                       – T = {(pkTi , noteTi , (aTi , tyTi ), riT )}i=1 is a set of
+Fig. 2 for creating pre-transactions and transactions.                         (output) notes noteTi with amount aTi , type tyTi
+These use the OTA scheme algorithms only in a black-                           and output OTA notes’ randomness riT .
+box manner and simplify the exposition when defining                       It outputs a signature σ as authorization to spend the
+the security properties. The first set of functions glues                  inputs S on the given outputs T .
+the Zswap and OTA schemes together.                                      b ← Verify(st, tx, σ) takes a transaction tx, a signature
+  – BuildPTx constructs inputs for SignTx from I, O in-                    σ and returns a bit b representing the validity of the
+    structions and a set of secret keys SK. Inputs I con-                  transaction w.r.t. the state st.
+    sist of a list of existing (note, C) notes, outputs O                σ ← MergeSig({σi }n  i=1 ) takes n transaction signatures
+    consist of a list of public key, value, and type triplets              and generates a combined signature σ valid for the
+    (pkT , aT , tyT ) for creating the output notes. By re-                union of the transactions. To merge the corresponding
+    ceiving input notes and generating output notes it                     transactions tx1 , . . . , txn together, we use the function
+    produces a pre-transaction information ptx.                            MergeTx defined in Fig. 2. It just concatenates their
+  – CompleteTx constructs a transaction tx for Verify                      input nullifiers, output notes, and sums their ∆ty for
+    from a pre-transaction ptx similar to SignTx.                          each ty. As of the st, they must be equal in the transac-
+  – MergeTx creates a new transaction tx by combining                      tions that need to be merged, but we can assume that st
+    a set of existing transactions tx1 , . . . , txn . This is the         is only updated once an epoch, which is set to be a time
+    non-cryptographic analogue of MergeSig.                                interval long enough for transactions to be merged.
+  – CheckPTx(ptx, st) checks whether pre-transaction is
+    valid w.r.t. st, which is used in the correctness prop-
+    erty. It is easy to see that for ptx = BuildPTx(·, ·, st, ·)         4.1 Atomic Swap Example
+    we have CheckPTx(ptx, st) = 1.
+  – TryReceive attempts to “receive” a note note by de-                  After presenting all necessary algorithms, we show a
+    crypting its ciphertext C using any of the set SK                    small example of how they interact to create an atomic
+    of available secret keys: if an input can be received                swap transaction between two parties, Alice and Bob.
+    with one of the keys it also computes the note’s nul-                First, the system is created by Setup. Each participant
+    lifier.                                                              joining, generates their key pair (sk, pk) with KeyGen.
+                                                                         The creation of new assets is delegated to an external
+Definition 4.1. A Zswap transaction scheme, built on                     consensus mechanism which updates the global state
+top of an OTA scheme, consists of a tuple of PPT al-                     of the system according to an agreed policy. At one
+gorithms (Setup, SignTx, MergeSig, Verify) defined as fol-               point, Alice and Bob have to be the beneficiary of a
+lows:                                                                    transaction. They notice this by calling TryReceive with
+p ← Setup(1λ ) takes the security parameter λ and out-                   their secret key sk on every published transaction out-
+  puts public parameters p which are implicitly given to                 put (note, C). If they successfully receive a (note, C) to
+  all the following algorithms. Setup is called once when                an amount a and type ty, they keep it for when they
+  a Zswap system is initialized.                                         want to spend it. Let’s assume Alice received a note of
+σ ← SignTx(ptx, st) takes a pre-transaction ptx = (S, T )                10$ and Bob has a note of 10€. Alice now wants eu-
+  where                                                                  ros and Bob dollars. They assume an exchange rate of
+    – st is the current state of valid previously issued                 7:5 and proceed to generate their pre-transactions ptxi .
+       notes. st.MT is the Merkle tree containing notes                  Each party calls BuildPTx with their note as input in-
+       as leaves, and st.NF is the set of used nullifiers. If            struction I. As output instructions O, Alice sends 5€
+       a state st is the evolution of a previous state st0 , we          to her key pk. To make sure that someone fulfils the
+       define a function ev(st0 , st) := 1 and 0 otherwise.              offer, she creates a change output to herself with only
+    – S = {(skS          S                    S     S      S |T |
+                 i , notei , nuli , pathi , (ai , tyi ), ri )}i=1 is a   2$, leaving 1$ as incentive. Bob performs the same. He
+       set of inputs with a nullifier nuli corresponding to              inputs the 10€ note and generates outputs of 7$ and 5€
+       the noteSi , and stored in the current state at the               to himself.
+       given path st.MT[pathi ], secret key skS        i , amount ai
+                                                                     S
+                                                                              The resulting pre-transactions are signed by both
+       and type tyS  i with input OTA notes’ randomness                  parties respectively with SignTx to get signatures σi .
+        S
+       ri .                                                              The final transactions txi are generated from the pre-
+                                                                         transactions ptxi by CompleteTx and can be verified
+                                                                         against their signature σi with Verify. Note that both
+                                                                                                                                                     Zswap      515
+
+
+  BuildPTx(I, O, st, SK)                                                     CompleteTx(ptx@(S, T ))
+    S, T ← ∅                                                                   Parse S as {(·, ·, nuli , ·, (aS     S                   |S|
+                                                                                                              i , tyi ), ·)}i=1
+    for (noteS , C S ) ∈ I do                                                                                                                 |T |
+                                                                               Parse T as {(·, noteT    T     T     T
+                                                                                                   i , Ci , (ai , tyi ), ·)}i=1
+      path ← st.MT.getPath(noteS )                                                          S      T
+      assert path 6= ⊥                                                         for ty ∈ {ty
+                                                                                        Pi } ∪ {tyi }Sdo P
+      (skS , nul, (aS , tyS ), r S ) ← TryReceive(note, C, SK)                   ∆ty ←        S      ai −        T          aT
+                                                                                                                             i
+                                                                                             (a       ,ty)∈S            (a        ,ty)∈T
+      S := S ∪ (skS , noteS , nul, path, (aS , tyS ), r S )                                       i
+                                                                                                       |S|
+                                                                                                                             i
+                                                                                                                                 |T |
+                                                                                                                                                        
+                                                                               return     {nuli }i=1 , {noteT    T
+                                                                                                            i , Ci }i=1 , {∆ty }ty∈Ty
+    assert {nuli } are distinct and ∀i. nuli ∈    / st.NF
+                                           $       $
+    for (pkT , aT , tyT ) ∈ O do r T ←− S, ξ ←  −Ξ
+                                                                             MergeTx({txj }n
+                                                                                           j=1 )
+      noteT ← OTA.Gen(pkT , (aT , tyT ), r T )
+      C T ← OTA.Enc(pkT , ((aT , tyT ), r T ), ξ)
+                                                                                                                                                               
+                                                                                                               |S|                               |T |
+                                                                               Parse txj as           {nulj,i }i=1j , {(noteT      T
+                                                                                                                            j,i , Cj,i )}i=1 , {∆j,ty }ty∈Tyj
+      T := T ∪ (pkT , noteT , C T , (aT , tyT ), r T )
+    return ptx@(S, T )
+                                                                                                 S                     S                       
+                                                                               return     ToSet       {nulj,i } , ToSet      {(noteT      T
+                                                                                                                                   j,i , Cj,i )} ,
+                                                                                                 j,i                   j,i
+  CheckPTx(ptx@(S, T ), st)                                                                      P                       
+                                                                                          ToSet         ∆j,ty      S
+                                                                  |S|                                 j
+    Parse S as {(skS       S                    S     S     S
+                   i , notei , nuli , pathi , (ai , tyi ), ri )}i=1
+                                                                                                                        ty∈
+                                                                                                                                   j
+                                                                                                                                        Tyj
+                                                           |T |
+    Parse T as {(pkT         T    T      T     T    T
+                     i , notei , Ci , (ai , tyi ), ri )}i=1
+    % CiT is left to the receiver to verify                                  TryReceive(note, C, SK)
+    assert {nuli } are distinct and ∀i. nuli ∈   / st.NF                       for sk ∈ SK do
+    for i ∈ [|S|] do                                                             res ← OTA.Receive(note, C, sk)
+                                   S
+      assert st.MT[pathi ] = notei                                               if res = ((a, ty), r) 6= ⊥ then
+      assert nuli = OTA.NulEval(skS         S
+                                       i , ri )
+                                                                                   nul ← OTA.NulEval(sk, r)
+      assert noteS                                   S    S      S                 return (sk, nul, (a, ty), r)
+                  i = OTA.Gen(OTA.P (ski ), (ai , tyi ), ri )
+    assert ∀i ∈ [|T |] : noteT  =  OTA.Gen(pk    T
+                                                   , (a T
+                                                          , ty T
+                                                                 ), riT )      return ⊥
+                             i                   i      i      i
+    return 1
+
+
+Fig. 2. Auxiliary algorithms for Zswap. These only depend on the OTA scheme and do not use Zswap methods such as Verify or
+SignTx.
+
+
+
+transactions by themselves cannot be included in the                        (2) Honestly merged valid transactions are again
+public ledger. Both have a type with a negative balance.                        valid: For any valid st, n ∈ N and each set of
+Alice’s transaction has ∆€ = −5 and Bob’s transaction                           {(Si , Ti )}i∈[n] s.t. for all i, CheckPTx((Si , Ti ), st) =
+has an imbalance of ∆$ = −7. So far Alice and Bob have                          1, for each σi ∈ SignTx(Si , Ti , st) and σ =
+not communicated. The non-malleability of the trans-                            MergeSig({σi }n   i=1 ), it holds that Verify(st, tx, σ) = 1
+actions allow them to publish their transactions into an                        where tx ← MergeTx({CompleteTx (Si , Ti )}n       i=1 ).
+exchange pool. Exchange pools may be run globally or                        (3) Valid transactions are valid in a future state:
+with limited access. The first party seeing both trans-                         For any two linked states st, st0 (satisfying ev(st,
+actions recognizes that they are complementary and is                           st0 ) = 1) and any transaction tx and signa-
+able to merge both txi together with MergeTx and their                          ture σ with Verify(st, tx, σ) = 1, it holds that
+signatures σi with MergeSig. As a prize, the merger is                          Verify(st0 , tx, σ) = 1, unless st0 .Nf \ st.Nf contains
+allowed to claim the surplus of 1$ paid by Alice. Techni-                       any of the tx nullifiers.
+cally there are now 3 transactions merged. The result-
+ing merged transaction has no imbalance and can be                          The security of our scheme is based on several top-level
+included in the public ledger. Then all parties get their                   games, plus the games we define for the OTA scheme.
+specified outputs and store them for future transactions.
+
+                                                                            4.3 Support Oracles
+4.2 Zswap Correctness
+                                                                            To model both security and privacy we need to intro-
+Definition 4.2 (Correctness). A Zswap scheme is cor-                        duce the oracles which will model note spending that
+rect if OTA is correct and if for all λ ∈ N and all                         the adversary A sees, interactively. The relevant ora-
+p ∈ Setup(1λ ) it holds that:                                               cles, OKeyGen , OSpend and OInsert are presented on Fig. 3.
+(1) Honestly generated transactions are valid:                              They are responsible for generating keys, honest trans-
+    For any S, T , st such that CheckPTx(S, T , st) = 1,                    actions and inserting them into the ledger.
+    and tx = CompleteTx(S, T ), and for any signature                            OKeyGen allows generating honest public and secret
+    σ ← SignTx(S, T , st), it holds that Verify(st, tx, σ) =                keys for further use in OSpend .
+    1.
+                                                                                                                                          Zswap            516
+
+
+         OSpend (I, O, st)                                                                   OInsert (st, tx, σ)
+           if Spent is ⊥ then Spent ← ∅                                                         if Ins is ⊥ then Ins ← ∅
+           assert |I| > 0 ∧ |O| > 0 ∧ ∃(pk, ·, ·) ∈ O : pk ∈ PK                                 unless st0 6= ⊥ assert(st, ·, ·, ·) ∈ Ins
+           ptx@(S, T ) ← BuildPTx(I, O, st, SK)                                                 assert GetLog(st) 6= ⊥
+                                                                                                            |S|                 |T |
+           σ ← SignTx(ptx, st)                                                                  (Nf@{nuli }i=1 , {noteT   j , ·}j=1 , {∆ty }ty∈Ty ) ← tx
+                                        |S|                                |T |
+           Parse S as {(nuli , ·, ·, ·)}i=1 ; T as {(·, noteT
+                                                            j , Cj , ·, ·)}j=1 ;                assert Verify(st, tx, σ) = 1
+                                             |I|                  |T |                          assert ∀ty ∈ Ty : ∆ty ≥ 0
+           Spent := Spent ∪ (st, I, {nuli }i=1 , {(noteT
+                                                       j , Cj )}j=1 ))                          Construct st0 s.t.
+           return σ                                                                                st0 .MT ← st.MT.insert({noteT
+                                                                                                                                         |T |
+                                                                                                                                      j }j=1 )
+         GetLog(st)                                OKeyGen ()                                        0
+                                                                                                   st .NF ← st.NF ∪ Nf
+           Ins0 ← []                                 if SK or PK is ⊥ then                      Ins := Ins ∪ (st, st0 , tx, σ)
+           while x@(st0 , st, ·, ·) ∈ Ins do           SK, PK ← ∅                               if st0 = ⊥ then st0 ← st
+           Ins0 := x k Ins0 ; st := st0              (sk, pk) ← KeyGen()
+           assert st = st0                           SK := SK k sk; PK := PK k pk
+           return Ins0                               return pk
+
+
+Fig. 3. Oracles for the security and privacy experiments.
+
+
+
+     OSpend models leakage of honestly generated trans-
+                                                                                     Anti-TheftA (1λ )
+actions, including unbalanced “offer” transactions. Each
+                                                                                       p ← Setup(1λ )
+OSpend query allows spending some notes, and success-
+                                                                                       st∗ ← AOKeyGen ,OSpend ,OInsert (p)
+ful spend logs are recorded in Spent. An adversary can                                 for (st, ·, tx, ·) ∈ GetLog(st∗ ) do
+                                                                                         (·, (Nf A , M A )) ← SplitTx(st, tx)
+specify any possible state it likes as long as the request
+                                                                                         M A 0 ← {(note, C) ∈ M A | TryReceive(note, C, SK) 6= ⊥}
+is valid with respect to this state. The requirement that                                if ∃(·, ·, Nf, M ) ∈ Spent : M A 0 ∩ M 6= ∅ ∨ Nf A ∩ Nf 6= ∅
+O has at least one honest output is a modelling artefact,                              then
+                                                                                           return 1
+and is explained further in the “anti-theft” section.                                  return 0
+     OInsert models “recording” balanced transaction in                              SplitTx(st, tx)
+the ledger. Branching is possible inside OInsert — A can                                           |S|
+                                                                                       (Nf@{nuli }i=1 , M @{noteT
+                                                                                                                        |T |
+                                                                                                                j , ·}j=1 , C) ← tx
+append an honest transaction to any of the recorded                                    Nf H , MH ← ∅; Nf 0 ← Nf
+                                                                                                              |S 0 |                       |T 0 |
+                                                                                       for (st0 , ·, Nf 0 @{nul0i }i=1 , M 0 @{(noteT 0  0
+                                                                                                                                    j , Cj )}j=1 ) ∈ Spent do
+states, but still one can only spend notes through OInsert
+                                                                                         if st0 .MT = st.MT ∧ M 0 ⊂ M ∧ Nf 0 ⊂ Nf 0 then
+if their nullifier has not been used in the same branch.                                   Nf H := Nf H ∪ Nf 0 ; MH := MH ∪ M 0
+                                                                                           Nf 0 := Nf 0 \ Nf 0
+Moreover, the st0 variable is shared between the oracle
+                                                                                       return ((Nf H , MH ), (Nf \ Nf H , M \ MH ))
+records as the first “root” state that A can initialize the
+oracles with. OInsert only accepts states that are eventu-
+ally linked with this root st0 .                                                   Fig. 4. The anti-theft experiment.
+
+
+
+                                                                                   the log of inserted transactions. The adversary wins if a
+4.4 Anti-Theft and Non-Malleability                                                transaction in the log contains an incomplete part of (an
+                                                                                   honest) transaction earlier returned by OSpend to A, but
+The notion of anti-theft we describe here is our main                              used only partially. To do that, it calls a sub-function
+non-malleability notion. Intuitively it says that an ad-                           SplitTx which locates complete “honest subtransactions”
+versary A can only merge transactions, but cannot                                  returned by OSpend in tx, and returns these honest sub-
+break honest transactions apart, or modify them in any                             transactions as first argument, and the remaining parts
+other way. More concretely, for any honest tx that A                               of tx∗ . If the challenger recognizes nullifiers or output
+sees, A cannot submit tx∗ which contains any of the (1)                            notes in this remaining part, that were created in OSpend ,
+input nullifiers of tx; or (2) honest output notes of tx;                          it means that A managed to deconstruct it, changing the
+without merging the whole tx into tx∗ .                                            output of OSpend , or stealing an honest nullifier.
+    The anti-theft game is modelled by allowing A to
+interact with the oracles described before: A can gener-                           Definition 4.3 (Anti-Theft). A Zswap scheme is pro-
+ate new keys, produce unbalanced honest transactions                               tecting against theft, if for any λ ∈ N and any PPT
+(spend), and submit (insert) transactions (which we                                adversary A, Pr[Anti-TheftA (1λ ) = 1] ≤ negl(λ) where
+want to prove to be only honest, dishonest, or merges                              the Anti-TheftA (1λ ) game is defined in Fig. 4.
+of the two types). The adversary then returns a state
+st∗ which is examined. The challenger searches through
+                                                                                                                       Zswap            517
+
+
+Essentially, anti-theft captures non-malleability of out-
+                                                                     BalanceA,EA (1λ )
+put notes and their ciphertexts, which is in practice
+                                                                       p ← Setup(1λ )
+guaranteed by NIZK SE (that implies instance bind-
+                                                                       (st, I0 , I, SK∗ ) ← AOKeyGen ,OSpend ,OInsert (p)
+ing). If A can maul an output (e.g. change its value, or               assert {note0,i } ∈ I0 are distinct, and st0 .MT contains only
+                                                                       these notes.
+destination) and still submit the tx to OInsert success-               assert {notei } ∈ I are distinct, in st.MT
+fully, it wins the game, since SplitTx will not locate tx              for (notei , Ci ) ∈ I0 do
+                                                                         (·, nul, (a, ty), ·) ← TryReceive(notei , Ci , SK∗ )
+as being in Spent, and thus the game challenger C will                   assert nul ∈   / st0 .NF
+catch A spending a nullifier that was in Spent but not                   v0 [ty] := v0 [ty] + a
+                                                                       for (notei , Ci ) ∈ I do
+located by SplitTx.                                                      (·, nul, (a, ty), ·) ← TryReceive(notei , Ci , SK∗ )
+      The requirement that O in OSpend contains at least                 assert nul ∈   / st.NF
+                                                                         vA [ty] := vA [ty] + a
+one honest output is needed so that SplitTx can uniquely               vH− , vH+ ← (ty 7→ 0)                  % map with default value 0
+                                                                       Ins0 ← GetLog(st)
+identify honest sub-transactions7 . In other words, note               for all (st, ·, tx, σ) ∈ Ins do0
+                                                                                                             % Also makes sure ev(st0 , st)
+
+uniqueness is necessary for the anti-theft game to make                            |S|
+                                                                         ({nuli }i=1 , {noteT
+                                                                                                     |T |
+                                                                                               j , ·}j=1 , {∆ty }ty∈Ty ) ← tx
+sense. This does not limit A from creating unbalanced                    (txH , ·) ← SplitTx(st, tx)
+                                                                         for (Nf, M ) ∈ txH do
+input-only transactions, since A can still request to in-                   Find (st, I, Nf, M ) ∈ Spent
+                                                                            for (note0 , C 0 ) ∈ I do
+clude a single zero-valued output.                                            (·, (a, ty), ·) ← TryReceive(note0 , C 0 , SK)
+      The set Nf 0 in SplitTx is needed since without it                      vH− [ty] := vH− [ty] + a
+                                                                         for (·, M ) ∈ tx do
+honest sub-transactions can be counted twice. E.g. let                      for (note0 , C 0 ) ∈ M do
+tx0 , tx1 be two honest transactions with the same input                      res ← TryReceive(note0 , C 0 , SK)
+                                                                              if res = (·, (a, ty), ·) then vH+ [ty] := vH+ [ty] + a
+nullifiers Nf, but completely different outputs M0 , M1                if ∃ty ∈ T : vA [ty] > v0 [ty] + vH− [ty] − vH+ [ty] then
+(each containing at least one honest output note). With-                 return 1
+                                                                       else return 0
+out Nf 0 , for tx containing Nf and M0 ∪ M1 , SplitTx will
+detect both tx0 , tx1 , and the winning condition will not
+                                                                   Fig. 5. The balance experiment
+be triggered. We, on the other hand, want anti-theft to
+prevent this: with Nf 0 one of txi will be considered hon-
+est, and the honest output note in tx1−i will trigger the          4.5 Balance
+anti-theft winning condition. We do not need to simi-
+larly count M since output notes are unique — adding               The balance property presented next captures that
+M = M \ M 0 into SplitTx simply does not change the                transactions distribute underlying coins properly, that
+behaviour of the game.                                             is, the adversarial balance per type only changes “pre-
+      Finally, it is critical to filter M A 0 from M A . Oth-      dictably”, by the adversary receiving or sending these
+erwise, A would be able to trivially win the game by               coins. In particular, the balance game forbids malicious
+triggering M A ∩ M 6= 0 in the following way:                      conversion between asset types, coin forging, and double
+ 1. A, through OSpend , requests an honest spend to an             spending.
+      adversarial public key pkA ;                                      Formally, the property is modelled as a game
+ 2. A obtains the proof and corresponding note∗ , re-              (Fig. 5) of A “against” the honest parties, in which A
+      ceives it, and creates a completely different, adver-        has to prove that it has more coins that it could have ob-
+      sarial transaction tx∗ on its own, where note∗ is an         tained honestly. It goes as follows. The challenger allows
+      output;                                                      A to interact with the oracles, and asks A to present two
+ 3. the game will not find any honest subtransaction in            sets of values: I0 and I, together with a set of secret keys
+      tx∗ and thus note∗ ∈ M ∩ M A .                               SK∗ . Unlike in other games, st0 in balance must contain
+                                                                   only adversarial coins, and I0 must be all the unspent
+                                                                   corresponding notes (receivable with SK∗ ). The other
+                                                                   set I is the set of unspent adversarial coins from the
+                                                                   new state st (again receivable using SK∗ ) that A claims
+                                                                   to have an illicitly produced coins, breaking the balance
+                                                                   condition. This balance condition is computed next in
+                                                                   the following manner. First, v0 is set to the sum of all
+7 Without this requirement, and without adding extra marker        values in I0 , and vA as a sum of all values in I. Then,
+information to notes, identifying honest sub-transactions within   by traversing the history of transactions from st0 to st,
+SplitTx would take exponential time.                               the game computes the following two values:
+                                                                                                                      Zswap        518
+
+
+ 1. vH− is the sum of all honest inputs in transactions;                     5. The adversarial output instructions of honest leaves
+    and                                                                          are the same in both trees, B5 .
+ 2. vH+ is the total coins received by honest parties.                           The privacy notion itself asks A to present two
+The final condition checks that A cannot show in st                         equivalent trees, and then builds a single transaction
+more coins than:                                                            for each tree which both must not fail. It returns one
+ 1. it had in st0 , and                                                     merged transaction. The adversary wins the game if it
+ 2. that were sent by honest parties, minus received by                     can decide which tree was used. To illustrate the notion
+    honest parties.                                                         with a single example, imagine the tree to contain a sin-
+This last difference may be both positive and negative,                     gle leaf node in both cases, in the first case spending a
+but importantly, the balance of A, per type, is “tied”                      single note with X coins, sending 1 to Alice and N − 1
+to the balance of honest parties, no extra coins can be                     to Bob, and in the second case spending a single note of
+produced.                                                                   Y coins, sending Y − 2 to Alice and 2 to Bob. Such trees
+                                                                            are equivalent according to our definition, and thus A
+Definition 4.4 (Balance). A Zswap scheme is balanced                        should not be able to decide which transaction it sees.
+if for all PPT adversaries A there exists a PPT extrac-
+tor EA such that Pr[BalanceA,EA (1λ ) = 1] ≤ negl(λ) with                   Definition 4.5 (Transaction Privacy).    A    Zswap
+the game defined in Fig. 5.                                                 scheme has private transactions, if for all PPT ad-
+                                                                            versaries A it holds that:
+Note that this balance property does not prevent an
+external mechanism to change the state. This is useful                      Pr[Privacy0A (1λ ) = 1] − Pr[Privacy1A (1λ ) = 1] ≤ negl(λ)
+for smar contract based minting of new types.
+                                                                            with PrivacybA (1λ ) defined in Fig. 6.
+
+
+4.6 Privacy
+                                                                            5 Zswap Protocol
+The privacy game captures secrecy of coin transfers by
+means of an indistinguishability experiment. To model                       We present the Zswap protocol in Fig. 7. It extends the
+the game we will first introduce the notion of a transac-                   OTA scheme (constructed in Appendix B) and addition-
+tion instruction tree T . Such a variable width tree has                    ally utilizes a sparse homomorphic commitment scheme
+as its leaf i either                                                        (sparse Pedersen): SHC = (ComSetup, Commit). and Ar-
+ 1. the instructions to construct an honest transac-                        guments of Knowledge: AoK = (AoK.Setup, AoK.Prove,
+                          |S|                               |T |
+     tion ({notei,j,Ci,j }j=1i , {(pki,j , aTi,j , tyTi,j )}j=1i ), simi-   AoK.Verify, AoK.Sim).
+     larly to the input to OSpend , or                                           The high-level idea is to create a transaction which
+ 2. a fully adversarial transaction (txi , σi ).                            has separate inputs and outputs handled by the OTA
+Its intermediate leaves are empty, and merely represent                     scheme. A transaction links them together through SHC
+how children transactions must be merged.                                   commitments. Each input and output has a correspond-
+     We will also need to decide what a transaction re-                     ing SHC commitment with an equal amount and type.
+sulting from a merge according to T leaks. We formalize                     This equivalency is assured by an AoK for each in-
+this notion by defining the tree equivalency relation, for-                 put and each output. The output AoK additionally as-
+mally on Fig. 6 as follows: EquivTree(T0 , T1 ) = 1 if                      sure non-malleability for the note ciphertext. The input
+ 1. The imbalance of amounts in each type is equal, B1 .                    AoKs enforce that the transaction creator possessed the
+ 2. The number of input notes is equal (published nul-                      secret key to authorize the spending and prove that the
+     lifiers), and the number of output notes is equal.                     published nullifier is correct. This is captured by two
+     For honest B2S ∧ B2T leaves, as it implicitly holds for                NIZK languages.
+     adversarial leaves due to the next property B3 .                            The first one authenticates a valid spend — it says
+ 3. Malicious offers need to be the same in both trees,                     that the (rerandomized) SHC commitment comS is well-
+     but maybe not at same positions, B3 .                                  formed and contains the same value and type as a note
+ 4. For all the honest nullifiers Nf that A receives via
+     OSpend , if any of the related notes are included in the
+     honest leaves of a tree, these notes must be included
+     in both trees, B4 .
+                                                                                                                                                  Zswap                519
+
+
+
+  PrivacybA (1λ )                                                  EquivTree(T0 , T1 , st)
+    p ← Setup(1 )
+                λ
+                                                                       Parse each leaf b,i of each Tb as either an adversarial leaf leaf A
+    O = {OKeyGen , OSpend , OInsert }                                                               |S|                                 |T |
+                                                                             (txb,i @({nulb,i,j }j=1b,i , {(noteT        T         b,i
+                                                                                                                b,i,j , Cb,i,j )}j=1 ,
+    (st, T0 , T1 ) ← AO (p)
+    assert GetLog(st) 6= ⊥                                                      {∆b,i,ty }ty∈Tyb,i ), σb,i ) ← leaf A
+                                                                                                                    b,i
+    tx0 ← EvalTree(st, T0 )                                               or an honest leaf leaf H
+    tx1 ← EvalTree(st, T1 )                                                 ({(noteS        S       |S|b,i             T         T       |T |b,i      H
+                                                                                   b,i,j , Cb,i,j )}j=1 , {(pkb,i,j , ab,i,j , tyb,i,j )}j=1 ) ← leaf b,i
+    assert tx0 6= ⊥ ∧ tx1 6= ⊥
+    assert EquivTree(T0 , T1 , st) = 1                                 for b ∈ {0, 1}, leaf Hi ∈ Tb do
+                                                                         for j ∈ [|Tb,i |] do
+    b0 ← AO (txb )
+    return b0                                                              (nulb,i,j , (aS         S                                  S        S
+                                                                                         b,i,j , tyb,i,j ), rb,i,j ) ← TryReceive(noteb,i,j , Cb,i,j , SK)
+                                                                                              b,i|T |
+  EvalTree(st, T )                                                       for ty ∈ {tyS
+                                                                                     b,i,j }j=1   do
+                                                                                        P                               P
+    for all leaf i ∈ T do                                                  ∆b,i,ty ←                         aS      −                       aT
+                                                                                                                                              0,i,j
+                                                                                              j:tyb,i,j =ty b,i,j
+      if leaf i = (tx, σ) then        % Validate adversarial txs                      P                              P j:ty0,i,j =ty
+                                                                       B1 ← ∀ty :                       ∆  0,i,ty =                    ∆ 1,i,ty
+        assert Verify(st, tx, σ) = 1                                          P           leaf H ∈T0
+                                                                                               i              P         leaf H ∈T1
+                                                                                                                             i
+      % Replace instruction leaves with real txs                       B2S ←           H          |S| 0,i =          H        |S|  1,i
+      if leaf i = (I, O) then                                                 Pleaf i ∈T0                     Pleaf i ∈T1
+        ptx ← BuildPTx(I, O, st, SK)                                   B2T ←           H          |T |0,i =           H         |T |1,i
+        txi ← CompleteTx(ptx)                                                S leaf i ∈T0                         leaf ∈T1
+                                                                                                                      iS
+
+        σi ← SignTx(ptx, st)                                           B3 ←                    {(tx0,i , σ0,i )} =                    {(tx1,i , σ1,i )}
+                                                                                 leaf A ∈T0                              leaf A ∈T1
+        Replace leaf i by (txi , σi ) in T                                  S i                                               i
+                                                                       Nf ←                            Nf i
+    % Fold T into a single root node by merging                                 (·,·,Nf i ,·)∈Spent
+                                                                                       S                                           S
+    while ∃ node N in T with only {(txi , σi )}ci=1 as children        B4 ← Nf ∩ (                         nul0,i,j ) = Nf ∩ (                      nul1,i,j )
+                                                                                           leaf H ∈T0 ,j                              leaf H ∈T1 ,j
+    do                                                                                          i
+                                                                                                  H                 A
+                                                                                                                           S               i
+                                                                                                                                                        S
+      Replace node with merged transactions of its children:           for b ∈ {0, 1}, leaf i ∈ Tb do Ob ←                                  (pkb,i,j , ab,i,j , tyS
+                                                                                                                                                                  b,i,j )
+                                                                                                                                      ∈PK
+                                                                                                                              pkb,i,j /
+      N ← (MergeTx({txi }ci=1 , MergeSig({σi }ci=1 ))
+      Remove its children                                              B5 ← O0A = O1A
+    return T                                                           return B1 ∧ B2S ∧ B2T ∧ B3 ∧ B4 ∧ B5
+
+
+
+Fig. 6. Transaction privacy experiment
+
+
+
+in the Merkle tree of state st with the given nullifier nul.                  then contains a proof πiS for each input together with
+          n                                                                   the SHC comS  i and for each output a signature πi and
+                                                                                                                                   T
+ Lspend =    st, nul, comS | ∃(path, skS ,aS , tyS , rS , rcS ) :
+                          
+                                                                              the SHC comi . The last component of the signature is
+                                                                                             T
+
+     (st.MT[path], nul; skS , (aS , tyS ), rS ) ∈ Lnul ∧                      the aggregated randomness of the commitments which,
+(st.MT[path]; OTA.P (skS ), (aS , tyS ), rS ) ∈ Lopen ∧                       together with the ∆ty imbalance, allows verification.
+                                                                                  For a full transaction verification, all proofs and sig-
+                                                                   o
+                             comS = Commit(tyS , aS ; rcS )
+                                                                              natures contained in σ must be valid and the published
+    The second language Loutput is even simpler. It                           nullifiers must be unique regarding the set of nullifiers
+claims that the two output commitments, the real                              in state st.
+(which is contained inside the output note) and the ran-                          With the transaction signature σ having a separate
+domized one, contain the same value of the same type.                         proof for each input and output, it is possible to merge
+To prevent overflows in the homomorphic commitments,                          transactions by calculating the union of their proofs. To
+we include a range proof where β is chosen small enough                       maintain the verifiability of the commitments, the ran-
+in relation to the group order (maximum inputs and                            domness of the merged transactions is added. The irre-
+outputs times 2β < |G|). Thereby we assume integer                            versible addition operation then prevents future parties
+amounts in subsequent arguments.                                              to unmerge a transaction if they have not seen the sep-
+          n                                                                   arate parts beforehand. To maintain the anonymity, we
+Loutput = (noteT , C T , comT ) | ∃(pkT , aT , tyT , rT , rcT ) :
+                                                                              order inputs and outputs canonically after each merge.
+              (st.MT[path]; pk, (aT , tyT ), rT ) ∈ Lopen ∧                       As a remark, the aggregated randomness in a trans-
+              comT = Commit(tyT , aT ; rcT )                                  action may be replaced by a proof of knowledge. Like the
+                                       o                                      binding signature of Sapling, this finalizes a transaction
+              aT ∈ {0, . . . , 2β − 1}                                        such that it can no longer be merged with others.
+
+Note that the ciphertext C T is not referred to in the
+relation, but when used with a simulation extractable
+(SE) NIZK, realizes a Signature of Knowledge. I.e. every
+proof is bound to a specific ciphertext and is invalid
+for any other ciphertext. The transaction signature σ
+                                                                                                                                                             Zswap          520
+
+
+
+        Setup(1λ )                                                             SignTx(ptx@(S, T ), st)
+          pSHC ← ComSetup(1 )    λ
+                                                                                 Parse S as {(skS       S                    S     S     S
+                                                                                                i , notei , nuli , pathi , (ai , tyi ), ri )}i=1
+                                                                                                                                                              |S|
+
+          pOTA ← OTA.Setup(1λ )                                                  Parse T     as {(pki , noteT    T     T     T     T   |T |
+                                                                                                            i , Ci , (ai , tyi ), ri )}i=1
+          pspend ← AoK[Lspend ].Setup(1λ )                                       % Rerandomized input/output commitments
+          poutput ← AoK[Loutput ].Setup(1λ )                                            $                                                 |S|
+                                                                                 {rcS − R, comS
+                                                                                    i ←
+                                                                                                           S    S     S
+                                                                                              i ← Commit(tyi , ai ; rci )}i=1
+          p := (pSHC , pOTA , pspend , poutput )
+                                                                                         $                                               |T |
+          return p                                                               {rcT
+                                                                                    i ← − R, comT                      T      T
+                                                                                                 i ← Commit(tyi , ai ; rci )}i=1
+                                                                                                                                   T
+
+                                                                                      S                      S
+                                                                                                                 |S|
+                                                                                 {stmti = st, nuli , comi }i=1
+                                                                                                                                |S|
+        Verify(st, tx, σ)                                                        {wiS = (pathi , skS      S    S     S      S
+                                                                                                    i , ai , tyi , ri , rci )}i=1
+                                                                                                                                 |S|
+                                                                                 {πiS ← AoK[Lspend ].Prove(stmtS         , w S
+                                                                                                                               )}
+                                 |S|                     |T |
+                                                                           
+          Parse tx as {nuli }i=1 , {(noteT         T
+                                              i , Ci )}i=1 , {∆ty }ty∈Ty
+                                                                                                                      i      i   i=1
+                                                                                                                       |T |
+          assert {nuli } are distinct                                            {stmtT
+                                                                                      i  = (note  T
+                                                                                                  i , C T
+                                                                                                        i  , com  T
+                                                                                                                  i )} i=1
+                                                                                                                         |T |
+          assert ∀i : nuli ∈ / st.NF                                             {wiS = (pki , aT      T     T     T
+                                                                                                i , tyi , ri , rci )}i=1
+                                          |S|                  |T |
+          Parse σ as ({(πiS , comS                 T      T
+                                     i )}i=1 , {(πi , comi )}i=1 , rc)
+                                                                                    T
+                                                                                 {πi ← AoK[L    output
+                                                                                                       ].Prove(stmti , wiT )}i=1
+                                                                                                                        T          |T |
+          for i ∈ [|S|] do                                                                                           |S|
+            find matching st0 such that ev(st0 , st) = 1                         return (ToSet({(πiS , comS     i  )}i=1
+                                                                                                                           ),
+                                                                                                                      |T |        |S|
+                                                                                                                                  P                      P|T |
+            stmti := (st0 , nuli , comSi )
+                                                                                          ToSet({(πiT , comT     i )}i=1 ),             rcS
+                                                                                                                                          i −                       rcT
+                                                                                                                                                                      i )
+                                                                                                                                  i=1                         i=1
+            assert AoK[Lspend ].Verify(πiS , stmti )
+          for j ∈ [|T |] do                                                    MergeSig({σj }n
+                                                                                             j=1 )
+            assert AoK[Loutput ].Verify(πjT , (noteT       T        T
+                                                      j , Ci , comj ))                                S          T        |S |        T           T          |T |
+                 L              L T                                              Parse σj as ({(πi j , comi j )}i=1
+                                                                                                                  j
+                                                                                                                    , {(πi j , comi j )}i=1
+                                                                                                                                          j
+                                                                                                                                            , rcj )
+                      comS
+        return
+                                Lcomi =
+                         i
+                                                                                      Pn
+                                                                                 rc ←        rcj
+          Commit(0, 0; rc) ⊕                 Commit(ty, ∆ty , 0).                            j=1     S                                       
+                                     ty∈Ty                                                                           S           T    |S |
+                                                                                                          n
+                                                                                 return      ToSet              {(πi j , comi j )}i=1
+                                                                                                                                    j
+                                                                                                                                                  ,
+                                                                                                     S j=1                                   
+                                                                                                          n          Tj          Tj   |Tj |              
+                                                                                             ToSet              {(πi , comi )}i=1                 , rc
+                                                                                                          j=1
+
+
+
+
+Fig. 7. The Zswap Construction
+
+
+
+                                                                                  1. two commitments corresponding to the values
+6 Security Proof                                                                     (a1 , ty1 ), (a2 , ty2 ) as they should be honestly; or
+                                                                                  2. the values swapped as (a2 , ty1 ), (a1 , ty2 ) if both in-
+In this section we prove the main three security prop-
+                                                                                     dices correspond to inputs or both to outputs, and
+erties of Zswap construction on Fig. 7 we introduced in
+                                                                                  3. swapped with negation (−a2 , ty2 ), (−a1 , ty1 ) other-
+Section 4.
+                                                                                     wise.
+Theorem 6.1 (Anti-Theft). The Zswap protocol pre-                                This way of embedding guarantees the HID-OR require-
+vents theft (Definition 4.3), assuming OTA security,                             ment that ∆ty,0 = ∆ty,1 . Then B simulates the two
+NIZK zero-knowledge, NIZK simulation-extractability,                             NIZKs corresponding to CX , CY . When A presents tx∗ ,
+and SHC binding and HID-OR.                                                      B will extract the randomness rci for all commitments
+                                                                                 except for CX , and thus because tx∗ also includes the
+Proof (Sketch). When A triggers the winning condi-                               joint randomness rc∗ , B can compute the randomness
+                                                                                 rcX for CX (as rc∗ −             rci ). Given rcX , B can check
+                                                                                                               P
+tion of the anti-theft game with an adversarial trans-
+action tx∗ , there exists a note or a nullifier taken from                       whether CX contains (a1 , ty1 ) or the “swapped” value,
+some honest OSpend query Ê, such that not all nulli-                            and thus wins HID-OR.
+fiers and notes from tx were included in tx∗ . By NIZK                           We present the detailed proof of anti-theft in the full
+simulation-extractability, the proofs that were produced                         version of this paper.
+in Ê “bind” together notes and nullifiers with the corre-
+sponding input and output commitments. This means A                              Theorem 6.2 (Privacy). The Zswap protocol is private
+uses some commitments from tx, but avoids some other.                            (Definition 4.5), if NIZK is zero-knowledge, Pedersen
+Given commitment binding, the values we extract for                              commitments are hiding, and OTA is private and satis-
+commitments of tx∗ (we can extract them from NIZKs)                              fies nullifier pseudorandomness.
+are the same as the values committed in tx.
+     From this point we can build a reduction B to HID-                          Proof. First, we note that changing the order of merge
+OR. B guesses a commitment CX that is present in both                            in the tree T does not affect the resulting merge trans-
+tx, tx∗ , and CY that is only present in tx. It asks the                         action. Let T 0 be a variant of T where any two trans-
+HID-OR challenger C for either                                                   actions are swapped — then EquivTree(T, T 0 ) = 1 and
+                                                                                                               Zswap        521
+
+
+EvalTree(st, T ) = EvalTree(st, T 0 ). The first statement                 have the same distribution, as guaranteed by B5 —
+can be verified by manually checking all the predicates                    these notes contain the same values, but created in
+and making sure they are indifferent to the order of the                   both trees with uniformly sampled randomness, so
+leaves. As for the evaluation equality statement, first                    are indistinguishable; the same applies to the adver-
+note that all the leaves will be processed in the same                     sarial ciphertexts. Or the notes belong to the honest
+way and with respect to the same st irrespectively of                      keys, in which case they are (together with the ci-
+their order. So we only need to argue that MergeTx and                     phertexts) indistinguishable by the OTA privacy.
+MergeSig are commutative — which is trivial since they                  5. In the signatures σi :
+are only uniting sets and taking sums (which are com-                    (5.1) By zero-knowledge, proofs πiS and πiT can be
+mutative operations on their own).                                              simulated in both worlds, so they are indistin-
+    Hence we can represent T as a merge of two trans-                           guishable.
+actions, coming from subtrees TA and TH . TA contains                    (5.2) Intermediary commitments comS              T can
+                                                                                                                   i , comi
+exactly the same leaves for both T0 and T1 if they are                          contain just zero (except for one chosen com-
+equivalent. Therefore, we only need to show the indis-                          mitment for each type which must contain ∆ty
+tinguishability of transactions txH,0 and txH,1 , created                       to balance out the public imbalance), and this
+from TH,0 , TH,1 correspondingly. If TH is empty in one                         is indistinguishable by HID-OR — commitment
+case (contains no leaves), it must be empty in the other                        hiding with open randomness (by a variation
+case, due to the restriction on input and output size, B2 ,                     with n elements involved simultaneously, as de-
+in EquivTree. And thus if txH,b is empty, txH,1−b should                        scribed in Lemma 2.1).
+be empty too for each b ∈ {0, 1}, in which case the pri-               The formal reduction is described in Appendix D.
+vacy proof is trivial, since adversarial transactions are
+constructed in exactly the same manner in both worlds.                 Theorem 6.3 (Balance). The Zswap protocol satisfies
+Therefore, assume that there is at least one input or                  the Balance property (Definition 4.4) by anti-theft,
+output in an honest transaction in both cases. Next,                   NIZK ZK, NIZK SE, and OTA Security.
+observe that:
+                                                                       Proof (Sketch). Intuitively, the property reduces to:
+  MergeSig({SignTx(BuildPTx(Ii , Oi , st, SK), st)}i ) =
+                         [             [                                1. NIZK SE (implying knowledge soundness (KS)) and
+   SignTx(BuildPTx(I 0 =   Ii , O0 =       Oi , st, SK), st)                commitment homomorphism (every valid transac-
+                                                                            tion is balanced);
+Because of this homomorphic property (and a similar                     2. Anti-theft, since A can use only its own notes; and
+one for MergeTx), we can assume that both txH,b and                         binding, since A can only open output commitments
+their signatures are just a direct output of CompleteTx                     in a single way when spending them.
+and SignTx (w.r.t. (I 0 , O0 )), and no merging is involved.           The first guarantees that transactions do not break per-
+The form of txH,b that A receives is                                   type balance and do not introduce any coins out of thin
+  ({nuli }|S| , {(notei , Ci )}|T | , {∆ty },                          air etc. The second proves that in the long-term A can
+                                                                       only move funds through such honest transactions. The
+              σi @({(πiS , comS
+                              i )}
+                                   |S|
+                                       , {(πiT , comTi )}|T | , rc))
+                                                                       full proof is presented in Appendix E.
+We first argue informally why this transaction looks the
+same for both trees.
+ 1. Set sizes: number of inputs and outputs |S| and |T |
+                                                                       7 Implementation
+    are the same, guaranteed by B2 , and by the fact
+    these dimensions are just summed when transac-
+                                                                       To show that our construction is practical, we devel-
+    tions are merged.
+                                                                       oped a prototype implementation available online8 . We
+ 2. Size and content of the {∆ty } set is the same by B1 .
+                                                                       use the rust framework ark-works9 and their Groth16
+ 3. The set of (honest) input nullifiers {nuli }|S| con-
+                                                                       SNARK library. For an efficient hashing circuit, we
+    tains: nullifiers that A received from OSpend — these
+                                                                       use Poseidon [15]. As the construction is similar to the
+    are the same by B4 ; and nullifiers unknown previ-
+                                                                       Zcash Sapling version, we use this as performance com-
+    ously to A — deterministic but indistinguishable by
+    nullifier pseudorandomness.
+ 4. {(notei , Ci )}|T | are either: belonging to adversarial           8 https://anonymous.4open.science/r/zswap-E331
+    keys in which case both the notes and ciphertexts                  9 https://arkworks.rs
+                                                                                                                        Zswap          522
+
+
+                                                                               The median, min and max runtimes of 30 execu-
+                          Zswap        Mock Sapling       Sapling         tions on a 6th generation i7 CPU@2.7GHz are sum-
+              1s                                                          marized in Figure 8. The times are for creating Com-
+
+
+time in ms
+                                                          0.011   0.008
+                                                                          mitments, Spend proofs and Output proofs. For ver-
+                          1862               4.7
+                    0.7   1760   879   4.7          6
+                                             4.5
+                                                          0.01    0.15
+                                 793                5.8
+                    0.4   2291   379   1.1   10.6   8.9
+                                                                          ification, we measure the homomorphic commitment
+             1 ms                                                         comparison, the Spend proof verification and the Out-
+                                                                          put proof verification. Without comparison to Sapling
+                                                                          are Merging transaction and transaction assembly. The
+             1 µs
+                                                                          SNARKs proving time takes around two seconds for
+                  it oof oof rify rify rify rge bly                       each input and one second for each output, dominating
+               omm d pr t pr ve d ve t ve Me ssem                         the transaction generation. The verification is notice-
+              C en tpu om en tpu              a
+               Sp Ou      C Sp
+                                Ou         Tx                             ably slower with support for types but approximately
+Fig. 8. Comparison of our protocol to our Mock Sapling imple-             equal to Zcash. Overall, we notice that the impact of
+mentation with the same hash function and the original Zcash.
+                                                                          the additional constraints required for our protocol are
+                                                                          minimal while providing additional functionality.
+parison. Our implementation differs in various aspects
+that aren’t material to the core protocol, including the
+SNARK implementation, hash functions used, and com-
+mitments used in the coin commitment Merkle tree. The
+                                                                          Acknowledgements
+production Zcash Sapling implementation10 uses less
+                                                                          We thank the anonymous reviewers and our shepherd,
+performant variants for backwards compatibility and in-
+                                                                          Sherman Chow, for their helpful comments in improv-
+tegration purposes. A direct performance comparison to
+                                                                          ing this work. This work was partially funded by the
+Zcash is therefore misleading, and we introduce an ar-
+                                                                          Carlsberg Foundation under the Semper Ardens Re-
+tificial “Mock Sapling” code base, that re-implements
+                                                                          search Project CF18-112 (BCM), the Sapere Aude:
+the Zcash Sapling cryptographic protocol but uses the
+                                                                          DFF-Starting Grant number 0165-00079B "Foundations
+same primitives as we do. We achieve this by remov-
+                                                                          of Privacy Preserving and Accountable Decentralized
+ing the types and type commitments from our construc-
+                                                                          Protocols" and by Input Output (iohk.io) through their
+tion. The comparison then allows us to detect the per-
+                                                                          funding of the Edinburgh Blockchain Technology Lab.
+formance impact of our changes to the cryptographic
+protocol compared to Sapling without the measurement
+error caused by different implementations.
+     For spend proofs, our protocol requires 25,416 gates,                References
+10% more than Mock Sapling (23,084). For output
+proofs, we use 14,852 gates, 18% more (12,520). In both                   [1]   Kurt M. Alonso and Jordi Herrera Joancomartí. Monero -
+                                                                                privacy in the blockchain. Cryptology ePrint Archive, Report
+cases the difference of 2,332 gates consists of a hash-to-
+                                                                                2018/535, 2018. https://eprint.iacr.org/2018/535.
+curve operation to associate the type with a curve point.                 [2]   Karim Baghery, Markulf Kohlweiss, Janno Siim, and Mikhail
+The rest of the constraints further break down into                             Volkhov. Another look at extraction and randomization
+two dominant groups: Symmetric cryptography (hashes,                            of groth’s zk-SNARK. Cryptology ePrint Archive, Report
+commitments, and Merkle tree verification), and group                           2020/811, 2020. https://eprint.iacr.org/2020/811.
+operations related to the binding signature. For spend                    [3]   Carsten Baum, Bernardo David, and Tore Kasper Frederik-
+                                                                                sen. P2dex: Privacy-preserving decentralized cryptocurrency
+proofs, symmetric operations dominate with 66% of con-
+                                                                                exchange. In Kazue Sako and Nils Ole Tippenhauer, editors,
+straints (16,935), primarily from the Merkle tree verifi-                       Applied Cryptography and Network Security, pages 163–194,
+cation (using a tree of height 32). The group operations                        Cham, 2021. Springer International Publishing.
+cover almost all of the remaining 24% of constraints                      [4]   Eli Ben-Sasson, Alessandro Chiesa, Christina Garman,
+(with 6,114). For output proofs, group operations make                          Matthew Green, Ian Miers, Eran Tromer, and Madars Virza.
+                                                                                Zerocash: Decentralized anonymous payments from bit-
+up 41% of the constraints (with the same 6,114 con-
+                                                                                coin. In 2014 IEEE Symposium on Security and Privacy,
+straints), and symmetric operations 43% of constraints                          pages 459–474. IEEE Computer Society Press, May 2014.
+(6,403).                                                                        10.1109/SP.2014.36.
+                                                                          [5]   Sean Bowe, Alessandro Chiesa, Matthew Green, Ian Miers,
+                                                                                Pratyush Mishra, and Howard Wu. ZEXE: Enabling de-
+10 https://github.com/zcash/zcash                                               centralized private computation. In 2020 IEEE Symposium
+                                                                                                                  Zswap           523
+
+
+     on Security and Privacy, pages 947–964. IEEE Computer          [18] Ahmed E. Kosba, Andrew Miller, Elaine Shi, Zikai Wen,
+     Society Press, May 2020. 10.1109/SP40000.2020.00050.                and Charalampos Papamanthou. Hawk: The blockchain
+[6] Benedikt Bünz, Shashank Agrawal, Mahdi Zamani, and                   model of cryptography and privacy-preserving smart con-
+     Dan Boneh. Zether: Towards privacy in a smart contract              tracts. In 2016 IEEE Symposium on Security and Privacy,
+     world. In Joseph Bonneau and Nadia Heninger, editors,               pages 839–858. IEEE Computer Society Press, May 2016.
+     FC 2020, volume 12059 of LNCS, pages 423–443. Springer,             10.1109/SP.2016.55.
+     Heidelberg, February 2020. 10.1007/978-3-030-51280-4_23.       [19] Russell W. F. Lai, Viktoria Ronge, Tim Ruffing, Do-
+[7] Matteo Campanelli, Felix Engelmann, and Claudio Orlandi.             minique Schröder, Sri Aravinda Krishnan Thyagarajan,
+     Zero-knowledge for homomorphic key-value commitments                and Jiafan Wang. Omniring: Scaling private payments
+     with applications to privacy-preserving ledgers. Cryptology         without trusted setup. In Lorenzo Cavallaro, Johannes
+     ePrint Archive, Report 2021/1678, 2021. https://eprint.iacr.        Kinder, XiaoFeng Wang, and Jonathan Katz, editors, ACM
+     org/2021/1678.                                                      CCS 2019, pages 31–48. ACM Press, November 2019.
+[8] Shumo Chu, Qiudong Xia, and Zhenfei Zhang. Manta:                    10.1145/3319535.3345655.
+     Privacy preserving decentralized exchange. Cryptology ePrint   [20] Sarah Meiklejohn and Rebekah Mercer. Möbius: Trustless
+     Archive, Report 2020/1607, 2020. https://ia.cr/2020/1607.           tumbling for transaction privacy. PoPETs, 2018(2):105–121,
+[9] Apoorvaa Deshpande and Maurice Herlihy. Privacy-                     April 2018. 10.1515/popets-2018-0015.
+     preserving cross-chain atomic swaps. In Matthew Bern-          [21] Andrew Poelstra, Adam Back, Mark Friedenbach, Gregory
+     hard, Andrea Bracciali, L. Jean Camp, Shin’ichiro Matsuo,           Maxwell, and Pieter Wuille. Confidential assets. In Aviv
+     Alana Maurushat, Peter B. Rønne, and Massimiliano Sala,             Zohar, Ittay Eyal, Vanessa Teague, Jeremy Clark, Andrea
+     editors, FC 2020 Workshops, volume 12063 of LNCS, pages             Bracciali, Federico Pintore, and Massimiliano Sala, editors,
+     540–549. Springer, Heidelberg, February 2020. 10.1007/978-          FC 2018 Workshops, volume 10958 of LNCS, pages 43–63.
+     3-030-54455-3_38.                                                   Springer, Heidelberg, March 2019. 10.1007/978-3-662-
+[10] Donghui Ding, Kang Li, Linpeng Jia, Zhongcheng Li, Jun Li,          58820-8_4.
+     and Yi Sun. Privacy protection for blockchains with account    [22] Samuel Steffen, Benjamin Bichsel, Mario Gersbach, Noa
+     and multi-asset model. China Communications, 16(6):69–79,           Melchior, Petar Tsankov, and Martin T. Vechev. zkay: Spec-
+     2019.                                                               ifying and enforcing data privacy in smart contracts. In
+[11] Felix Engelmann, Lukas Müller, Andreas Peter, Frank Kargl,          Lorenzo Cavallaro, Johannes Kinder, XiaoFeng Wang, and
+     and Christoph Bösch. SwapCT: Swap confidential transac-             Jonathan Katz, editors, ACM CCS 2019, pages 1759–1776.
+     tions for privacy-preserving multi-token exchanges. PoPETs,         ACM Press, November 2019. 10.1145/3319535.3363222.
+     2021(4):270–290, October 2021. 10.2478/popets-2021-            [23] Sam M Werner, Daniel Perez, Lewis Gudgeon, Ariah Klages-
+     0070.                                                               Mundt, Dominik Harz, and William J Knottenbelt. Sok: De-
+[12] Prastudy Fauzi, Sarah Meiklejohn, Rebekah Mercer, and               centralized finance (defi). arXiv preprint arXiv:2101.08778,
+     Claudio Orlandi. Quisquis: A new design for anonymous               2021.
+     cryptocurrencies. In Steven D. Galbraith and Shiho Mo-         [24] Jiahua Xu, Nazariy Vavryk, Krzysztof Paruch, and Simon
+     riai, editors, ASIACRYPT 2019, Part I, volume 11921 of              Cousaert. Sok: Decentralized exchanges (dex) with au-
+     LNCS, pages 649–678. Springer, Heidelberg, December                 tomated market maker (amm) protocols. arXiv preprint
+     2019. 10.1007/978-3-030-34578-5_23.                                 arXiv:2103.12732, 2021.
+[13] Georg Fuchsbauer, Michele Orrù, and Yannick Seurin. Ag-        [25] Zheng Yi, Howard Ye, Patrick Dai, Sun Tongcheng, and
+     gregate cash systems: A cryptographic investigation of Mim-         Vladislav Gelfer. Confidential assets on MimbleWimble.
+     blewimble. In Yuval Ishai and Vincent Rijmen, editors, EU-          Cryptology ePrint Archive, Report 2019/1435, 2019. https:
+     ROCRYPT 2019, Part I, volume 11476 of LNCS, pages                   //eprint.iacr.org/2019/1435.
+     657–689. Springer, Heidelberg, May 2019. 10.1007/978-3-
+     030-17653-2_22.
+[14] Zhimin Gao, Lei Xu, Keshav Kasichainula, Lin Chen, Bog-
+     dan Carbunar, and Weidong Shi. Private and atomic ex-
+     change of assets over zero knowledge based payment ledger.     A Proofs of Knowledge
+     arXiv preprint arXiv:1909.06535, 2019.
+[15] Lorenzo Grassi, Daniel Kales, Dmitry Khovratovich, Arnab
+                                                                    We quickly remind the reader of the classical security
+     Roy, Christian Rechberger, and Markus Schofnegger.
+     Starkad and Poseidon: New hash functions for zero knowl-       properties of a NIZK: The scheme is said to be complete,
+     edge proof systems. Cryptology ePrint Archive, Report          if ∀(stmt, w) ∈ RL we have
+     2019/458, 2019. https://eprint.iacr.org/2019/458.                                                                      
+[16] Daira Hopwood, Sean Bowe, Taylor Hornby, and Nathan                        (crs, ·) ← Setup(RL );
+                                                                       Pr                                                        =1
+     Wilcox. Zcash protocol specification. GitHub: San Francisco,               Verify(crs, stmt, Prove(crs, stmt, w)) = 1
+     CA, USA, 2016.
+[17] Thomas Kerber, Aggelos Kiayias, and Markulf Kohlweiss.
+     Kachina–foundations of private smart contracts. In 2021
+     IEEE 34th Computer Security Foundations Symposium
+     (CSF), pages 1–16. IEEE, 2021.
+                                                                                                             Zswap           524
+
+
+The scheme is knowledge sound (KS) if for all PPT A               Given a key anonymous public key encryption
+there exists an extractor E such that                         scheme PKE, a labeled PRF and a commitment scheme
+                                                              (Commit). The randomness space is S := ({0, 1}λ )3 , the
+      (crs, ·) ← Setup(RL );
+                                          
+     (stmt, π) ← A(crs); w ← E(stmt, π) :                   key space is K := {0, 1}λ and the message space consists
+ Pr 
+     Verify(crs, stmt, π) = 1 ∧
+                                            ≤ negl(λ)
+                                                             of two λ-bit integers M := Z22λ the first representing an
+                                                              amount and the second identifying a type. The random-
+        (stmt, w) ∈
+                  / RL
+                                                              ness space Ξ is specified by PKE.
+Finally, we say that the scheme is (computational) zero-
+knowledge if for any PPT adversary A and Rλ , |ε0 −           p ← Setup(1λ ): Initializes the SNARK parameters p.
+ε1 | ≤ negl(λ), where                                         (sk, pk) ← KeyGen(): Samples ask randomly from K
+                                                                  and defines apk ← P (sk) := PRFaddr          ask (0); samples
+    εb = Pr (crs, τ ) ← Setup(RL ) : ASb,crs,τ (crs) = 1          an encryption key pair skenc , pkenc . Return sk =
+                                                        
+
+                                                                  (ask , skenc ), pk = (apk , pkenc ). The relationship be-
+The oracle Sb,crs,τ on input (stmt, w) asserts that               tween secret and public keys of the encryption keys
+(stmt, w) ∈ Rλ and then returns π = Prove(crs, stmt, w)           is defined in the encryption scheme.
+if b = 0, and π = Sim(crs, τ, stmt) if b = 1.                 note ← Gen(pk, ~a, r): Parse (rk, rc, rn)             ←     r and
+     We additionally require a stronger variant of the KS         (apk , pkenc ) ← pk. Commit to (apk , rn) with ran-
+property called simulation-extractability, where extrac-          domness rk as commitment com and then com-
+tion is possible in the presence of simulated proofs.             mit to com, ~a with randomness rc. So note =
+                                                                  Commit(Commit(apk , rn; rk), ~a; rc).
+Definition A.1 (Simulation-Extractability [2]).     We
+                                                              C ← Enc(pk, (~a, r), ξ): Parse (apk , pkenc ) ← pk. Encrypt
+say that a non-interactive argument is weakly
+                                                                  (~a, r) with pkenc to ciphertext C and return C.
+simulation-extractable (SE) if for any PPT adversary
+                                                              (~a0 , r0 )/⊥ ← Receive(note, C, sk): Parse (ask , skenc ) ←
+A there exists a PT extractor EA such that for Rλ ,
+                                                                  sk. Decrypt C with skenc to (~a0 , r0 ). Parse
+                                                                  (rk0 , rc0 , rn0 )      r0 and verify that these
+                                      
+          (crs, τ ) ← Setup(RL );                                                    ←
+        (stmt, π) ← AScrs,τ (crs);
+       
+                                       
+                                                                 values recreate the commitment note                           =
+    Pr  w ← EA (stmt, π) :
+       
+                                        ≤ negl(λ)
+                                                                 Commit(Commit(P (ask ), rn0 ; rk0 ), ~a0 ; rc0 ). If decryption
+        Verify(crs, stmt, π) = 1 ∧
+                                      
+                                                                 fails or the commitment does not match the note,
+             (stmt, w) ∈/ Rλ ∧ stmt ∈
+                                    /Q                            return fail.
+                                                              nul ← NulEval(sk, r): Parse (ask , skenc ) := sk and
+where Scrs,τ (stmt) is a simulator oracle that calls              (rk, rc, rn) := r. Evaluate nul = PRFsn     ask (rn) and return
+Sim(crs, τ, stmt) internally, and also records stmt into Q.       nul.
+
+The SE property guarantees that a NIZK in a certain           Theorem B.1 (OTA Binding). When using a binding
+sense “instance-binding”. E.g. if a certain game produces     commitment scheme Commit, the Zerocash commitment
+proofs {πi } for a language with a hard sublanguage (e.g.     scheme is binding according to Definition 3.3
+stmt = (stmt1 , stmt2 ) and stmt1 = f (w1 ) where f is a
+one-way function), we can simulate these proofs, and          Proof. Let A return pk0 , ~a0 , r0 , pk1 , ~a1 , r1 such that
+by SE A can only return either these simulated proofs         Gen(pk0 , ~a0 , r0 ) = Gen(pk1 , ~a1 , r1 ) and ~a0 6= ~a1 . Parsing
+for the same instance, or we can extract w from them          ∀i ∈ {0, 1} : (rki , rci , rni ) ← ri , the first condition im-
+(in which case the reduction essentially inverts f ). This    plies the equality Commit(Commit(pk0 , rn0 ; rk0 ), ~a0 ; rc0 )
+means that A cannot change the stmt2 part in {πi }. In        = Commit(Commit(pk1 , rn1 ; rk1 ), ~a1 ; rc1 ) but the com-
+practice this means that if the honest π hides certain        mitments have different values for ~a. This breaks the
+secrets (a key, or a secret random value), then A cannot      binding property of the commitment scheme.
+maul π into proofs for a “slightly different” instance.
+                                                              Theorem B.2 (Note Uniqueness). Zerocash            OTA
+                                                              style notes are unique according to Definition 3.5
+
+B Zerocash-Style OTA                                          Proof. Trivially follows from binding of the underlying
+                                                              commitment scheme – since both pk and ~a are commit-
+To use Zerocash style one-time-accounts, we provide an        ment messages, finding a collision (even with adversar-
+instantiation which is compatible with Zerocash.
+                                                                                                                         Zswap        525
+
+
+ially chosen randomness) amounts to breaking commit-                PRF keypair. In (3) and (4) we just wire the challenge
+ment binding.                                                       oracles through to ORcv , since ORcv is essentially a CCA-
+                                                                    like oracle.
+Theorem B.3 (Nullifier Uniqueness). The Zerocash
+OTA scheme has unique nullifiers (Definition 3.7), if
+the PRF is secure and the commitment scheme is bind-
+ing.                                                                C Proof of HID-OR for Sparse
+                                                                      Pedersen Commitment
+Proof. Let A return (sk0 , r0 , ~a0 , sk1 , r1 , ~a1 ) which gen-
+erates the same note but different nullifiers nul0 and              Proof of Lemma 2.1. Let the hash function be modelled
+nul1 . The binding commitment scheme ensures that                   by the random oracle, and H(tyi ) = Gti , and thus the
+(sk0 , r0 , ~a0 ) = (sk1 , r1 , ~a1 ). As NulEval is determinis-    challenger knows all ti . The form of commitments that
+tic, the nullifiers are equal, contradicting our assump-            are given to the adversary is thus:
+tion.
+                                                                                  [tb ab + r], [t0b a0b + r0 ], rc = r − r0
+Theorem B.4 (Nullifier Pseudorandomness). The Ze-
+                                                                    The initial game is HID-OR0 , in which A sees the pre-
+rocash OTA nullifiers are pseudorandom (Defini-
+                                                                    vious equation for b = 0. In Game1 we sample r̂ and
+tion 3.6), if the PRF is secure and the commitment
+                                                                    instead give A the following:
+scheme is hiding.
+                                                                                 [r̂], [t00 a00 + r0 ], rc = (r̂ − t0 a0 ) − r0
+Proof. The pseudorandomness experiment is exactly
+                                                                    Note that t0 a0 +r and r̂ are both uniform, so A does not
+the same as standard pseudorandomness, except A
+                                                                    see the difference, the transition is perfect. Similarly we
+is given (1) a public key, (2) an oracle access
+                                                                    equivocate the second commitment:
+to Receive(·, ·, sk). The public key is computed as
+PRFaddr
+     ask (0), and so by pseudorandomness of this PRF                            [r̂], [r̂0 ], rc = (r̂ − r̂0 ) − (t0 a0 − t00 a00 )
+(with a different domain) can be replaced by a random
+                                                                        And now we “switch” the elements to the case of
+value ψ, so knowledge of an extra random value does
+                                                                    b = 1. Let T = {t0 , t00 } = {t1 , t01 }. Given ∆ty,0 = ∆ty,1
+not help A to distinguish. Regarding the Receive ora-
+                                                                    for all ty ∈ T we have:
+cle, it performs decryption with an unrelated skenc , so                                 X          X
+it does not interfere with the main pseudorandomness                   t0 a0 − t00 a00 =   t∆ty,0 =        t∆ty,1 = t1 a1 − t01 a01
+reduction, since this oracle does not use ask (it uses ψ                                 t∈T               t∈T
+
+which we already argued to be random and thus irrele-               Therefore what A sees now is:
+vant).
+                                                                                [r̂], [r̂0 ], rc = (r̂ − r̂0 ) − (t1 a1 − t01 a01 )
+Theorem B.5 (OTA Privacy). Using a hiding com-                          So we can proceed with replacing r̂ and r̂0 “back”
+mitment scheme and a IND-CCA, key anonymous (IK-                    into real commitments to the b = 1 values similarly to
+IND) encryption scheme, the Zerocash-style OTA is pri-              how we abstracted them in the first steps of the proof.
+vate according to Definition 3.4                                    The end result is a distribution that A sees for b = 1
+                                                                    (HID-OR1 ): [t1 a1 +r], [t01 a01 +r0 ], rc = r −r0 so our hiding
+Proof. This property trivially reduces to the assump-               holds with probability 1 (is perfect).
+tions mentioned, since its game is essentially a merger
+of IND-CCA, IK-IND, and a commitment hiding, where                  Corollary C.1. Assuming                        commitment   hiding,
+all the data is showed simultaneously, depending on b.              Lemma 2.1 holds even if A provides two sets of size
+Formally, we                                                        n (not just pairs) of input and output commitments,
+ 1. switch nullifiers to random values,                             {(tyi,t , ai,t ), (ty0i,t , a0i,t )}n,1
+                                                                                                        i,t=0,0 , as long as they still
+ 2. switch the commitments from b = 0 to b = 1, and                 jointly sum to the same values per type.
+     then
+ 3. switch messages by IND-CCA, and (4) keys by IK-                 Proof. The proof is exactly the same as the previous
+     IND.                                                           one, except that we first “idealise” 2n commitments
+In the steps (1) and (2) we can still simulate ORcv since           (and not just two) from b = 0, and then de-idealise
+in both cases it uses a keypair that is unrelated to the            them all back. The transition logic in the middle holds
+                                                                    similarly because ∆ty,0 = ∆ty,1 .
+                                                                                                                           Zswap             526
+
+
+                                                                   Game4 : Replace intermediary commitments com with
+D Privacy Proof                                                    the values from T1 . Here we apply HID-OR for vectors,
+                                                                   as described in Corollary C.1: replacing one set of typed
+Proof of Theorem 6.2, deferred reduction. Formally, we
+                                                                   commitments with another, given that ∆ty,0 = ∆ty,1 for
+construct a series of games transforming Privacy0A (1λ )
+                                                                   each type. This transition is perfect.
+into Privacy1A (1λ ).
+                                                                   Game5 : Remove the simulation, create real proofs ac-
+Game1 : Replace all honest NIZKs (created inside OSpend            cording to the new data in T1 . From the first game,
+and SignTx) to simulated NIZKs.                                    we have not modified anything outside of the scope of
+Game2 : By nullifier pseudorandomness, replace all the             EvalTree, so all NIZKs in OSpend queries are “restored”
+honest nullifiers A has not seen through OSpend by the             from simulations without any issue, since they are for
+nullifiers over a different set of secret keys.                    exactly the same data. Now it is a matter of a complete-
+To switch the NulEval(sk0 , r0 ) to NulEval(sk1 , r1 ), we first   ness check to make sure that the new transaction con-
+pick a random function f and switch all evaluations of             structed in EvalTree has the same distribution as txH,1
+NulEval(sk0 , r) to f (r). Since the nullifiers in txH have        except for the (yet simulated) proofs, and in particular it
+not been queried previously in OSpend , the evaluation of          satisfies Lspend and Loutput . So now we enable real NIZKs
+f (r0 ) is the first one in the game. Hence, it is equivalent      back as well, and by zero-knowledge we obtain honest
+to returning a random value ψ instead of f (r0 ). Then,            proofs for T1 . Now Game5 is equivalent to Privacy1A (1λ ),
+again by pseudorandomness, we return all the other (not            which concludes the privacy proof.
+related to txH ) evaluations of f (·) back to NulEval(sk0 , ·).
+We now perform exactly the same steps then for the sec-
+ond key, de-idealizing ψ into NulEval(sk1 , r1 ). First we
+replace all evaluations of NulEval(sk1 , r) to f (r), then
+                                                                   E Balance Proof
+we observe that r1 has not yet been queried to f (·),
+                                                                   Proof of Theorem 6.3. We start with the inductive step
+so it is equivalent to return f (r1 ) instead of ψ. Then we
+                                                                   first, proving the single-tx Balance-Single property, pre-
+replace all f (r) back to NulEval(sk1 , r), including the tar-
+                                                                   sented next, which asserts that each separate transac-
+get nullifier in txH . This is how we have just replaced
+                                                                   tion is well-formed (with respect to the data extracted
+NulEval(sk0 , r0 ) by NulEval(sk1 , r1 ). Repeat the proce-
+                                                                   from NIZKs), and in particular, balanced. Addition-
+dure for all pairs of nullifiers in txH in any order (i.e.
+                                                                   ally, it allows introducing the extractor into the balance
+it does not matter what the source and target of the
+                                                                   game, which we will use later.
+replacement is since all values are pseudorandom).
+Game3 : Replace output notes and related ciphertexts to
+                                                                      Balance-SingleA,EA (1λ )
+honest secret keys by the notes and ciphertexts for T1 .
+                                                                        p ← Setup(1λ )
+Recall that output notes to A keys must have exactly                    (st, tx, σ) ← A(p)
+the same inputs in both cases, so their distribution is                                       |S|                     |T |
+                                                                                                                                         
+                                                                        Parse tx as {nul∗                T∗
+                                                                                          i }i=1 {(notei , Ci )}i=1 , {∆a:ty }ty∈Ty
+
+exactly equal. This step relies on the OTA privacy and                  ptxE @(SE , TE ) ← EA (p, tx, σ)
+                                                                                                                                       |S|
+                                                                        Parse SE as {(skS         S                     S    S     S
+                                                                                          i , notei , nuli , pathi , (ai , tyi ), ri )}i=1
+again on nullifier pseudorandomness.                                                                                            |T |
+                                                                        Parse TE as {(pkT         T    T     T     T     T
+                                                                                          i , notei , Ci , (ai , tyi ), ri )}i=1
+By OTA privacy one can replace OTA.Gen(pkb , (tyb , vb ),               return Verify(st, tx, σ) = 1 ∧
+                                                                            (CheckPTx(ptxE , st) 6= 1 ∨ CompleteTx(ptxE ) 6= tx)
+r) and OTA.Enc(pkb , (tyb , vb , r), ξ) from b = 0 to b = 1
+even if there are Receive calls in the game before and
+after the replacement. (After, we cannot query the chal-               Formally, we claim that for every A exists EA s.t.
+lenge note in a CCA fashion, which is irrelevant since             Pr[Balance-SingleA,EA (1λ ) = 1] ≤ negl(λ).
+we replace it in the very end of the game.)                        Proof (Balance-Single). We follow the CheckPTx code
+The only detail left now is that there are also nullifier          and show why it succeeds. The check that nuli ∈       / st.MT
+evaluations that use the challenge skb , but by nulli-             is directly checked in Verify. All except the last (balance)
+fier pseudorandomness we can replace these nullifiers by           checks reduce to the NIZK knowledge-soundness.
+consistent random values before the OTA privacy switch                  Looking at every Lspend NIZK first, the
+(we can do that in the presence of Receive evaluations             fact it verifies implies that we extract w =
+because of the Receive oracle in the pseudorandomness              (pathi , skS
+                                                                              i , ai , tyi , ri , rci ), which by NIZK soundness
+                                                                                   S     S S        S
+definition), perform the privacy switch, and then return           guarantees for all i ∈ [|S|]:
+the real NulEval evaluations back.
+                                                                                                          Zswap         527
+
+
+     st.MT[pathi ] = noteS
+                         i ∧                                         in the final vA (which only sums up the “resulting”
+        nuli = OTA.NulEval(skS    S                                  assets of A). E.g. A can “refresh” the note note ∈ I0
+                             i , ri ) ∧
+                                                                     by moving its funds to another adversarial note0 ∈ / I,
+        noteS                            S     S     S
+             i = OTA.Gen(OTA.P (ski ), (ai , tyi ), ri )
+                                                                     and without NH this will not be reflected anywhere.
+The (1) and (3) are by Lopen , and (2) is by                       – We insert the assertion ∃ty ∈ T : vH [ty] ≤ v0 [ty] +
+Lnul (see Lspend structure); Similarly, the output                   vH− [ty] − vH+ [ty] into the end of each loop. Clearly
+NIZKs guarantee (through Lopen ) the existence of                    this only increases adversarial chances to win by
+(pkT , aT , tyT , rT , rcT ) s.t.:                                   providing an extra winning condition.
+                                                                     For example, if this predicate fails in the middle
+    ∀i ∈ [|T |] : noteTi = OTA.Gen(pkTi , (aTi , tyTi ), riT )       of the loop w.r.t. some intermediate st0 , A could as
+                                                                     well choose st0 for its challenge response, and win the
+Which is again by Lopen . The last (balance) check                   original game with the assertion in the end. And also
+                    |S|      T |T |
+that ∀ty ∈ {tyS i }i=1 ∪ {tyi }i=1 :
+                                     P
+                                                      |S| a −
+                                       a∈{aS
+                                           i
+                                             |tyS
+                                                i
+                                                  =ty}i=1            clearly using vH instead of vA in the predicate only
+                 |T | a = ∆ty succeeds by the commitment
+P
+  a∈{aT |tyT =ty}
+       i   i     i=1
+                                                                     gives A more advantage, since in the end vA ≤ vH :
+homomorphic property in Verify(·, ·, ·). We know by the              by anti-theft, A cannot spend honest nullifiers, and
+previous steps that ai are the same values that are com-             thus it can only claim notes from NH (and can only
+mitted into comi , and the commitments sum to the iden-              do it once by nullifier uniqueness and OTA binding),
+tity, which means that the committed values ai sum to                but vA is calculated w.r.t. I ⊂ NH .
+0.
+                                                                      In the base case of the induction, before the first
+The main balance property follows inductively by fol-
+                                                                  loop (before any transaction is processed), the predicate
+lowing the (st, st0 , tx, σ) ∈ Ins0 loop step-by-step. But
+                                                                  holds, since vH [ty] = v0 [ty] and vH+ = vH− = 0.
+before we present the main proof reasoning, we must
+                                                                      Assume now that the predicate holds in the begin-
+introduce several auxiliary constructions into the game.
+                                                                  ning of the loop, we will show it persists through the
+At each step we will trace the notes that A can spend,
+                                                                  loop execution. Fix a type ty, and apply the follow-
+and will argue that both during the game, and in the
+                                                                  ing reasoning to each type in the transaction. Compute
+end of it, the sum of these is not enough to break the                                ∆ , v∆
+                                                                  the local values vH−      H+ as prescribed by the game.
+balance predicate.                                                             ∆ by looking at all the outputs in tx , and
+                                                                  Compute vA                                          A
+                                                                  summing the corresponding values that can be received
+ – Instead of computing vA in a separate loop before
+                                                                  using SK∗ . These values are the same as the values ex-
+   the main loop, we will move it into the main loop.
+                                                                  tracted by a single-step definition, by OTA output note
+   Now, vA is updated whenever the balance game lo-
+                                                                  binding.
+   cates a note ∈ I in the outputs of tx (this note is
+                                                                      Compute v ∆ from the extracted (input and output)
+   still attempted to be received by SK∗ ). This allows                           H
+                                                                  NIZKs by adding all the adversarial output values and
+   us to track the successive stake accumulation of A,
+                                                                  subtracting all the adversarial input values.
+   but only on those coins that it claims in I.
+                                                                      Now we need to prove that v ∆ ≤ vH−     ∆ − v∆
+                                                                                                                     H+ (v0
+ – We add a set11 NH , initially populated with notes                                                    H
+                                                                  does not ever change). But this reduces to the commit-
+   in I0 . Each loop iteration will
+                                                                  ment balancing condition: v ∆ =         ai − ai , while
+                                                                                                       P T A P SA
+    1. remove adversarial input notes from it, and                                               H
+                                                                                    ai − ai , and by the last (balanc-
+                                                                                 P SH P T H
+    2. add to it all the output notes that cannot be              vH− − vH+ =
+        received by SK.                                           ing) check in CheckPTx, guaranteed by Balance-Single,
+   For both actions we need the data extracted by                 we have
+   Balance-Single, that “reveals” the notes behind the
+                                                                        X          X             X          X
+                                                                            aSA
+                                                                             i   +      aSH
+                                                                                         i    −     aTi A −   aTi H ≥ 0
+   nullifiers, including adversarial ones. The new vari-
+   able vH will track balances inside NH , and is up-             (Greater than equal, since ∆ty can be positive.) Which
+   dated whenever NH is changed. NH and vH track all              translates into −v ∆ + vH− − vH+ ≥ 0, equivalent to
+                                                                                     H
+   the transient adversarial transactions, not counted            v ∆ ≤ vH− − vH+ as we need. So the predicate persists
+                                                                   H
+                                                                  through the loop iteration.
+                                                                      Since at each point vH ≥ vA , and the predicate
+11 “Not honest” in the context of notes means adversarial notes
+                                                                  vH ≤ . . . holds in the end of each loop, the predicate in
+and also notes that are “burned” — that cannot be accessed by     the end with vA ≤ . . . will also hold, and thus A cannot
+anyone.                                                           win the balance game.
+
