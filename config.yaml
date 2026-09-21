@@ -6,15 +6,11 @@ project:
   log_level: "INFO"
 
 seed_inputs:
-  - type: "pdf"
-    value: "./3795774.pdf"
-  - type: "pdf"
-    value: "./3805044.pdf"
-  - type: "pdf"
-    value: "./Proposta_Mestrado-2.pdf"
-  # --- ZK-DeFi seeds (swap / loan / collateral / mixer) ---
-  - type: "pdf"
-    value: "./zk_defi_super.pdf"          # Tornado Cash whitepaper (sem DOI -> fallback titulo)
+  # Nota: os seeds em PDF (3795774.pdf, 3805044.pdf, zk_defi_super.pdf) foram
+  # removidos do repo em 15/09/2026 junto com a reorganização — o mecanismo de
+  # busca vive neste repo; as propostas de pesquisa ficam no diretório pai
+  # (../2026-09-13-open-problems). Para semear por PDF, aponte para o arquivo
+  # local desejado, ex.: value: "./meu_paper.pdf".
   - type: "title"
     value: "Tornado Cash Privacy Solution"
   - type: "url"

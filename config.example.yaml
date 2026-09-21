@@ -11,9 +11,7 @@ project:
 seed_inputs:
   # PDF files (text + references are extracted locally)
   - type: "pdf"
-    value: "./papers/3805044.pdf"
-  - type: "pdf"
-    value: "./papers/3795774.pdf"
+    value: "./meu_paper.pdf"
   # DOI (resolved via OpenAlex -> Crossref)
   - type: "doi"
     value: "10.36227/techrxiv.170327806.66007684"
