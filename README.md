@@ -2,6 +2,11 @@
 
 Descobre papers relevantes por citação e co-autoria, e baixa os PDFs automaticamente.
 
+> **Layout do repo (15/09/2026):** este repositório guarda apenas o mecanismo
+> de pesquisa (código + configs + testes; `cache/` regenerável). As propostas de
+> mestrado atuais — com a página HTML, pdfs e notas de revisão — ficam no
+> diretório pai: `../2026-09-13-open-problems/`.
+
 ## Instalação
 
 Requer Python 3.11+ e [`uv`](https://docs.astral.sh/uv/).
