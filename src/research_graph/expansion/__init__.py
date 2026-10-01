@@ -52,6 +52,7 @@ def run_expand(
             max_hops=config.research_scope.max_hops,
             max_total=config.research_scope.max_total_papers,
             min_score=config.research_scope.min_relevance_score,
+            expand_by=config.search.expand_by,
         )
         merged = merge_papers(seeds + expanded)
         papers_path.write_text(

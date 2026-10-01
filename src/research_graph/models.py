@@ -13,9 +13,12 @@ TypedEdge, EvidenceStrength, ProviderResult.
 from __future__ import annotations
 
 import enum
+import hashlib
+import re
+import unicodedata
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 
 # ---------- Enums --------------------------------------------------------------
@@ -185,11 +188,19 @@ class FutureWork(_Base):
 
 class OpenProblem(_Base):
     statement: str
-    problem_hash: str  # SHA-1 of NFC+lower+ws-collapsed statement
+    # SHA-1 of NFC+lower+ws-collapsed statement. Always computed here, never
+    # trusted from the LLM, so the same question dedupes across papers.
+    problem_hash: str = ""
     supporting_paper_ids: list[str] = Field(default_factory=list)
     declared_by_paper_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     origin: Origin = Origin.DECLARED
+
+    @model_validator(mode="after")
+    def _compute_hash(self) -> "OpenProblem":
+        norm = re.sub(r"\s+", " ", unicodedata.normalize("NFC", self.statement)).strip().lower()
+        self.problem_hash = hashlib.sha1(norm.encode("utf-8")).hexdigest()
+        return self
 
 
 # ---------- Extraction record (LLM output, validated) -------------------------

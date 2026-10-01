@@ -157,6 +157,7 @@ def expand_seeds(
     min_score: float = 0.35,
     http_budget_per_hop: int = 200,
     min_new_coverage: float = 0.02,
+    expand_by: list[str] | None = None,
 ) -> list[Paper]:
     """Bounded graph walk: hop=0 = seeds; hop=1 = refs+citants+author-coauthored;
     hop=2 = same for top-K.
@@ -167,6 +168,9 @@ def expand_seeds(
         front-tier of new papers falls below 2% of the seen set — most 2-hop
         graphs saturate after the second hop and pruning saves 30-50% of work.
       - Sort by ``(-score, paper_id)`` so reruns are byte-identical.
+      - ``expand_by`` (config ``search.expand_by``) picks the axes walked:
+        "references", "citations", "authors". None = all three. Other values
+        ("similarity", "institutions", "keywords") are not implemented here.
     """
     from research_graph.expansion.authors import (
         collect_author_papers, collect_coauthors, collect_author_works,
@@ -174,6 +178,11 @@ def expand_seeds(
     from research_graph.expansion._seen import BoundedSeenSet
     from pathlib import Path
     import json as _json
+
+    axes = set(expand_by) if expand_by is not None else {"references", "citations", "authors"}
+    use_authors = "authors" in axes
+    walkers = [w for axis, w in (("references", collect_references),
+                                 ("citations", collect_citations)) if axis in axes]
 
     seen = BoundedSeenSet(capacity=max(2 * max_total, 10_000))
     for p in seeds:
@@ -200,12 +209,10 @@ def expand_seeds(
     for hop in range(max_hops):
         new_papers: list[Paper] = []
         for seed in frontier:
-            refs = collect_references(seed, registry, limit=50)
-            cits = collect_citations(seed, registry, limit=50)
-            new_papers.extend(refs)
-            new_papers.extend(cits)
+            for walk in walkers:
+                new_papers.extend(walk(seed, registry, limit=50))
         # Hop 0: papers authored by canonical authors (from people.json).
-        if hop == 0 and author_ids:
+        if use_authors and hop == 0 and author_ids:
             for aid in author_ids[:30]:
                 try:
                     new_papers.extend(collect_author_papers(aid, registry, limit=25))
@@ -215,7 +222,7 @@ def expand_seeds(
         # "iterative loop" the user asked for: when we encounter a paper,
         # we resolve its authors; from those authors we pull their other
         # papers; from those papers we discover new co-authors; repeat.
-        if hop >= 1 and coauthor_ids_seen:
+        if use_authors and hop >= 1 and coauthor_ids_seen:
             for aid in list(coauthor_ids_seen)[:30]:
                 try:
                     new_papers.extend(collect_author_papers(aid, registry, limit=15))

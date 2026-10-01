@@ -28,7 +28,13 @@ Rules:
    - Limitations = weaknesses the paper admits (e.g. "our proof requires a trusted setup").
    - Future Work = directions the paper explicitly suggests.
    Do not mix them.
-7. Output the JSON object directly — no prose, no markdown fencing, no commentary."""
+7. `open_questions` = unsolved problems the paper leaves open (often phrased as
+   "it remains open whether...", "an open question is...", or implied by a limitation
+   no known technique fixes). One entry per question:
+   {"statement": "<the question, one sentence>", "confidence": <0..1>,
+    "origin": "declared"|"inferred", "declared_by_paper_ids": ["<paper_id>"]}.
+   Do not compute `problem_hash`; it is filled in automatically. Use [] if none.
+8. Output the JSON object directly — no prose, no markdown fencing, no commentary."""
 
 
 CLAIMS_SYSTEM: str = """You re-classify research-paper claims.

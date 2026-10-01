@@ -32,6 +32,7 @@ def _cache_key(paper: Paper) -> str:
         "paper_id": paper.paper_id,
         "title": paper.title,
         "abstract": (paper.abstract or "")[:4000],
+        "prompt": EXTRACT_SYSTEM,  # prompt change invalidates stale extractions
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return "extraction:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -72,13 +73,6 @@ def extract(paper: Paper, llm: LLMProvider, cache: Cache | None = None) -> Extra
         rec = declared_to_extraction_record(paper)
         rec.extraction_confidence = 0.0
         return rec
-
-    # Declared metadata overrides inferred
-    if paper.year is not None:
-        rec.year = paper.year if hasattr(rec, "year") else paper.year
-    if paper.doi:
-        # No doi field in ExtractionRecord; provenance note on the first claim's evidence_location
-        pass
 
     if cache is not None:
         try:
