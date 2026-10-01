@@ -108,6 +108,8 @@ class OpenAlexPdfProvider(AcademicProvider):
             return failed("openalex_pdf is opt-in (enable_pdf_download: false)", self.name)
         sp = paper.source_provenance or {}
         url = sp.get("openalex_pdf_url") if isinstance(sp, dict) else None
+        if isinstance(url, list):  # tolerate list vs scalar forms
+            url = url[0] if url else None
         if not url:
             return failed(
                 f"openalex_pdf: no openalex_pdf_url in source_provenance for {paper.paper_id}",

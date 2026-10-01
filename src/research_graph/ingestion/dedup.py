@@ -57,9 +57,12 @@ def _merge_pair(older: Paper, newer: Paper) -> Paper:
             if v not in seen:
                 seen.append(v)
         data[f] = seen
-    # source_provenance: merge
+    # source_provenance: merge (values may be list[str] or a scalar str)
     sp = dict(data.get("source_provenance") or {})
     for k, vs in (new.get("source_provenance") or {}).items():
-        sp[k] = list({*sp.get(k, []), *vs})
+        prev = sp.get(k, [])
+        prev = [prev] if isinstance(prev, str) else prev
+        vals = [vs] if isinstance(vs, str) else (vs or [])
+        sp[k] = list({*prev, *vals})
     data["source_provenance"] = sp
     return Paper.model_validate(data)

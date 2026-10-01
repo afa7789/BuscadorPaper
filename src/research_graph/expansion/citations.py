@@ -32,7 +32,7 @@ def collect_references(
         except Exception as e:
             _log.warning(f"get_references failed on {provider.name}: {e}")
             continue
-        if r.status == "failed" or r.data is None:
+        if r is None or r.status == "failed" or r.data is None:
             continue
         # r.data is list[str] of paper_ids — resolve each via DOI/arXiv/title fallback
         ids = r.data if isinstance(r.data, list) else []
@@ -64,7 +64,7 @@ def collect_citations(
         except Exception as e:
             _log.warning(f"get_citations failed on {provider.name}: {e}")
             continue
-        if r.status == "failed" or r.data is None:
+        if r is None or r.status == "failed" or r.data is None:
             continue
         ids = r.data if isinstance(r.data, list) else []
         for ref_id in ids[:limit]:
@@ -81,47 +81,70 @@ def collect_citations(
 
 def _resolve_id(ref_id: str, registry: ProviderRegistry) -> Paper | None:
     """Resolve a paper_id string into a Paper record via the registry."""
-    if ref_id.startswith("doi:"):
-        doi = ref_id[4:]
-        for p in registry.all():
-            if not hasattr(p, "fetch_by_doi"):
-                continue
-            r = p.fetch_by_doi(doi)
-            if r.status == "ok" and isinstance(r.data, Paper):
-                return r.data
-    elif ref_id.startswith("arxiv:"):
-        arxiv_id = ref_id[6:]
-        provider = registry.get("arxiv")
-        if provider:
-            r = provider.fetch_by_arxiv_id(arxiv_id)
-            if r.status == "ok" and isinstance(r.data, Paper):
-                return r.data
-    elif ref_id.startswith("openalex:"):
-        wid = ref_id[len("openalex:"):]
-        if wid.startswith("http"):
-            wid = wid.rsplit("/", 1)[-1] or wid
-        provider = registry.get("openalex")
-        if provider and hasattr(provider, "fetch_work_by_id"):
-            r = provider.fetch_work_by_id(wid)
-            if r.status == "ok" and isinstance(r.data, Paper):
-                return r.data
-        if provider and hasattr(provider, "fetch_by_doi"):
-            r = provider.fetch_by_doi(wid)
-            if r.status == "ok" and isinstance(r.data, Paper):
-                return r.data
-    elif ref_id.startswith("s2:") or (len(ref_id) == 40 and ref_id.isalnum()):
-        # Semantic Scholar paper id (40-char hex) or explicit "s2:" prefix
-        pid = ref_id[3:] if ref_id.startswith("s2:") else ref_id
-        from research_graph.providers.semantic_scholar import _paper_from_s2
-        for p in registry.all():
-            if p.name != "semantic_scholar":
-                continue
-            _get = getattr(p, "_get", None)
-            if _get is None:
-                continue
-            r = _get(f"/paper/{pid}")
-            if r.status == "ok" and isinstance(r.data, dict):
-                return _paper_from_s2(r.data)
+    try:
+        if ref_id.startswith("doi:"):
+            doi = ref_id[4:]
+            for p in registry.all():
+                if not hasattr(p, "fetch_by_doi"):
+                    continue
+                try:
+                    r = p.fetch_by_doi(doi)
+                except Exception as e:
+                    _log.warning(f"fetch_by_doi({doi}) failed on {p.name}: {e}")
+                    continue
+                if r is not None and r.status == "ok" and isinstance(r.data, Paper):
+                    return r.data
+        elif ref_id.startswith("arxiv:"):
+            arxiv_id = ref_id[6:]
+            provider = registry.get("arxiv")
+            if provider:
+                try:
+                    r = provider.fetch_by_arxiv_id(arxiv_id)
+                except Exception as e:
+                    _log.warning(f"fetch_by_arxiv_id({arxiv_id}) failed: {e}")
+                    r = None
+                if r is not None and r.status == "ok" and isinstance(r.data, Paper):
+                    return r.data
+        elif ref_id.startswith("openalex:"):
+            wid = ref_id[len("openalex:"):]
+            if wid.startswith("http"):
+                wid = wid.rsplit("/", 1)[-1] or wid
+            provider = registry.get("openalex")
+            if provider and hasattr(provider, "fetch_work_by_id"):
+                try:
+                    r = provider.fetch_work_by_id(wid)
+                except Exception as e:
+                    _log.warning(f"fetch_work_by_id({wid}) failed: {e}")
+                    r = None
+                if r is not None and r.status == "ok" and isinstance(r.data, Paper):
+                    return r.data
+            if provider and hasattr(provider, "fetch_by_doi"):
+                try:
+                    r = provider.fetch_by_doi(wid)
+                except Exception as e:
+                    _log.warning(f"fetch_by_doi({wid}) failed: {e}")
+                    r = None
+                if r is not None and r.status == "ok" and isinstance(r.data, Paper):
+                    return r.data
+        elif ref_id.startswith("s2:") or (len(ref_id) == 40 and ref_id.isalnum()):
+            # Semantic Scholar paper id (40-char hex) or explicit "s2:" prefix
+            pid = ref_id[3:] if ref_id.startswith("s2:") else ref_id
+            from research_graph.providers.semantic_scholar import _paper_from_s2
+            for p in registry.all():
+                if p.name != "semantic_scholar":
+                    continue
+                _get = getattr(p, "_get", None)
+                if _get is None:
+                    continue
+                try:
+                    r = _get(f"/paper/{pid}")
+                except Exception as e:
+                    _log.warning(f"s2 lookup {pid} failed: {e}")
+                    continue
+                if r is not None and r.status == "ok" and isinstance(r.data, dict):
+                    return _paper_from_s2(r.data)
+    except Exception as e:
+        _log.warning(f"_resolve_id({ref_id}) failed: {e}")
     return None
 
 

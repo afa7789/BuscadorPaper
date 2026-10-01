@@ -120,10 +120,13 @@ def dedupe_papers(papers: list[Paper]) -> list[Paper]:
                 target.year = p.year
             if not target.venue and p.venue:
                 target.venue = p.venue
-            # Record provenance
+            # Record provenance (values may be list[str] or a scalar str)
             sp = dict(target.source_provenance or {})
             for src, fields in (p.source_provenance or {}).items():
-                sp[src] = list(set(sp.get(src, []) + (fields or [])))
+                prev = sp.get(src, [])
+                prev = [prev] if isinstance(prev, str) else prev
+                vals = [fields] if isinstance(fields, str) else (fields or [])
+                sp[src] = list(set(prev + vals))
             target.source_provenance = sp
         else:
             by_key[key] = p

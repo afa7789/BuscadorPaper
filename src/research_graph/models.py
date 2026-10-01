@@ -71,8 +71,9 @@ class Paper(_Base):
     affiliations: list[str] = Field(default_factory=list)
     abstract: str | None = None
     venue: str | None = None
-    source_provenance: dict[str, list[str]] = Field(default_factory=dict)
-    """field_name -> list of providers that supplied a value for it"""
+    # Values are usually field_name -> list of providers that supplied that
+    # field, but some providers store a scalar (e.g. openalex_pdf_url -> str).
+    source_provenance: dict[str, list[str] | str] = Field(default_factory=dict)
 
     @field_validator("doi")
     @classmethod
