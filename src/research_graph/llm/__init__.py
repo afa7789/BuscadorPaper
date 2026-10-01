@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from research_graph.llm.base import LLMProvider, LLMResult, Message
 from research_graph.llm.openai_compatible import OpenAICompatibleProvider
+from research_graph.llm.agent_queue import AgentQueueProvider
 
-__all__ = ["LLMProvider", "LLMResult", "Message", "OpenAICompatibleProvider"]
+__all__ = ["AgentQueueProvider", "LLMProvider", "LLMResult", "Message", "OpenAICompatibleProvider"]
 
 
 def build_default_provider(config) -> "OpenAICompatibleProvider":
@@ -20,6 +21,10 @@ def build_default_provider(config) -> "OpenAICompatibleProvider":
     import os
 
     from research_graph.config import Config, lookup_env
+
+    agent_dir = _agent_queue_dir(config)
+    if agent_dir is not None:
+        return AgentQueueProvider(agent_dir)
 
     if isinstance(config, dict):
         # tolerate dict for tests; map to attributes
@@ -35,3 +40,16 @@ def build_default_provider(config) -> "OpenAICompatibleProvider":
     base_url = lookup_env(base_url_env, required=True) or ""
     api_key = lookup_env(api_key_env, required=True) or ""
     return OpenAICompatibleProvider(api_key=api_key, base_url=base_url, model=model)
+
+
+def _agent_queue_dir(config) -> str | None:
+    """``llm.provider: agent`` -> queue dir under output_dir; else None."""
+    if isinstance(config, dict):
+        if config.get("llm", {}).get("provider") != "agent":
+            return None
+        out = config.get("project", {}).get("output_dir", "./output")
+    else:
+        if config.llm.provider != "agent":
+            return None
+        out = config.project.output_dir
+    return f"{out}/agent_llm"

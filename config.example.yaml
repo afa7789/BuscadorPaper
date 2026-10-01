@@ -64,6 +64,9 @@ search:
   official_page_verification: true
 
 llm:
+  # "agent" = the coding agent running the pipeline (opencode, Claude Code...)
+  # answers the LLM calls; no API key. See AGENTS.md.
+  # "openai_compatible" = call the API below.
   provider: "openai_compatible"
   base_url_env: "MINIMAX_BASE_URL"
   api_key_env: "MINIMAX_API_KEY"
