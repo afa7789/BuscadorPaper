@@ -7,6 +7,11 @@ Descobre papers relevantes por citação e co-autoria, e baixa os PDFs automatic
 > mestrado atuais — com a página HTML, pdfs e notas de revisão — ficam no
 > diretório pai: `../2026-09-13-open-problems/`.
 
+- **Procurando open questions?** Guia passo a passo: [`COMO-USAR.md`](COMO-USAR.md)
+  (template: `config.exemplo-open-questions.yaml`).
+- **Sem chave de LLM:** com `llm.provider: agent` o próprio agente (opencode,
+  Claude Code, Codex) responde as chamadas. Roteiro em [`AGENTS.md`](AGENTS.md).
+
 ## Instalação
 
 Requer Python 3.11+ e [`uv`](https://docs.astral.sh/uv/).

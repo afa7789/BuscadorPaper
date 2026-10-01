@@ -1,0 +1,170 @@
+# ============================================================================
+# TEMPLATE PARA PROCURAR "OPEN QUESTIONS" (perguntas em aberto)
+# ============================================================================
+#
+# COMO USAR:
+#   1. copie este arquivo para `config.yaml`:
+#        cp config.exemplo-open-questions.yaml config.yaml
+#   2. edite o `config.yaml` e troque TUDO que está marcado com <<< EDITAR
+#   3. rode o pipeline (veja COMO-USAR.md)
+#
+# Todos os caminhos são relativos à pasta onde você roda o comando.
+# ============================================================================
+
+project:
+  # <<< EDITAR: um nome para o seu projeto
+  name: "meu-projeto-open-questions"
+  language: "pt-BR"
+  output_dir: "./output"
+  cache_dir: "./cache"
+  log_level: "INFO"
+
+# ============================================================================
+# SEEDS = por onde a busca começa.
+# É aqui que você diz QUAL tema você quer explorar.
+#
+# Tipos disponíveis:
+#   pdf            — um PDF local (o mais bom: âncora a busca num paper real)
+#   title          — o título exato de um paper
+#   url            — link de arxiv.org, eprint.iacr.org ou doi.org
+#   doi            — o DOI direto, ex: 10.1145/2699436
+#   crossref_query — uma busca por ASSUNTO. Sem limite de taxa, 140M+ papers.
+#                    <<< USE 4-8 DESTES. É o que mais rende perguntas em aberto.
+#   tavily_query   — busca web com IA. Precisa da chave TAVILY_API_KEY no .env
+# ============================================================================
+
+seed_inputs:
+  # --- Descomente e aponte para o seu PDF ---
+  # - type: "pdf"
+  #   value: "./meu-paper.pdf"
+
+  # --- Descomente para semear por um paper específico ---
+  # - type: "title"
+  #   value: "Título exato do paper que você quer usar de ponto de partida"
+  # - type: "url"
+  #   value: "https://arxiv.org/abs/XXXX.XXXXX"
+
+  # --- Buscas por assunto: a parte que mais encontra perguntas em aberto ---
+  # Escreva como você buscaria no Google Scholar, em inglês.
+  # <<< EDITAR: troque estes 5 pelos SEUS temas.
+  - type: "crossref_query"
+    value: "open challenges limitations future work in topic A"
+  - type: "crossref_query"
+    value: "topic B evaluation methodology open problems"
+  - type: "crossref_query"
+    value: "topic B scalability performance limitations"
+  - type: "crossref_query"
+    value: "topic B security assumptions trust model weaknesses"
+  - type: "crossref_query"
+    value: "topic A topic B comparison survey"
+  # - type: "crossref_query"
+  #   value: "mais uma pergunta em aberto que você quer explorar"
+
+research_scope:
+  # <<< EDITAR: as palavras que definem o seu tema.
+  seed_keywords:
+    - "keyword um"
+    - "keyword dois"
+    - "keyword tres"
+
+  include_domains:
+    - "cryptography"
+  # - "blockchain"
+  # - "distributed systems"
+  # - "privacy"
+  # - "machine learning"
+  # - "networking"
+
+  exclude_keywords: []        # ex.: ["survey", "tutorial"] para cortar revisões
+
+  # --- Tamanho da busca ---
+  # Comece pequeno para testar rápido (ver "PROBLEMAS COMUNS" no COMO-USAR.md).
+  # Depois aumente se quiser mais material.
+  max_hops: 2                 # 1 = só papers citados/citantes. 2 = + autores. Máx. 5.
+  max_papers_per_query: 40
+  max_total_papers: 300
+  years_from: 2019
+  years_to: 2026
+  min_relevance_score: 0.30   # menor = aceita mais papers (mais ruído)
+
+search:
+  providers:
+    - "openalex"
+    - "semantic_scholar"
+    - "crossref"
+    - "arxiv"
+  # Eixos da expansão. Remova um item pra desligar aquele eixo.
+  # Só estes três existem: references, citations, authors.
+  expand_by:
+    - "references"
+    - "citations"
+    - "authors"
+
+llm:
+  # O LLM é o que LÊ cada paper e extrai "limitações" e "trabalhos futuros"
+  # — ou seja, é ele que acha as perguntas em aberto.
+  # "agent" (padrão) = o agente que roda o pipeline (opencode, Claude Code,
+  # Codex) faz o papel do LLM. Sem chave de API. Roteiro em AGENTS.md.
+  # "openai_compatible" = chama a API configurada nas linhas abaixo.
+  provider: "agent"
+  base_url_env: "MINIMAX_BASE_URL"
+  api_key_env: "MINIMAX_API_KEY"
+  model: "MiniMax-Text-01"
+  fallback_models: []
+  temperature: 0.1
+  max_output_tokens: 4000
+  concurrency: 4
+  structured_output: true
+  cache_responses: true
+
+# Para usar API: provider "openai_compatible". Para OpenAI em vez de MiniMax,
+# troque as 3 linhas acima por:
+#   base_url_env: "OPENAI_API_BASE"
+#   api_key_env:  "OPENAI_API_KEY"
+#   model:        "gpt-4o-mini"
+# e preencha no .env:
+#   OPENAI_API_BASE=https://api.openai.com/v1
+#   OPENAI_API_KEY=sk-...
+
+optional_llm_providers: []
+
+analysis:
+  extract_abstract: true
+  extract_problem: true
+  extract_contribution: true
+  extract_methods: true
+  extract_limitations: true      # <<< importante: o que o paper admite que é fraco
+  extract_future_work: true      # <<< importante: o que o paper deixa de fora
+  extract_metrics: false
+  extract_authors: true
+  extract_affiliations: true
+  generate_project_ideas: true   # <<< gera ideias de projeto a partir das lacunas
+  generate_advisor_shortlist: false
+
+outputs:
+  save_json: true
+  save_markdown_report: true     # <<< o report.md é o que você vai ler
+  save_html_graph: true
+  save_graphml: false
+  save_csv: false
+  save_gexf: false
+  save_mermaid: false
+  save_cytoscape_json: false
+
+  # Download dos PDFs em texto completo. Ligue para poder ler os papers.
+  enable_pdf_download: true
+  max_papers_to_download: 40
+
+  # Ordem de tentativa. Os dois primeiros são legais e gratuitos.
+  pdf_download_providers:
+    - "openalex"     # open access (legal)
+    - "unpaywall"    # índice open access por DOI (legal)
+    # Os três abaixo são pirateados e podem cair a qualquer momento.
+    # Só ligue se você tiver com o que arcar juridicamente.
+    # - "annas"
+    # - "scidb"
+    # - "scihub"
+
+# Para o Sci-Hub ser sequer considerado, é preciso ligar explicitamente:
+# search:
+#   enable_scihub: true

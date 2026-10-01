@@ -1,0 +1,111 @@
+# Rodada 24/09/2026 — expansão dedicada a Tornado Cash / ZK mixers:
+# Usuário: mestrado PPGCC/UFMG; orientador em criptografia/ZK; tema central = Tornado Cash.
+# Objetivo: achar papers de Tornado Cash e mixers ZK (técnico, empírico, regulatório),
+# baixar PDFs e extrair perguntas em aberto no FIM de cada paper.
+
+project:
+  name: "zk-mixer-research"
+  language: "pt-BR"
+  output_dir: "./output-tornado-cash"
+  cache_dir: "./cache"
+  log_level: "INFO"
+
+seed_inputs:
+  # Whitepaper e linha técnica do próprio Tornado Cash
+  - type: "url"
+    value: "https://eprint.iacr.org/2019/1148"          # Tornado Cash: Privacy Solution (whitepaper /2019/1148)
+  - type: "crossref_query"
+    value: "Tornado Cash anonymity smart contract Ethereum"
+  - type: "crossref_query"
+    value: "zero-knowledge mixer blockchain anonymity set"
+  - type: "crossref_query"
+    value: "Tornado Cash decentralized mixer privacy"
+  # Análise empírica / forense / de-anonimização
+  - type: "crossref_query"
+    value: "de-anonymization cryptocurrency mixer transaction graph"
+  - type: "crossref_query"
+    value: "blockchain forensics mixing services attribution"
+  - type: "crossref_query"
+    value: "Tornado Cash laundering Lazarus OFAC sanctions"
+  # Compliance preservando privacidade (debate pós-sanção)
+  - type: "crossref_query"
+    value: "provable innocence privacy pools compliance zero-knowledge"
+  - type: "crossref_query"
+    value: "OFAC sanctions smart contract autonomous code privacy"
+  - type: "crossref_query"
+    value: "anonymous transfer blockchain regulator oversight compliance"
+
+research_scope:
+  seed_keywords:
+    - "Tornado Cash"
+    - "zero knowledge"
+    - "mixer"
+    - "anonymity set"
+    - "blockchain"
+    - "smart contract"
+    - "Ethereum"
+    - "privacy pool"
+    - "provable innocence"
+    - "sanctions"
+    - "OFAC"
+    - "transaction graph"
+    - "confidential transaction"
+  max_hops: 1
+  max_papers_per_query: 40
+  max_total_papers: 300
+  years_from: 2019
+  years_to: 2026
+  min_relevance_score: 0.3
+
+search:
+  providers:
+    - "openalex"
+    - "semantic_scholar"
+    - "crossref"
+    - "arxiv"
+  expand_by:
+    - "references"
+    - "citations"
+    - "similarity_by_keywords"
+
+llm:
+  provider: "openai_compatible"
+  base_url_env: "MINIMAX_BASE_URL"
+  api_key_env: "MINIMAX_API_KEY"
+  model: "MiniMax-Text-01"
+  temperature: 0.1
+  max_output_tokens: 4000
+  concurrency: 4
+  structured_output: true
+  cache_responses: true
+
+analysis:
+  extract_abstract: true
+  extract_problem: true
+  extract_contribution: true
+  extract_methods: true
+  extract_limitations: true
+  extract_future_work: true
+  extract_metrics: false
+  extract_authors: true
+  extract_affiliations: true
+  generate_project_ideas: false
+  generate_advisor_shortlist: false
+
+outputs:
+  save_json: true
+  save_html_graph: false
+  save_graphml: false
+  save_markdown_report: true
+  save_csv: false
+  save_gexf: false
+  save_mermaid: false
+  save_cytoscape_json: false
+  max_papers_to_download: 40
+  enable_pdf_download: true
+  pdf_download_providers:
+    - "openalex"        # open-access full-text (legal)
+    - "unpaywall"       # legal OA index by DOI
+    - "scidb"           # Sci-Hub continuation
+    - "scihub"          # opt-in
+    - "annas"           # last resort

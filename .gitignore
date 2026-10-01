@@ -30,6 +30,7 @@ secrets.*
 # Generated artifacts — reproducible from the pipeline
 # -----------------------------------------------------------------------------
 output/
+output-*/
 cache/
 cache/scihub/   # downloaded PDFs from Sci-Hub (large, copyrighted)
 cache.sqlite

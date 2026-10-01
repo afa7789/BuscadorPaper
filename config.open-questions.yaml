@@ -1,0 +1,117 @@
+# Rodada 23/09/2026 — expansão a partir dos 3 PDFs novos:
+#   1. zk-private-transactions-bsci25-2025 (BSCI'25, ElGamal+KZG+Groth16, EVM)
+#   2. zkvault-kyc-2025 (ZKVault, KYC descentralizado com zk-SNARK)
+#   3. privacy-compliance-thesis-2026 (Lehigh, framework de compliance com ZK)
+# Objetivo: achar papers relacionados (citações/co-autoria/similaridade), baixar
+# PDFs e extrair perguntas em aberto adicionais.
+
+project:
+  name: "zk-compliance-research-map"
+  language: "pt-BR"
+  output_dir: "./output-open-questions"
+  cache_dir: "./cache"
+  log_level: "INFO"
+
+seed_inputs:
+  - type: "url"
+    value: "https://doi.org/10.1145/3709016.3737794"   # BSCI'25 transações privadas
+  - type: "title"
+    value: "ZKVault: A Privacy-Preserving Decentralized KYC System Using Zero-Knowledge Proofs"
+  - type: "title"
+    value: "Privacy-Preserving Compliance"
+  - type: "url"
+    value: "https://arxiv.org/abs/2202.06877"          # review zk-SNARKs (contexto)
+  - type: "url"
+    value: "https://eprint.iacr.org/2019/953"          # PLONK (primitiva citada)
+  - type: "url"
+    value: "https://eprint.iacr.org/2021/370"          # Halo2 / recursão (future work)
+  # Temas das perguntas em aberto dos 3 papers
+  - type: "crossref_query"
+    value: "homomorphic encryption confidential transactions smart contract blockchain"
+  - type: "crossref_query"
+    value: "decentralized KYC zero knowledge proof self-sovereign identity"
+  - type: "crossref_query"
+    value: "compliance privacy blockchain regulators zero knowledge proof"
+  - type: "crossref_query"
+    value: "recursive proof composition SNARK aggregation blockchain"
+  - type: "crossref_query"
+    value: "post-quantum zero knowledge proof credentials"
+  - type: "crossref_query"
+    value: "viewing key confidential token balance auditability"
+  - type: "crossref_query"
+    value: "sanctions screening decentralized finance privacy"
+
+research_scope:
+  seed_keywords:
+    - "zero knowledge"
+    - "privacy preserving"
+    - "homomorphic encryption"
+    - "blockchain"
+    - "smart contract"
+    - "KYC"
+    - "self-sovereign identity"
+    - "compliance"
+    - "recursive proof"
+    - "SNARK aggregation"
+    - "post-quantum"
+    - "confidential transaction"
+    - "auditability"
+  max_hops: 2
+  max_papers_per_query: 40
+  max_total_papers: 500
+  years_from: 2019
+  years_to: 2026
+  min_relevance_score: 0.3
+
+search:
+  providers:
+    - "openalex"
+    - "semantic_scholar"
+    - "crossref"
+    - "arxiv"
+  expand_by:
+    - "references"
+    - "citations"
+    - "similarity_by_keywords"
+
+llm:
+  provider: "openai_compatible"
+  base_url_env: "MINIMAX_BASE_URL"
+  api_key_env: "MINIMAX_API_KEY"
+  model: "MiniMax-Text-01"
+  temperature: 0.1
+  max_output_tokens: 4000
+  concurrency: 4
+  structured_output: true
+  cache_responses: true
+
+analysis:
+  extract_abstract: true
+  extract_problem: true
+  extract_contribution: true
+  extract_methods: true
+  extract_limitations: true
+  extract_future_work: true
+  extract_metrics: false
+  extract_authors: true
+  extract_affiliations: true
+  generate_project_ideas: false
+  generate_advisor_shortlist: false
+
+outputs:
+  save_json: true
+  save_html_graph: false
+  save_graphml: false
+  save_markdown_report: true
+  save_csv: false
+  save_gexf: false
+  save_mermaid: false
+  save_cytoscape_json: false
+  max_papers_to_download: 40
+  enable_pdf_download: true
+  pdf_download_providers:
+    - "openalex"        # open-access full-text (legal)
+    - "unpaywall"       # legal OA index by DOI
+    - "scidb"           # Sci-Hub continuation
+    - "scihub"          # opt-in
+    - "annas"           # last resort
