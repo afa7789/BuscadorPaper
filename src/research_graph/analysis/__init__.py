@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from research_graph.analysis.metrics import compute as compute_metrics
+from research_graph.analysis.metrics import compute_networkit
 from research_graph.config import Config
 from research_graph.logging_setup import configure_logging
 
@@ -25,35 +26,55 @@ def run_analyze(
     out_dir = Path(config.project.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Prefer graph.graphml because it round-trips node/edge attrs; fall back to
-    # .gexf only if the user disabled graphml. If neither exists, fail.
+    # Prefer the compact NetworKit snapshot; XML formats remain compatible
+    # fallbacks for users who have not enabled the binary graph.
+    topology_path = out_dir / "graph.nkbg"
+    metadata_path = out_dir / "graph.nkbg.msgpack"
+    if topology_path.exists() and metadata_path.exists():
+        try:
+            from research_graph.graph.networkit_binary import read_networkit_binary
+
+            graph, metadata = read_networkit_binary(topology_path, metadata_path)
+            metrics = compute_networkit(graph, metadata)
+        except Exception as e:
+            _log.error(f"analyze: failed to read/compute graph.nkbg: {e}")
+            if not continue_on_error:
+                return 1
+            metrics = {
+                "centrality": {}, "communities": {}, "bridges": [],
+                "meta": {"node_count": 0, "edge_count": 0,
+                         "community_count": 0, "weak_component_count": 0},
+            }
+    else:
+        metrics = None
+
     candidate_paths = []
     if (out_dir / "graph.graphml").exists():
         candidate_paths.append(out_dir / "graph.graphml")
     if (out_dir / "graph.gexf").exists():
         candidate_paths.append(out_dir / "graph.gexf")
-    if not candidate_paths:
+    if metrics is None and not candidate_paths:
         _log.error(
-            "analyze: no graph.graphml or graph.gexf found; run `build-graph` first "
-            "(and consider setting outputs.save_graphml=true if both are off)"
+            "analyze: no graph.nkbg, graph.graphml, or graph.gexf found; run "
+            "`build-graph` first (enable outputs.save_networkit or save_graphml)"
         )
         return 1
-    graph_path = candidate_paths[0]
-
-    try:
-        import networkx as nx
-        graph = nx.read_graphml(str(graph_path))
-    except Exception as e:
-        _log.error(f"analyze: failed to read graph.graphml: {e}")
-        return 1
-
-    try:
-        metrics = compute_metrics(graph)
-    except Exception as e:
-        _log.error(f"analyze: compute_metrics failed: {e}")
-        if not continue_on_error:
+    if metrics is None:
+        graph_path = candidate_paths[0]
+        try:
+            import networkx as nx
+            graph = nx.read_graphml(str(graph_path))
+        except Exception as e:
+            _log.error(f"analyze: failed to read {graph_path.name}: {e}")
             return 1
-        metrics = {"centrality": {}, "communities": {}, "bridges": [], "meta": {"node_count": 0, "edge_count": 0, "community_count": 0, "weak_component_count": 0}}
+
+        try:
+            metrics = compute_metrics(graph)
+        except Exception as e:
+            _log.error(f"analyze: compute_metrics failed: {e}")
+            if not continue_on_error:
+                return 1
+            metrics = {"centrality": {}, "communities": {}, "bridges": [], "meta": {"node_count": 0, "edge_count": 0, "community_count": 0, "weak_component_count": 0}}
 
     # Bucket repeated limitations / future-work from extractions.json (if present)
     extractions_path = out_dir / "extractions.json"

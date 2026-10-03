@@ -58,10 +58,23 @@ def run_generate_report(
         except Exception as e:
             _log.warning(f"generate-report: failed to parse people.json: {e}")
 
-    # Read graph (graphml)
+    # Prefer the lossless binary sidecar, then fall back to GraphML.
     graph = nx.MultiDiGraph()
+    topology_path = out_dir / "graph.nkbg"
+    metadata_path = out_dir / "graph.nkbg.msgpack"
     graphml_path = out_dir / "graph.graphml"
-    if graphml_path.exists():
+    if topology_path.exists() and metadata_path.exists():
+        try:
+            from research_graph.graph.networkit_binary import (
+                metadata_to_networkx,
+                read_networkit_binary,
+            )
+
+            _topology, metadata = read_networkit_binary(topology_path, metadata_path)
+            graph = metadata_to_networkx(metadata)
+        except Exception as e:
+            _log.warning(f"generate-report: failed to read graph.nkbg: {e}")
+    elif graphml_path.exists():
         try:
             graph = nx.read_graphml(str(graphml_path))
         except Exception as e:

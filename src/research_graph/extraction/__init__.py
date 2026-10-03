@@ -39,35 +39,14 @@ def run_extract(
         _log.error(f"extract: failed to read papers.json: {e}")
         return 1
 
-    records: list[ExtractionRecord] = []
-    if no_llm:
-        # Just declared records, no LLM
-        for p in papers:
-            rec = declared_to_extraction_record(p)
-            rec.extraction_confidence = 0.0
-            records.append(rec)
-    else:
-        try:
-            llm = build_default_provider(config)
-        except Exception as e:
-            _log.warning(f"extract: could not build LLM provider ({e}); using declared records only")
-            llm = None
-        if llm is None:
-            for p in papers:
-                rec = declared_to_extraction_record(p)
-                rec.extraction_confidence = 0.0
-                records.append(rec)
-        else:
-            for p in papers:
-                try:
-                    rec = llm_extract(p, llm)
-                    rec = classify(rec, llm)
-                    records.append(rec)
-                except Exception as e:
-                    _log.warning(f"extract: failed for {p.paper_id}: {e}")
-                    rec = declared_to_extraction_record(p)
-                    rec.extraction_confidence = 0.0
-                    records.append(rec)
+    llm = None if no_llm else _build_llm(config)
+    # Only the core (papers.json is best-first after expand) goes to the LLM;
+    # the rest of the graph keeps declared metadata.
+    core_n = config.research_scope.max_total_papers if llm is not None else 0
+    records: list[ExtractionRecord] = [
+        _extract_one(p, llm) if i < core_n else _declared(p)
+        for i, p in enumerate(papers)
+    ]
 
     out_path = out_dir / "extractions.json"
     out_path.write_text(
@@ -79,3 +58,25 @@ def run_extract(
 
 
 __all__ = ["run_extract", "extract"]
+
+
+def _build_llm(config: Config):
+    try:
+        return build_default_provider(config)
+    except Exception as e:
+        _log.warning(f"extract: could not build LLM provider ({e}); using declared records only")
+        return None
+
+
+def _declared(p: Paper) -> ExtractionRecord:
+    rec = declared_to_extraction_record(p)
+    rec.extraction_confidence = 0.0
+    return rec
+
+
+def _extract_one(p: Paper, llm) -> ExtractionRecord:
+    try:
+        return classify(llm_extract(p, llm), llm)
+    except Exception as e:
+        _log.warning(f"extract: failed for {p.paper_id}: {e}")
+        return _declared(p)

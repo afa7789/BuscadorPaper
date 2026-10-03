@@ -80,9 +80,11 @@ research_scope:
   # --- Tamanho da busca ---
   # Comece pequeno para testar rápido (ver "PROBLEMAS COMUNS" no COMO-USAR.md).
   # Depois aumente se quiser mais material.
-  max_hops: 2                 # 1 = só papers citados/citantes. 2 = + autores. Máx. 5.
+  max_hops: 2                 # passos por rodada do expand. 1 = vizinhos diretos. 2 = + autores. Máx. 5.
   max_papers_per_query: 40
-  max_total_papers: 300
+  max_total_papers: 100      # núcleo: os N melhores vão pro LLM e download
+  # max_graph_papers: 5000   # teto opcional do grafo (padrão: sem teto;
+  #                          # cada `expand` anda max_hops passos e continua na próxima)
   years_from: 2019
   years_to: 2026
   min_relevance_score: 0.30   # menor = aceita mais papers (mais ruído)
@@ -90,7 +92,7 @@ research_scope:
 search:
   providers:
     - "openalex"
-    - "semantic_scholar"
+    - "semantic_scholar"   # sem SEMANTIC_SCHOLAR_API_KEY: 3,5s por chamada — remova
     - "crossref"
     - "arxiv"
   # Eixos da expansão. Remova um item pra desligar aquele eixo.
@@ -143,9 +145,11 @@ analysis:
 
 outputs:
   save_json: true
+  save_lmdb: false            # índice KV binário para paginação por cursor
   save_markdown_report: true     # <<< o report.md é o que você vai ler
   save_html_graph: true
   save_graphml: false
+  save_networkit: false       # topologia binária para análise paralela
   save_csv: false
   save_gexf: false
   save_mermaid: false

@@ -101,6 +101,8 @@ outputs:
   save_gexf: false
   save_mermaid: false
   save_cytoscape_json: false
+  save_lmdb: true             # índice KV binário (paginação por cursor)
+  save_networkit: true        # topologia binária (análise paralela)
   max_papers_to_download: 40
   enable_pdf_download: true
   pdf_download_providers:

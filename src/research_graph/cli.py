@@ -56,6 +56,14 @@ def _build_parser() -> argparse.ArgumentParser:
     add("synthesize", "LLM executive summary, communities, project ideas.")
     add("people", "Collect affiliation evidence for in-scope authors.")
     add("generate-report", "Synthesize + render Markdown report.")
+    add("index-papers", "Build output/papers.lmdb from output/papers.json.")
+    page = add("papers-page", "Read a cursor-paginated page from output/papers.lmdb.")
+    page.add_argument("--limit", type=int, default=20,
+                      help="Page size, from 1 to 200 (default: 20).")
+    page.add_argument("--after", type=int, default=0,
+                      help="Cursor returned as next_after by the previous page.")
+    page.add_argument("--query",
+                      help="Optional full-text query over title and abstract.")
     add("scihub-fetch", "Download full-text PDFs for known DOIs via Sci-Hub (opt-in).")
     add("download-pdfs", "Try to download up to N full-text PDFs (openalex_pdf > scihub > annas).")
     add("run", "Full pipeline (ingest -> ... -> generate-report).")
@@ -237,6 +245,45 @@ def _run_scihub(cfg, *, no_llm: bool = False, continue_on_error: bool = True) ->
     return 0
 
 
+def _run_index_papers(cfg, *, no_llm: bool = False, continue_on_error: bool = True) -> int:
+    """Build the optional binary/indexed papers snapshot on demand."""
+    from research_graph.papers_kv import index_papers_json
+
+    out_dir = Path(cfg.project.output_dir)
+    json_path = out_dir / "papers.json"
+    if not json_path.exists():
+        _log.error("index-papers: papers.json not found; run `ingest` first")
+        return 1
+    kv_path = index_papers_json(json_path, out_dir / "papers.lmdb")
+    print(kv_path)
+    return 0
+
+
+def _run_papers_page(
+    cfg,
+    *,
+    limit: int,
+    after: int,
+    query: str | None,
+) -> int:
+    """Print one JSON page from the indexed papers snapshot."""
+    import json
+
+    from research_graph.papers_kv import page_papers
+
+    kv_path = Path(cfg.project.output_dir) / "papers.lmdb"
+    if not kv_path.exists():
+        _log.error("papers-page: papers.lmdb not found; run `index-papers` first")
+        return 1
+    try:
+        page = page_papers(kv_path, limit=limit, after=after, query=query)
+    except ValueError as e:
+        _log.error("papers-page: %s", e)
+        return 2
+    print(json.dumps(page, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -275,6 +322,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "generate-report":
         from research_graph.reports import run_generate_report
         return run_generate_report(cfg, **kwargs)
+    if args.command == "index-papers":
+        return _run_index_papers(cfg, **kwargs)
+    if args.command == "papers-page":
+        return _run_papers_page(
+            cfg, limit=args.limit, after=args.after, query=args.query,
+        )
     if args.command == "scihub-fetch":
         return _run_scihub(cfg, **kwargs)
     if args.command == "download-pdfs":

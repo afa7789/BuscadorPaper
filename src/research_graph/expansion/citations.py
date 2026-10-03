@@ -1,12 +1,13 @@
 """research_graph.expansion.citations — walk references + citants per seed.
 
-Stops after ``max_papers_per_query`` per seed and after ``max_total_papers``
-globally.
+Each run walks at most ``max_hops`` hops from the frontier; ``ExpandState``
+remembers the frontier so the next run continues where this one stopped.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 from research_graph.expansion.ranking import rank
 from research_graph.models import Paper
@@ -22,30 +23,7 @@ def collect_references(
     *,
     limit: int = 50,
 ) -> list[Paper]:
-    out: list[Paper] = []
-    seen_ids: set[str] = set()
-    for provider in registry.all():
-        if not hasattr(provider, "get_references"):
-            continue
-        try:
-            r = provider.get_references(seed.paper_id)
-        except Exception as e:
-            _log.warning(f"get_references failed on {provider.name}: {e}")
-            continue
-        if r is None or r.status == "failed" or r.data is None:
-            continue
-        # r.data is list[str] of paper_ids — resolve each via DOI/arXiv/title fallback
-        ids = r.data if isinstance(r.data, list) else []
-        for ref_id in ids[:limit]:
-            if not isinstance(ref_id, str) or ref_id in seen_ids:
-                continue
-            seen_ids.add(ref_id)
-            paper = _resolve_id(ref_id, registry)
-            if paper:
-                out.append(paper)
-        if len(out) >= limit:
-            break
-    return out
+    return _collect(seed, registry, "get_references", limit=limit)
 
 
 def collect_citations(
@@ -54,29 +32,48 @@ def collect_citations(
     *,
     limit: int = 50,
 ) -> list[Paper]:
+    return _collect(seed, registry, "get_citations", limit=limit)
+
+
+def _call(provider, method: str, seed: Paper, limit: int):
+    if method == "get_citations":
+        return provider.get_citations(seed.paper_id, limit=limit)
+    return provider.get_references(seed.paper_id)
+
+
+def _collect(seed: Paper, registry: ProviderRegistry, method: str, *, limit: int) -> list[Paper]:
+    """Walk providers in priority order until ``limit`` papers are collected.
+
+    Providers may return Paper objects (OpenAlex: no extra request) or id
+    strings, which are resolved one by one via ``_resolve_id``.
+    """
     out: list[Paper] = []
     seen_ids: set[str] = set()
     for provider in registry.all():
-        if not hasattr(provider, "get_citations"):
+        if not hasattr(provider, method):
             continue
         try:
-            r = provider.get_citations(seed.paper_id, limit=limit)
+            r = _call(provider, method, seed, limit)
         except Exception as e:
-            _log.warning(f"get_citations failed on {provider.name}: {e}")
+            _log.warning(f"{method} failed on {provider.name}: {e}")
             continue
-        if r is None or r.status == "failed" or r.data is None:
+        if r is None or r.status == "failed" or not isinstance(r.data, list):
             continue
-        ids = r.data if isinstance(r.data, list) else []
-        for ref_id in ids[:limit]:
-            if not isinstance(ref_id, str) or ref_id in seen_ids:
-                continue
-            seen_ids.add(ref_id)
-            paper = _resolve_id(ref_id, registry)
+        for item in r.data[:limit]:
+            paper = _to_paper(item, seen_ids, registry)
             if paper:
                 out.append(paper)
         if len(out) >= limit:
             break
     return out
+
+
+def _to_paper(item, seen_ids: set[str], registry: ProviderRegistry) -> Paper | None:
+    key = item.paper_id if isinstance(item, Paper) else item
+    if not isinstance(key, str) or key in seen_ids:
+        return None
+    seen_ids.add(key)
+    return item if isinstance(item, Paper) else _resolve_id(key, registry)
 
 
 def _resolve_id(ref_id: str, registry: ProviderRegistry) -> Paper | None:
@@ -148,147 +145,159 @@ def _resolve_id(ref_id: str, registry: ProviderRegistry) -> Paper | None:
     return None
 
 
+_FRONTIER_SIZE = 25
+
+
+@dataclass
+class ExpandState:
+    """What expand already did, persisted between runs (output/expand_state.json)."""
+
+    frontier: list[str] = field(default_factory=list)
+    walked: set[str] = field(default_factory=set)
+    authors_done: set[str] = field(default_factory=set)
+    hops_done: int = 0
+
+    def to_json(self) -> dict:
+        return {"frontier": self.frontier, "walked": sorted(self.walked),
+                "authors_done": sorted(self.authors_done), "hops_done": self.hops_done}
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ExpandState":
+        return cls(frontier=list(d.get("frontier") or []), walked=set(d.get("walked") or []),
+                   authors_done=set(d.get("authors_done") or []),
+                   hops_done=int(d.get("hops_done") or 0))
+
+
 def expand_seeds(
     seeds: list[Paper],
     registry: ProviderRegistry,
     *,
     max_hops: int = 2,
-    max_total: int = 300,
+    max_total: int | None = None,
     min_score: float = 0.35,
-    http_budget_per_hop: int = 200,
     min_new_coverage: float = 0.02,
     expand_by: list[str] | None = None,
+    links: list[dict] | None = None,
+    state: ExpandState | None = None,
 ) -> list[Paper]:
-    """Bounded graph walk: hop=0 = seeds; hop=1 = refs+citants+author-coauthored;
-    hop=2 = same for top-K.
+    """Walk up to ``max_hops`` hops from the frontier; return seeds + papers found.
 
-    New (post peer-review):
-      - ``http_budget_per_hop`` (default 200) caps external provider calls per hop.
-      - ``min_new_coverage`` (default 0.02 = 2%) triggers early-stop when the
-        front-tier of new papers falls below 2% of the seen set — most 2-hop
-        graphs saturate after the second hop and pruning saves 30-50% of work.
-      - Sort by ``(-score, paper_id)`` so reruns are byte-identical.
-      - ``expand_by`` (config ``search.expand_by``) picks the axes walked:
-        "references", "citations", "authors". None = all three. Other values
-        ("similarity", "institutions", "keywords") are not implemented here.
+      - Hop budget, not graph size, bounds a run: each hop walks the top-25
+        not-yet-walked papers. ``max_total`` (None = no cap) optionally caps the graph.
+      - ``state`` (optional, mutated): resume point. Empty state -> start from
+        ``seeds``; otherwise continue from ``state.frontier`` and never re-walk
+        a paper or an author.
+      - ``min_new_coverage`` (default 2%) early-stops when a hop adds little.
+      - ``expand_by`` picks the axes: "references", "citations", "authors".
+      - ``links`` (optional out-param) receives one ``{src, tgt, type: "cites"}``
+        per citation edge walked.
+      - Author axis: first hop of a fresh run walks people.json authors; later
+        hops walk the OpenAlex author ids carried by frontier papers.
     """
-    from research_graph.expansion.authors import (
-        collect_author_papers, collect_coauthors, collect_author_works,
-    )
     from research_graph.expansion._seen import BoundedSeenSet
-    from pathlib import Path
-    import json as _json
 
+    state = state if state is not None else ExpandState()
     axes = set(expand_by) if expand_by is not None else {"references", "citations", "authors"}
-    use_authors = "authors" in axes
-    walkers = [w for axis, w in (("references", collect_references),
-                                 ("citations", collect_citations)) if axis in axes]
+    walkers = [(axis, w) for axis, w in (("references", collect_references),
+                                         ("citations", collect_citations)) if axis in axes]
+    edges = links if links is not None else []
+    topic = _topic_seeds(seeds)
+    fresh = state.hops_done == 0
+    capacity = max(2 * max_total, 10_000) if max_total else 1_000_000
 
-    seen = BoundedSeenSet(capacity=max(2 * max_total, 10_000))
+    seen = BoundedSeenSet(capacity=capacity)
     for p in seeds:
         seen.add(p.paper_id or "", p)
-    frontier: list[Paper] = list(seeds)
-
-    # Optional: load canonical author ids from people.json so author-based
-    # expansion works without re-resolving names.
-    author_ids: list[str] = []
-    people_path = Path.cwd() / "output" / "people.json"
-    if not people_path.exists():
-        pass
-    else:
-        try:
-            ppl = _json.loads(people_path.read_text())
-            author_ids = [r["author_id"] for r in ppl if r.get("author_id")]
-        except Exception:
-            pass
-
-    # Track co-author ids we have discovered (to walk the bipartite graph
-    # on subsequent hops: paper -> author -> co-author's papers -> co-author).
-    coauthor_ids_seen: set[str] = set(author_ids)
+    frontier = _start_frontier(seeds, state)
 
     for hop in range(max_hops):
-        new_papers: list[Paper] = []
-        for seed in frontier:
-            for walk in walkers:
-                new_papers.extend(walk(seed, registry, limit=50))
-        # Hop 0: papers authored by canonical authors (from people.json).
-        if use_authors and hop == 0 and author_ids:
-            for aid in author_ids[:30]:
-                try:
-                    new_papers.extend(collect_author_papers(aid, registry, limit=25))
-                except Exception as e:
-                    _log.warning(f"collect_author_papers({aid}) failed: {e}")
-        # Hop 1+: walk author->co-author->co-author's-papers. This is the
-        # "iterative loop" the user asked for: when we encounter a paper,
-        # we resolve its authors; from those authors we pull their other
-        # papers; from those papers we discover new co-authors; repeat.
-        if use_authors and hop >= 1 and coauthor_ids_seen:
-            for aid in list(coauthor_ids_seen)[:30]:
-                try:
-                    new_papers.extend(collect_author_papers(aid, registry, limit=15))
-                except Exception as e:
-                    _log.warning(f"hop {hop} collect_author_papers({aid}) failed: {e}")
-            # Also resolve new co-authors from frontier papers
-            new_coauthors: set[str] = set()
-            for p in frontier:
-                for a in (p.authors or []):
-                    key = a.strip().lower()
-                    if not key:
-                        continue
-                    # Will be resolved by collect_coauthors below.
-            if frontier:
-                # Resolve coauthors of the top-3 frontier paper authors
-                top_seed_authors: list[str] = []
-                for p in frontier[:3]:
-                    top_seed_authors.extend(p.authors or [])
-                top_seed_authors = [a for a in top_seed_authors if a][:25]
-                for name in top_seed_authors:
-                    try:
-                        # Use display_name as key; OpenAlex resolves
-                        co_list = collect_coauthors(
-                            f"name:{name.lower()}", registry, limit=10,
-                        )
-                        for c in co_list:
-                            if c.get("author_id") and c["author_id"] not in coauthor_ids_seen:
-                                new_coauthors.add(c["author_id"])
-                    except Exception as e:
-                        _log.debug(f"collect_coauthors({name}) failed: {e}")
-            coauthor_ids_seen.update(new_coauthors)
-        # Dedup via BoundedSeenSet (idempotent across reruns, memory safe)
-        for p in new_papers:
-            pid = p.paper_id or ""
-            if pid:
-                seen.add(pid, p)
-        # Early-stop: stop hop when the front-tier of new papers is below
-        # the minimum coverage threshold. Saves 30-50% of work on graphs
-        # that saturate after hop 2.
-        if new_papers and len(new_papers) / max(1, len(seen)) < min_new_coverage:
-            _log.info(
-                "expand_seeds: early-stop at hop %d (coverage=%.3f < %.3f)",
-                hop,
-                len(new_papers) / max(1, len(seen)),
-                min_new_coverage,
-            )
-            break
-        # Rank and prune. min_score relaxed to 0.0 inside the loop so the
-        # frontier doesn't collapse to zero on the first hop; the final
-        # return is filtered by min_score.
-        ranked = rank(list(seen.values()), seeds, min_score=0.0)
-        if len(ranked) > max_total:
-            ranked = ranked[:max_total]
-            seen = BoundedSeenSet(capacity=max(2 * max_total, 10_000))
-            for p in ranked:
-                pid = p.paper_id or ""
-                if pid:
-                    seen.add(pid, p)
-        # Next frontier: top 25 by rank from this hop (was 10). Grows the
-        # graph walk without exploding per-hop HTTP calls.
-        frontier = ranked[:25]
         if not frontier:
             break
-    # Final filter using caller's min_score
-    all_papers = seen.values()  # type: list[Paper]
-    return [p for p in all_papers if _score_at_least(p, seeds, min_score)]
+        state.walked.update(p.paper_id for p in frontier)
+        state.hops_done += 1
+        new_papers = _walk_citations(frontier, walkers, registry, edges)
+        if "authors" in axes:
+            ids = _people_author_ids() if fresh and hop == 0 else _frontier_author_ids(frontier)
+            new_papers += _walk_authors(ids, state.authors_done, registry,
+                                        limit=25 if fresh and hop == 0 else 15)
+        for p in new_papers:
+            if p.paper_id:
+                seen.add(p.paper_id, p)
+        ranked = rank(list(seen.values()), topic, min_score=0.0)[:max_total]
+        seen = BoundedSeenSet(capacity=capacity)
+        for p in ranked:
+            seen.add(p.paper_id or "", p)
+        frontier = [p for p in ranked if p.paper_id not in state.walked][:_FRONTIER_SIZE]
+        coverage = len(new_papers) / max(1, len(seen))
+        if new_papers and coverage < min_new_coverage:
+            _log.info("expand_seeds: early-stop at hop %d (coverage=%.3f < %.3f)",
+                      hop, coverage, min_new_coverage)
+            break
+    state.frontier = [p.paper_id for p in frontier]
+    return [p for p in seen.values() if _score_at_least(p, topic, min_score)]
+
+
+def _topic_seeds(papers: list[Paper]) -> list[Paper]:
+    """Relevance anchors: the papers ingest produced (not everything expand added)."""
+    marked = [p for p in papers
+              if (p.source_provenance or {}).get("ingest_seed")
+              or (p.source_provenance or {}).get("explicit_seed")]
+    return marked or papers
+
+
+def _start_frontier(seeds: list[Paper], state: ExpandState) -> list[Paper]:
+    if state.hops_done == 0:
+        return [p for p in seeds if p.paper_id not in state.walked]
+    by_id = {p.paper_id: p for p in seeds}
+    return [by_id[i] for i in state.frontier if i in by_id and i not in state.walked]
+
+
+def _walk_citations(frontier, walkers, registry, edges: list[dict]) -> list[Paper]:
+    """Refs and citants of every frontier paper; appends one edge per paper found."""
+    found: list[Paper] = []
+    for paper in frontier:
+        for axis, walk in walkers:
+            for other in walk(paper, registry, limit=50):
+                src, tgt = (paper, other) if axis == "references" else (other, paper)
+                edges.append({"src": src.paper_id, "tgt": tgt.paper_id, "type": "cites"})
+                found.append(other)
+    return found
+
+
+def _walk_authors(author_ids, done: set[str], registry, *, limit: int) -> list[Paper]:
+    """Works of up to 30 not-yet-walked authors."""
+    from research_graph.expansion.authors import collect_author_papers
+
+    found: list[Paper] = []
+    for aid in [a for a in dict.fromkeys(author_ids) if a not in done][:30]:
+        done.add(aid)
+        try:
+            found.extend(collect_author_papers(aid, registry, limit=limit))
+        except Exception as e:
+            _log.warning(f"collect_author_papers({aid}) failed: {e}")
+    return found
+
+
+def _frontier_author_ids(frontier: list[Paper]) -> list[str]:
+    ids: list[str] = []
+    for p in frontier:
+        raw = (p.source_provenance or {}).get("openalex_author_ids") or []
+        ids.extend(raw if isinstance(raw, list) else [raw])
+    return ids
+
+
+def _people_author_ids() -> list[str]:
+    """Canonical author ids from output/people.json (written by the people stage)."""
+    import json as _json
+    from pathlib import Path
+
+    people_path = Path.cwd() / "output" / "people.json"
+    if not people_path.exists():
+        return []
+    try:
+        return [r["author_id"] for r in _json.loads(people_path.read_text()) if r.get("author_id")]
+    except Exception:
+        return []
 
 
 def _score_at_least(p: Paper, seeds: list[Paper], threshold: float) -> bool:

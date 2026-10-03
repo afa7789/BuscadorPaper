@@ -47,3 +47,12 @@ def test_assemble_node_types():
 def test_assemble_empty():
     g = assemble([])
     assert g.number_of_nodes() == 0
+
+
+def test_assemble_adds_cites_edges_between_known_papers():
+    papers = [Paper(paper_id="p1", title="A"), Paper(paper_id="p2", title="B")]
+    links = [{"src": "p1", "tgt": "p2", "type": "cites"},
+             {"src": "p1", "tgt": "missing", "type": "cites"}]
+    g = assemble(papers, links=links)
+    cites = [(u, v) for u, v, d in g.edges(data=True) if d.get("edge_type") == "CITES"]
+    assert cites == [("p1", "p2")]

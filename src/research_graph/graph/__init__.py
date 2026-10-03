@@ -17,6 +17,17 @@ from research_graph.providers import get_default_registry
 _log = logging.getLogger(__name__)
 
 
+def _load_links(path: Path) -> list[dict]:
+    """Citation links written by the expand stage; empty when absent."""
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text())
+    except Exception as e:
+        _log.warning(f"build-graph: failed to load links.json ({e}); continuing")
+        return []
+
+
 def run_build_graph(
     config: Config,
     *,
@@ -97,12 +108,14 @@ def run_build_graph(
         records=records,
         authors=list(authors_seen.values()),
         institutions=list(institutions_seen.values()),
+        links=_load_links(out_dir / "links.json"),
     )
 
     paths = export_all(
         graph,
         out_dir,
         save_graphml=config.outputs.save_graphml,
+        save_networkit=config.outputs.save_networkit,
         save_gexf=config.outputs.save_gexf,
         save_html_graph=config.outputs.save_html_graph,
         save_mermaid=config.outputs.save_mermaid,

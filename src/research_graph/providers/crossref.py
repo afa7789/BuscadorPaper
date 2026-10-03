@@ -5,6 +5,8 @@ Free, no API key. Polite-pool email recommended via env CROSSREF_MAILTO.
 
 from __future__ import annotations
 
+import html
+import re
 from typing import Any
 
 import httpx
@@ -18,6 +20,26 @@ from research_graph.providers.base import (
     failed,
     ok,
 )
+
+# Crossref returns abstracts as JATS XML fragments:
+#   "<jats:p>Background: ...</jats:p><jats:p>Methods: ...</jats:p>"
+# Downstream stages (LLM extraction) need plain prose, so strip the markup.
+_JATS_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _clean_abstract(raw: str | None) -> str | None:
+    """Turn a Crossref JATS abstract fragment into plain text.
+
+    Returns None for empty/whitespace-only input so ``Paper.abstract`` stays
+    falsy and the extraction stage knows it has nothing to work with.
+    """
+    if not raw:
+        return None
+    text = _JATS_TAG_RE.sub(" ", raw)
+    text = html.unescape(text)
+    text = _WS_RE.sub(" ", text).strip()
+    return text or None
 
 
 def _paper_from_crossref(item: dict[str, Any]) -> Paper:
@@ -57,6 +79,7 @@ def _paper_from_crossref(item: dict[str, Any]) -> Paper:
         urls=urls,
         authors=authors,
         venue=venue,
+        abstract=_clean_abstract(item.get("abstract")),
         source_provenance=provenance,
     )
 
@@ -67,11 +90,27 @@ class CrossrefProvider(AcademicProvider):
     def __init__(self, config: Config) -> None:
         self._base = "https://api.crossref.org"
         self._mailto = lookup_env("CROSSREF_MAILTO") or "research-graph@example.com"
+        self._config = config
         self._client = httpx.Client(
             timeout=30.0,
             headers={"User-Agent": f"research-graph/0.1 (mailto:{self._mailto})"},
         )
         self._limiter = RateLimiter(requests_per_second=5.0)
+
+    def _work_filter(self) -> str:
+        """Build the Crossref ``filter=`` string for subject searches.
+
+        ``type:journal-article`` drops book chapters and front/back matter;
+        the date bounds mirror ``research_scope.years_from`` / ``years_to``.
+        """
+        parts = ["type:journal-article"]
+        years_from = getattr(self._config.research_scope, "years_from", None)
+        years_to = getattr(self._config.research_scope, "years_to", None)
+        if years_from:
+            parts.append(f"from-pub-date:{int(years_from)}-01-01")
+        if years_to:
+            parts.append(f"until-pub-date:{int(years_to)}-12-31")
+        return ",".join(parts)
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> ProviderResult:
         try:
@@ -105,8 +144,19 @@ class CrossrefProvider(AcademicProvider):
         return ok([_paper_from_crossref(it) for it in items], self.name, raw=r.data)
 
     def search_by_query(self, query: str, limit: int = 20) -> ProviderResult:
-        """Free-form query via Crossref query.bibliographic (title+author+year+subject)."""
-        r = self._get("/works", {"query.bibliographic": query, "rows": limit})
+        """Free-form query via Crossref query.bibliographic (title+author+year+subject).
+
+        Constrained to journal articles inside ``research_scope.years_from`` ..
+        ``years_to``. Without this, ``query.bibliographic`` returns book chapters
+        and front/back matter ("Index of Names", "Acknowledgments", "Preface"),
+        which carry no abstract and so poison the LLM extraction stage.
+        """
+        params: dict[str, Any] = {
+            "query.bibliographic": query,
+            "rows": limit,
+            "filter": self._work_filter(),
+        }
+        r = self._get("/works", params)
         if r.status != "ok" or r.data is None:
             return failed(f"crossref query search failed: {r.error}", self.name)
         items = (r.data or {}).get("message", {}).get("items") or []

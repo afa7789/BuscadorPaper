@@ -156,6 +156,8 @@ outputs:
   save_gexf: false
   save_mermaid: false
   save_cytoscape_json: false
+  save_lmdb: true             # índice KV binário (paginação por cursor)
+  save_networkit: true        # topologia binária (análise paralela)
   # How many full-text PDFs to try downloading per run.
   # Set enable_pdf_download=true below to actually fetch them.
   max_papers_to_download: 100

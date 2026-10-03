@@ -41,7 +41,9 @@ research_scope:
   exclude_keywords: []
   max_hops: 2
   max_papers_per_query: 50
-  max_total_papers: 300
+  max_total_papers: 100      # núcleo: os N melhores vão pro LLM e download
+  # max_graph_papers: 5000   # teto opcional do grafo (padrão: sem teto;
+  #                          # cada `expand` anda max_hops passos e continua na próxima)
   years_from: 2015
   years_to: 2026
   min_relevance_score: 0.35
@@ -49,7 +51,7 @@ research_scope:
 search:
   providers:
     - "openalex"
-    - "semantic_scholar"
+    - "semantic_scholar"   # sem SEMANTIC_SCHOLAR_API_KEY: 3,5s por chamada — remova
     - "crossref"
     - "arxiv"
   expand_by:
@@ -100,8 +102,10 @@ analysis:
 
 outputs:
   save_json: true
+  save_lmdb: false            # binary KV snapshot for fast cursor pagination
   save_csv: false
   save_graphml: true
+  save_networkit: false       # fast binary topology + MessagePack properties
   save_gexf: false
   save_html_graph: true
   save_markdown_report: true

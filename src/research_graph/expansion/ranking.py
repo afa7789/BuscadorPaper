@@ -36,14 +36,15 @@ _STOPWORDS = {
 }
 
 
-def _tokens(text: str, *, top_n: int | None = None) -> set[str]:
+@lru_cache(maxsize=65536)
+def _tokens(text: str, *, top_n: int | None = None) -> frozenset[str]:
     text = (text or "").lower()
     words = re.findall(r"[a-z][a-z\-]+", text)
     out = {w for w in words if len(w) >= 3 and w not in _STOPWORDS}
     if top_n is not None and len(out) > top_n:
         # Keep the top_n most "informative" by length (longer words = more specific).
         out = set(sorted(out, key=lambda w: -len(w))[:top_n])
-    return out
+    return frozenset(out)
 
 
 def _default_clock() -> int:

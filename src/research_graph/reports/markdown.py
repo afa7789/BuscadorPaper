@@ -44,7 +44,8 @@ def render_scope(config: Config) -> str:
     if s.include_domains:
         lines.append(f"- Include domains: {', '.join(s.include_domains)}")
     lines.append(f"- Year window: {s.years_from} – {s.years_to}")
-    lines.append(f"- Max hops: {s.max_hops}, max total papers: {s.max_total_papers}")
+    lines.append(f"- Max hops: {s.max_hops}, graph papers: {s.graph_cap or 'no cap'}, "
+                 f"core papers (LLM): {s.max_total_papers}")
     lines.append(f"- Min relevance score: {s.min_relevance_score}")
     return "\n".join(lines) + "\n"
 

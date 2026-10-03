@@ -25,6 +25,16 @@ from research_graph.models import (
 )
 
 
+def _add_citation_edges(g: nx.MultiDiGraph, links: list[dict] | None, add_edge) -> None:
+    for lk in links or []:
+        if g.has_node(lk["src"]) and g.has_node(lk["tgt"]):
+            add_edge(
+                lk["src"], lk["tgt"], EdgeType.CITES,
+                source="openalex", confidence=1.0,
+                evidence_text=None, evidence_location="expand.links",
+            )
+
+
 def assemble(
     papers: list[Paper],
     records: list[ExtractionRecord] | None = None,
@@ -33,6 +43,7 @@ def assemble(
     methods: list[Method] | None = None,
     concepts: list[Concept] | None = None,
     open_problems: list[OpenProblem] | None = None,
+    links: list[dict] | None = None,
 ) -> nx.MultiDiGraph:
     """Build the typed graph. Idempotent: composite edge dedup by (src, tgt, type)."""
     records = records or []
@@ -102,6 +113,9 @@ def assemble(
                 source="declared", confidence=1.0,
                 evidence_text=a_name, evidence_location="paper.authors",
             )
+
+    # Paper -> paper citation edges walked by the expand stage (links.json).
+    _add_citation_edges(g, links, add_edge)
 
     # ExtractionRecord-driven edges (paper -> method/concept/open_problem)
     rec_by_id: dict[str, ExtractionRecord] = {r.paper_id: r for r in records}

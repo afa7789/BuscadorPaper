@@ -27,6 +27,25 @@ from research_graph.providers.base import (
 )
 
 
+def _short_id(raw: str) -> str:
+    """'https://openalex.org/W123' -> 'W123'; 'openalex:W123' -> 'W123'."""
+    raw = raw.replace("openalex:", "")
+    return raw.rsplit("/", 1)[-1] if raw.startswith("http") else raw
+
+
+def _authors(work: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Display names and ``openalex:A…`` ids from a work's authorships."""
+    names: list[str] = []
+    ids: list[str] = []
+    for a in work.get("authorships") or []:
+        author = a.get("author") or {}
+        if author.get("display_name"):
+            names.append(author["display_name"])
+        if author.get("id"):
+            ids.append(f"openalex:{_short_id(author['id'])}")
+    return names, ids
+
+
 def _paper_from_openalex(work: dict[str, Any]) -> Paper:
     """Map a single OpenAlex work object to a Paper record."""
     title = work.get("title") or work.get("display_name") or ""
@@ -38,11 +57,7 @@ def _paper_from_openalex(work: dict[str, Any]) -> Paper:
     primary_source = primary_loc.get("source") or {}
     if primary_source.get("homepage_url"):
         urls.append(primary_source["homepage_url"])
-    authors: list[str] = []
-    for a in work.get("authorships") or []:
-        name = ((a.get("author") or {}).get("display_name"))
-        if name:
-            authors.append(name)
+    authors, author_ids = _authors(work)
     venue = primary_source.get("display_name")
     year = work.get("publication_year")
     abstract = work.get("abstract_inverted_index")
@@ -73,6 +88,8 @@ def _paper_from_openalex(work: dict[str, Any]) -> Paper:
     oa_pdf = best_oa.get("pdf_url") or primary_loc.get("pdf_url")
     if oa_pdf:
         provenance["openalex_pdf_url"] = oa_pdf
+    if author_ids:
+        provenance["openalex_author_ids"] = author_ids
     return Paper(
         paper_id=f"openalex:{paper_id}" if not paper_id.startswith("openalex:") else paper_id,
         title=title,
@@ -92,12 +109,16 @@ class OpenAlexProvider(AcademicProvider):
     def __init__(self, config: Config) -> None:
         self._base = "https://api.openalex.org"
         self._mailto = lookup_env("OPENALEX_EMAIL") or "research-graph@example.com"
+        # OpenAlex bills a free daily budget per IP; a (free) key has its own.
+        self._api_key = lookup_env("OPENALEX_API_KEY")
         self._client = httpx.Client(timeout=30.0)
         self._limiter = RateLimiter(requests_per_second=5.0)
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> ProviderResult:
         try:
             qp: dict[str, Any] = {"mailto": self._mailto}
+            if self._api_key:
+                qp["api_key"] = self._api_key
             if params:
                 qp.update(params)
             resp = self._client.get(f"{self._base}{path}", params=qp)
@@ -148,42 +169,38 @@ class OpenAlexProvider(AcademicProvider):
     async def afetch_by_arxiv_id(self, arxiv_id: str) -> ProviderResult:
         return self.fetch_by_arxiv_id(arxiv_id)
 
-    def get_references(self, paper_id: str) -> ProviderResult:
-        # paper_id like "openalex:W123..." -> /works/W123
-        wid = paper_id.replace("openalex:", "")
-        if wid.startswith("http"):
-            wid = wid.rsplit("/", 1)[-1] or wid
+    def _work_id(self, paper_id: str) -> str | None:
+        """OpenAlex W-id for any paper_id; DOI ids cost one lookup."""
+        wid = _short_id(paper_id)
+        if wid.startswith("W"):
+            return wid
         r = self._get(f"/works/{wid}")
+        if r.status != "ok" or not isinstance(r.data, dict) or not r.data.get("id"):
+            return None
+        return _short_id(r.data["id"])
+
+    def get_references(self, paper_id: str) -> ProviderResult:
+        """Referenced works as Papers: one call for the work, one batched lookup."""
+        r = self._get(f"/works/{_short_id(paper_id)}")
         if r.status != "ok" or r.data is None:
             return failed(f"openalex refs failed: {r.error}", self.name)
-        refs_ids = r.data.get("referenced_works") or []
-        # Fetch each reference (capped at 50); strip OpenAlex URL prefix.
-        cap = refs_ids[:50]
-        out: list[str] = []
-        for rid in cap:
-            short = rid.rsplit("/", 1)[-1] if isinstance(rid, str) and rid.startswith("http") else rid
-            if short:
-                out.append(f"openalex:{short}")
-        return ok(out, self.name)
+        ids = [_short_id(w) for w in (r.data.get("referenced_works") or [])[:50] if w]
+        if not ids:
+            return ok([], self.name)
+        refs = self._get("/works", {"filter": "openalex:" + "|".join(ids), "per_page": 50})
+        if refs.status != "ok" or refs.data is None:
+            return failed(f"openalex refs lookup failed: {refs.error}", self.name)
+        return ok([_paper_from_openalex(w) for w in refs.data.get("results", [])], self.name)
 
     def get_citations(self, paper_id: str, limit: int = 50) -> ProviderResult:
-        # Use the forward citation endpoint via filter
-        wid = paper_id.replace("openalex:", "")
-        if wid.startswith("http"):
-            wid = wid.rsplit("/", 1)[-1] or wid
+        """Citing works as Papers, straight from the forward-citation filter."""
+        wid = self._work_id(paper_id)
+        if wid is None:
+            return failed(f"openalex: no work id for {paper_id}", self.name)
         r = self._get("/works", {"filter": f"cites:{wid}", "per_page": limit})
         if r.status != "ok" or r.data is None:
             return failed(f"openalex citants failed: {r.error}", self.name)
-        results = r.data.get("results", [])
-        # OpenAlex returns work ids as full URLs; strip to "W<digits>".
-        out: list[str] = []
-        for w in results:
-            wid2 = w.get("id")
-            if not wid2:
-                continue
-            short = wid2.rsplit("/", 1)[-1] if isinstance(wid2, str) and wid2.startswith("http") else wid2
-            out.append(f"openalex:{short}")
-        return ok(out, self.name, raw=r.data)
+        return ok([_paper_from_openalex(w) for w in r.data.get("results", [])], self.name, raw=r.data)
 
     def get_author_works(self, author_id: str, limit: int = 25) -> ProviderResult:
         aid = author_id.replace("openalex:", "")

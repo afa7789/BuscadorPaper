@@ -12,6 +12,8 @@ from typing import Any
 import networkx as nx
 from pyvis.network import Network
 
+from research_graph.graph.networkit_binary import write_networkit_binary
+
 
 _SAFE_ID = re.compile(r"[^A-Za-z0-9_]")
 
@@ -79,11 +81,17 @@ def _write_mermaid(graph: nx.MultiDiGraph, output_dir: Path) -> str:
     return str(path)
 
 
+def _write_networkit(graph: nx.MultiDiGraph, output_dir: Path) -> str:
+    topology_path, _metadata_path = write_networkit_binary(graph, output_dir)
+    return str(topology_path)
+
+
 def export_all(
     graph: nx.MultiDiGraph,
     output_dir: str | Path,
     *,
     save_graphml: bool = False,
+    save_networkit: bool = False,
     save_gexf: bool = False,
     save_html_graph: bool = True,
     save_mermaid: bool = False,
@@ -97,6 +105,7 @@ def export_all(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     writers = [
+        (save_networkit, "networkit", _write_networkit),
         (save_graphml, "graphml", _write_graphml),
         (save_gexf, "gexf", _write_gexf),
         (save_cytoscape_json, "cyjs", _write_cytoscape),

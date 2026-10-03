@@ -7,6 +7,10 @@ No API key needed. The pipeline queues each LLM call as a file; you answer it.
 
 1. `uv run research-graph ingest --config config.yaml`
 2. `uv run research-graph expand --config config.yaml`
+   (graph has no size cap; each run walks `max_hops` hops and saves
+   `output/expand_state.json` — run again to grow further, `ingest` resets.
+   Only the first `max_total_papers` of `papers.json` (the ranked core) are
+   queued for the LLM.)
 3. `uv run research-graph extract --config config.yaml`
 4. Answer the queue (below). Re-run `extract`. Repeat until
    `<output_dir>/agent_llm/requests/` is empty (claims classification

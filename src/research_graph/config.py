@@ -48,12 +48,25 @@ class ResearchScope(BaseModel):
     seed_keywords: list[str] = Field(default_factory=list)
     include_domains: list[str] = Field(default_factory=list)
     exclude_keywords: list[str] = Field(default_factory=list)
+    # Research-design screen applied to query-derived papers after dedup:
+    #   "off"               — keep everything (default)
+    #   "primary_data_only" — drop systematic reviews / doctrine / policy analysis
+    #   "strict_primary"    — also drop papers with no method signal at all
+    methodology_screen: Literal["off", "primary_data_only", "strict_primary"] = "off"
     max_hops: int = 2
     max_papers_per_query: int = 50
+    # Core: papers sent to the LLM and to PDF download (best-ranked first).
     max_total_papers: int = 300
+    # Graph: optional cap on papers kept by ingest + expand. None -> no cap
+    # (each expand run is bounded by max_hops instead).
+    max_graph_papers: int | None = None
     years_from: int = 2015
     years_to: int = 2026
     min_relevance_score: float = 0.35
+
+    @property
+    def graph_cap(self) -> int | None:
+        return self.max_graph_papers or None
 
     @field_validator("max_hops")
     @classmethod
@@ -136,8 +149,10 @@ class OutputsConfig(BaseModel):
 
     # Output formats
     save_json: bool = True
+    save_lmdb: bool = False
     save_csv: bool = False
     save_graphml: bool = True   # used by analyze stage
+    save_networkit: bool = False
     save_gexf: bool = False
     save_html_graph: bool = True
     save_html_report: bool = True
@@ -177,6 +192,42 @@ class Config(BaseModel):
 
 # ---------- Loader -------------------------------------------------------------
 
+def _load_dotenv(path: str | Path = ".env") -> None:
+    """Populate ``os.environ`` from a ``.env`` file without new dependencies.
+
+    Providers read secrets through ``lookup_env``, which only sees
+    ``os.environ``. Without this, the ``.env`` documented in README.md is
+    silently ignored and every polite-pool email falls back to the default.
+
+    Existing environment variables win: ``setdefault`` never overrides what the
+    shell (or CI) already exported. Supports ``KEY=value``, ``export KEY=value``,
+    ``#`` comments, blank lines, and single/double quoted values.
+    """
+    p = Path(path)
+    if not p.exists():
+        return
+    try:
+        lines = p.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
 def load_config(path: str | Path) -> Config:
     """Load + validate the YAML config at ``path``.
 
@@ -193,7 +244,11 @@ def load_config(path: str | Path) -> Config:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"config root must be a mapping, got {type(raw).__name__}")
-    return Config.model_validate(raw)
+    cfg = Config.model_validate(raw)
+    # Load .env after validation so a malformed config still fails fast, but
+    # before any provider is constructed (providers snapshot env at __init__).
+    _load_dotenv()
+    return cfg
 
 
 def lookup_env(name: str, *, default: str | None = None, required: bool = False) -> str | None:

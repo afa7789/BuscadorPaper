@@ -178,10 +178,17 @@ o que já foi feito fica em cache e não é refeito.
 
 ```bash
 uv run research-graph ingest          # acha os papers
-uv run research-graph expand          # expande o grafo (citações, autores)
+uv run research-graph expand          # expande o grafo (citações, autores); de novo = continua
 uv run research-graph extract         # LLM lê e extrai as lacunas
+uv run research-graph build-graph     # gera grafo binário/interativo
+uv run research-graph analyze         # métricas C++ (PageRank, betweenness, Louvain)
 uv run research-graph download-pdfs   # baixa os PDFs
 uv run research-graph generate-report # escreve o relatório
+
+# Opcional: gerar o KV binário e ler uma página sem carregar papers.json inteiro
+uv run research-graph index-papers --config config.yaml
+uv run research-graph papers-page --config config.yaml --limit 25 --after 0
+uv run research-graph papers-page --config config.yaml --query "child protection"
 ```
 
 ---
@@ -194,7 +201,12 @@ Tudo cai na pasta `output/`:
 |---|---|
 | **`report.md`** | **Comece por aqui.** O relatório em texto. |
 | `graph.html` | o grafo interativo — abra no navegador |
-| `papers.json` | a lista bruta de papers, com DOI |
+| `papers.json` | todos os papers do grafo, com DOI — os primeiros `max_total_papers` são o núcleo |
+| `links.json` | quem cita quem dentro do grafo |
+| `expand_state.json` | onde o `expand` parou (para continuar depois) |
+| `papers.lmdb` | índice KV binário LMDB + MessagePack para busca e paginação |
+| `graph.nkbg` | topologia compacta para leitura e algoritmos rápidos do NetworKit |
+| `graph.nkbg.msgpack` | IDs, tipos e atributos completos das arestas e dos nós |
 | `extractions.json` | o que o LLM extraiu de cada paper, em JSON |
 | `pdf_downloads.json` | quais PDFs conseguiu baixar, e quais falharam |
 
@@ -223,20 +235,34 @@ aumente.
 
 | Quer | Mude |
 |---|---|
-| Teste rápido | `max_hops: 1`, `max_total_papers: 80`, `max_papers_to_download: 10` |
-| Busca normal | `max_hops: 2`, `max_total_papers: 300` |
-| Varredura grande | `max_hops: 3`, `max_total_papers: 1000` (dias, e muito LLM) |
+| Teste rápido | `max_hops: 1`, `max_total_papers: 30`, `max_papers_to_download: 10` |
+| Busca normal | `max_hops: 2`, `max_total_papers: 100` |
+| Mais LLM | `max_total_papers: 300` (o núcleo; muito mais pedidos pro LLM) |
+
+São dois tamanhos diferentes:
+
+- **Grafo** — não tem teto. Guarda tudo o que a expansão achou (citações,
+  autores). Não custa LLM.
+- **Núcleo** (`max_total_papers`) — os melhores do grafo. Só eles são lidos
+  pelo LLM e baixados. Ordem: seus seeds → pesquisa de campo → mais conectados
+  no grafo → com resumo → mais citados → mais recentes.
+
+**Quer um grafo maior?** Rode `expand` de novo. Cada rodada anda mais
+`max_hops` passos a partir de onde a anterior parou, sem repetir papers. Depois
+rode `extract` de novo — o núcleo é recalculado. Para recomeçar do zero, rode
+`ingest`. (Teto opcional: `max_graph_papers: 5000`.)
 
 Outros dois ajustes úteis:
 
 - **Muito ruído?** suba `min_relevance_score` para `0.4` ou `0.5`.
 - **Faltou papers importantes?** baixe para `0.2`.
 
-`max_hops` é o botão mais importante:
+`max_hops` = passos **por rodada** do `expand` (cada passo caminha os 25
+melhores papers ainda não visitados: citados, citantes e obras dos autores):
 
-- `1` = papers citados e citantes dos seus seeds. Rápido.
-- `2` = + os outros trabalhos dos mesmos autores. **Comece aqui.**
-- `3` ou mais = a rede toda. Caro e raramente necessário.
+- `1` = só os vizinhos diretos dos seeds. Rápido.
+- `2` = + vizinhos dos vizinhos e outros trabalhos dos autores. **Comece aqui.**
+- Quer ir mais longe? Melhor rodar `expand` de novo do que subir `max_hops`.
 
 ---
 
@@ -261,6 +287,11 @@ PDFs, que é onde a informação está de qualquer forma.
 **`papers.json not found`**
 Você pulou o `ingest`. Rode `uv run research-graph ingest` primeiro.
 
+**`expand` não acha nada / OpenAlex `Rate limit exceeded`**
+O OpenAlex dá um orçamento diário grátis por IP (zera à meia-noite UTC). Pegue
+uma chave grátis em <https://help.openalex.org/api/authentication/> e coloque
+em `OPENALEX_API_KEY` no `.env`.
+
 **Muitos papers, poucos PDFs baixados**
 Normal. Versão de preprint nem sempre está em acesso aberto. Preencha
 `OPENALEX_EMAIL` para melhorar. Para o resto, procure o paper pelo título no
@@ -270,8 +301,9 @@ Google Scholar ou no site do autor.
 Aumente `min_relevance_score`, ou tire palavras ruins de `exclude_keywords`.
 
 **Rodar de novo não muda nada**
-É proposital. O `cache/` guarda o que já foi buscado. Para começar do zero,
-apague a pasta `cache/` e a pasta `output/`.
+`ingest`, `extract` e downloads reaproveitam o que já foi feito (`cache/`).
+Já o `expand` cresce o grafo a cada rodada. Para começar do zero, rode
+`ingest` (zera a expansão) ou apague as pastas `cache/` e `output/`.
 
 ---
 
@@ -279,7 +311,8 @@ apague a pasta `cache/` e a pasta `output/`.
 
 - **Não há Google Scholar.** Raspá-lo viola os termos de uso e toma bloqueio
   de IP. As fontes aqui (OpenAlex, Crossref, Semantic Scholar, arXiv) são todas
-  com API oficial e gratuita.
+  com API oficial e gratuita. Semantic Scholar sem chave espera 3,5s por
+  chamada — se não tiver chave, tire-o de `search.providers`.
 - **Afiliação de autor vem do OpenAlex** e às vezes está desatualizada.
 - Baixar PDF de fonte pirateada pode ser ilegal na sua jurisdição. O
   `config.exemplo-open-questions.yaml` vem só com as fontes legais ligadas
